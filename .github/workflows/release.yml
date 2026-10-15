@@ -3,33 +3,43 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  release-tests:
+    uses: ./.github/workflows/release-tests.yml
+
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
           persist-credentials: false
       - name: Check tag and version
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: ./scripts/validate-release.ps1 -ExpectedTag $env:RELEASE_TAG
 
   build:
-    needs: validate
+    needs: [validate, release-tests]
     uses: ./.github/workflows/build.yml
     with:
-      release-tag: ${{ github.ref_name }}
+      release-tag: ${{ inputs.tag || github.ref_name }}
 
   publish:
     needs: build
@@ -40,6 +50,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # Keep the scripts from this workflow run, including fixes after the
+          # release tag. The publisher reads app metadata from the tag itself.
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -50,5 +63,5 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG

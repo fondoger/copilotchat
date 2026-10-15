@@ -53,6 +53,18 @@ git push origin v0.3.0
 
 The `v*` tag workflow builds and checks all four targets, gathers the eight package files, and creates `SHA256SUMS.txt`. It uploads a draft release and publishes only after checking that the complete asset set is present. If a build or check fails, inspect the workflow run before retrying; do not publish a partial asset set.
 
+### Retry a failed release
+
+Keep the existing release tag unchanged. After a workflow or publishing-script fix has landed on `main`, dispatch the current **Release** workflow with the existing tag. The required `tag` input has no default and must have the form `vMAJOR.MINOR.PATCH`:
+
+```sh
+gh workflow run release.yml --ref main -f tag=v0.3.0 --repo fondoger/copilotchat
+```
+
+The same action is available through **Actions → Release → Run workflow**: select `main` and enter the existing tag. Use this new dispatch to pick up the repaired workflow; rerunning the original failed run uses its original workflow revision.
+
+Validation and all four builds check out the requested tag, so the application source remains the tagged release source. Publishing uses the scripts from the workflow run's `main` revision, while reading the version and target commit from the existing tag. It can resume a matching draft and replace its draft assets, then verifies the full asset list, sizes, and SHA-256 hashes before publishing. A draft targeting a different commit is rejected. An already published release is never overwritten; any application changes require a new version and tag.
+
 ## Verify a download
 
 Download the package and `SHA256SUMS.txt` from the same release. Compare the computed hash with the entry for that filename.

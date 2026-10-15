@@ -3,8 +3,11 @@ param([Parameter(Mandatory)][string]$Tag)
 . (Join-Path $PSScriptRoot 'release-common.ps1')
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
-    $config = Get-ReleaseConfig -ExpectedTag $Tag
-    if (-not $env:GITHUB_REPOSITORY -or -not $env:GITHUB_SHA) { throw 'Publishing requires the GitHub Actions repository and commit context.' }
+    # A manual retry may run repaired publishing scripts from a newer commit.
+    # Package names and versions always come from the immutable release tag.
+    $config = Get-ReleaseConfig -ExpectedTag $Tag -FromTag
+    $tagCommit = Resolve-ReleaseTagCommit $Tag
+    if (-not $env:GITHUB_REPOSITORY) { throw 'Publishing requires the GitHub Actions repository context.' }
     $repository = $env:GITHUB_REPOSITORY
     $expected = @(Get-ReleaseAssetNames $config.version | Sort-Object)
     $actual = @(Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object Name | Sort-Object)
@@ -27,11 +30,8 @@ try {
 
     # Fetch release metadata before creating anything: network/auth failures
     # must not be mistaken for an absent release. Listing includes drafts.
-    $releasesJSON = & gh api --paginate --slurp "repos/$repository/releases?per_page=100"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not query existing releases.' }
-    $existing = @($releasesJSON | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object tag_name -CEQ $Tag)
-    if ($existing.Count -gt 1) { throw "More than one release exists for $Tag." }
-    if ($existing.Count -eq 1 -and -not $existing[0].draft) {
+    $existing = Get-GitHubRelease $repository $Tag
+    if ($existing -and -not $existing.draft) {
         throw "Release $Tag is already public. Published releases are not overwritten."
     }
 
@@ -50,18 +50,24 @@ Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot, with st
 Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. The four native CI targets run automated tests and packaging checks; this does not claim interactive testing on a physical Mac. See the README for installation and troubleshooting. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party notices and license texts.
 "@
     [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
-    if ($existing.Count -eq 0) {
-        Invoke-CheckedCommand -Command gh -Arguments @('release', 'create', $Tag, '--repo', $repository, '--verify-tag', '--target', $env:GITHUB_SHA, '--draft', '--title', "Copilot Chat $Tag", '--notes-file', $notesPath, '--generate-notes')
-    } elseif ($existing[0].target_commitish -cne $env:GITHUB_SHA) {
+    if (-not $existing) {
+        Invoke-CheckedCommand -Command gh -Arguments @('release', 'create', $Tag, '--repo', $repository, '--verify-tag', '--target', $tagCommit, '--draft', '--title', "Copilot Chat $Tag", '--notes-file', $notesPath, '--generate-notes')
+        $existing = Get-GitHubRelease $repository $Tag
+        if (-not $existing) { throw 'Created draft was not returned by the authenticated release list.' }
+    }
+    if (-not $existing.draft -or $existing.target_commitish -cne $tagCommit) {
         throw 'The existing draft targets a different commit; inspect it before retrying.'
     }
+    $releaseID = $existing.id
     $paths = @($names | ForEach-Object { Join-Path release $_ })
     Invoke-CheckedCommand -Command gh -Arguments (@('release', 'upload', $Tag, '--repo', $repository, '--clobber') + $paths)
 
-    $metadataJSON = & gh api "repos/$repository/releases/tags/$Tag"
+    $metadataJSON = & gh api "repos/$repository/releases/$releaseID"
     if ($LASTEXITCODE -ne 0) { throw 'Could not verify the uploaded release.' }
     $metadata = $metadataJSON | ConvertFrom-Json
-    if (-not $metadata.draft) { throw 'The release must remain a draft until all assets are verified.' }
+    if (-not $metadata.draft -or $metadata.tag_name -cne $Tag -or $metadata.target_commitish -cne $tagCommit) {
+        throw 'The draft tag or target changed before asset verification.'
+    }
     if (Compare-Object @($names | Sort-Object) @($metadata.assets | ForEach-Object name | Sort-Object)) {
         throw 'The draft does not contain exactly the eight packages and checksum file.'
     }

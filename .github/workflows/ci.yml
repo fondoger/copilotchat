@@ -14,5 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-tests:
+    uses: ./.github/workflows/release-tests.yml
+
   build:
     uses: ./.github/workflows/build.yml
