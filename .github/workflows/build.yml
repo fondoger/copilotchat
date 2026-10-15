@@ -1,0 +1,68 @@
+name: Build desktop packages
+
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2022
+            platform: windows/amd64
+            id: windows-x64
+          - name: Windows ARM64
+            runner: windows-11-arm
+            platform: windows/arm64
+            id: windows-arm64
+          - name: macOS Intel
+            runner: macos-15-intel
+            platform: darwin/amd64
+            id: macos-x64
+          - name: macOS Apple silicon
+            runner: macos-15
+            platform: darwin/arm64
+            id: macos-arm64
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify runner architecture
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        run: |
+          $actual = "$(go env GOOS)/$(go env GOARCH)"
+          if ($actual -cne $env:TARGET_PLATFORM) { throw "Expected native $env:TARGET_PLATFORM, got $actual." }
+          go version
+          if ($LASTEXITCODE -ne 0) { throw 'Go toolchain is unavailable.' }
+      - name: Test, vet, and package
+        env:
+          EXPECTED_TAG: ${{ inputs.release-tag }}
+        run: ./scripts/package.ps1 -Platform '${{ matrix.platform }}' -ExpectedTag $env:EXPECTED_TAG
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: packages-${{ matrix.id }}
+          path: release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

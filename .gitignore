@@ -1,0 +1,8 @@
+.reference/
+.tasks/
+bin/
+dist/
+release/
+.local/
+*.log
+coverage.out

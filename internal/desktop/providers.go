@@ -1,0 +1,578 @@
+package desktop
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/store"
+)
+
+type credentialStore interface {
+	Get(string) ([]byte, error)
+	Set(string, []byte) error
+	Delete(string) error
+}
+
+type providerRuntime struct {
+	client                                *copilot.Client
+	models                                []copilot.Model
+	authBusy, modelsBusy, credentialsBusy bool
+	authEpoch, modelsEpoch                uint64
+	authCode                              copilot.DeviceCode
+	authCancel, modelsCancel              context.CancelFunc
+	status, credentialNotice              string
+	modelsLoaded                          bool
+	modelsAttemptedAt                     time.Time
+}
+
+const providerCatalogRefreshInterval = 24 * time.Hour
+const providerCatalogRetryInterval = 15 * time.Minute
+
+func providerCredentialKey(id string) string { return "github-copilot-token:" + id }
+
+func (a *app) credentials() credentialStore {
+	if a.providerSecrets != nil {
+		return a.providerSecrets
+	}
+	return mygo.Secrets
+}
+
+func (a *app) provider(id string) *store.Provider {
+	for i := range a.state.Settings.Providers {
+		if a.state.Settings.Providers[i].ID == id {
+			return &a.state.Settings.Providers[i]
+		}
+	}
+	return nil
+}
+
+func (a *app) providerState(id string) *providerRuntime {
+	if a.providers == nil {
+		a.providers = make(map[string]*providerRuntime)
+	}
+	if a.providers[id] == nil {
+		a.providers[id] = &providerRuntime{}
+	}
+	return a.providers[id]
+}
+
+// loadProviders is called only during application startup. Tests inject a fake
+// credentialStore; views never read passwords or access the network implicitly.
+func (a *app) loadProviders() {
+	for _, p := range a.state.Settings.Providers {
+		r := a.providerState(p.ID)
+		token, err := a.credentials().Get(providerCredentialKey(p.ID))
+		if errors.Is(err, mygo.ErrSecretNotFound) && p.ID == store.DefaultProviderID && p.Host == "github.com" {
+			token, err = a.credentials().Get("github-copilot-token")
+			if err == nil {
+				if saveErr := a.credentials().Set(providerCredentialKey(p.ID), token); saveErr == nil {
+					// Retain the old entry until the new one is durably accepted.
+					_ = a.credentials().Delete("github-copilot-token")
+				} else {
+					r.credentialNotice = "Using the previous sign-in. Could not migrate saved credentials: " + saveErr.Error()
+				}
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, mygo.ErrSecretNotFound) {
+				r.status = "Could not read saved sign-in: " + err.Error()
+			}
+			continue
+		}
+		if len(token) == 0 {
+			continue
+		}
+		r.client, err = copilot.NewClientForHost(string(token), p.Host)
+		if err != nil {
+			r.status = err.Error()
+		}
+	}
+}
+
+func (a *app) selectedProviderID() string {
+	if chat := a.current(); chat != nil && chat.ProviderID != "" {
+		return chat.ProviderID
+	}
+	if a.state.Settings.ActiveProviderID != "" {
+		return a.state.Settings.ActiveProviderID
+	}
+	return store.DefaultProviderID
+}
+
+func (a *app) selectedClient() *copilot.Client { return a.clientForProvider(a.selectedProviderID()) }
+
+func (a *app) clientForProvider(id string) *copilot.Client {
+	if p := a.provider(id); p == nil || p.Disabled {
+		return nil
+	}
+	if r := a.providers[id]; r != nil {
+		return r.client
+	}
+	return nil
+}
+
+func (a *app) selectedModel() string {
+	if chat := a.current(); chat != nil && chat.Model != "" {
+		return chat.Model
+	}
+	return a.state.Settings.Model
+}
+
+func (a *app) clientStillConnected(client *copilot.Client) bool {
+	if client == nil {
+		return false
+	}
+	for id, r := range a.providers {
+		if p := a.provider(id); p != nil && !p.Disabled && r.client == client {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *app) titleClient(chat *store.Conversation) (*copilot.Client, string) {
+	if a.state.Settings.TitleModel != "" {
+		providerID := a.state.Settings.TitleProviderID
+		if providerID == "" {
+			providerID = chat.ProviderID
+		}
+		return a.clientForProvider(providerID), a.state.Settings.TitleModel
+	}
+	return a.clientForProvider(chat.ProviderID), chat.Model
+}
+
+func modelAllowed(p *store.Provider, id string) bool {
+	if p.Disabled {
+		return false
+	}
+	listed := slices.Contains(p.ModelIDs, id)
+	switch p.ModelFilter {
+	case "whitelist":
+		return listed
+	case "blacklist":
+		return !listed
+	default:
+		return true
+	}
+}
+
+func (a *app) providerModels(id string) []copilot.Model {
+	p, r := a.provider(id), a.providers[id]
+	if p == nil || r == nil {
+		return nil
+	}
+	var models []copilot.Model
+	for _, model := range r.models {
+		if modelAllowed(p, model.ID) {
+			models = append(models, model)
+		}
+	}
+	return models
+}
+
+func (a *app) modelForProvider(providerID, modelID string) (copilot.Model, bool) {
+	if p := a.provider(providerID); p == nil || p.Disabled {
+		return copilot.Model{}, false
+	}
+	if r := a.providers[providerID]; r != nil {
+		for _, model := range r.models {
+			if model.ID == modelID {
+				return model, true
+			}
+		}
+	}
+	return copilot.Model{}, false
+}
+
+func (a *app) chooseModel(providerID, modelID string) {
+	p := a.provider(providerID)
+	if p == nil || !modelAllowed(p, modelID) || a.streaming {
+		return
+	}
+	if _, ok := a.modelForProvider(providerID, modelID); !ok {
+		return
+	}
+	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, modelID
+	a.state.Settings.ReasoningEffort = ""
+	a.state.Settings.ThinkingBudgetTokens = 0
+	if chat := a.current(); chat != nil {
+		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
+		chat.ThinkingBudgetTokens = 0
+	}
+	a.saveSettings()
+}
+
+func (a *app) toggleModelPin(providerID, modelID string) {
+	if p := a.provider(providerID); p != nil {
+		if at := slices.Index(p.PinnedModels, modelID); at >= 0 {
+			p.PinnedModels = slices.Delete(p.PinnedModels, at, at+1)
+		} else {
+			p.PinnedModels = append(p.PinnedModels, modelID)
+		}
+		a.saveSettings()
+	}
+}
+
+func (a *app) addProvider(name, host string) (string, error) {
+	host, err := copilot.NormalizeHost(host)
+	if err != nil {
+		return "", err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "GitHub Copilot"
+	}
+	p := store.Provider{ID: newID(), Name: name, Host: host, ModelFilter: "all"}
+	a.state.Settings.Providers = append(a.state.Settings.Providers, p)
+	if active := a.provider(a.state.Settings.ActiveProviderID); active == nil || active.Disabled {
+		a.state.Settings.ActiveProviderID, a.state.Settings.Model = p.ID, ""
+		a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens = "", 0
+	}
+	a.providerSettingsID = p.ID
+	a.providerState(p.ID)
+	a.saveSettings()
+	return p.ID, nil
+}
+
+func (a *app) enabledProviderCount() int {
+	count := 0
+	for _, p := range a.state.Settings.Providers {
+		if !p.Disabled {
+			count++
+		}
+	}
+	return count
+}
+
+func (a *app) resetDefaultProvider() {
+	a.state.Settings.ActiveProviderID = ""
+	a.state.Settings.Model, a.state.Settings.ReasoningEffort = "", ""
+	a.state.Settings.ThinkingBudgetTokens = 0
+	for _, p := range a.state.Settings.Providers {
+		if p.Disabled {
+			continue
+		}
+		if a.state.Settings.ActiveProviderID == "" {
+			a.state.Settings.ActiveProviderID = p.ID
+		}
+		if models := a.providerModels(p.ID); len(models) > 0 && a.clientForProvider(p.ID) != nil {
+			a.state.Settings.ActiveProviderID, a.state.Settings.Model = p.ID, models[0].ID
+			break
+		}
+	}
+}
+
+func (a *app) cancelProviderWork(id string) {
+	a.cancelProviderLogin(id)
+	a.cancelProviderModels(id)
+	if chat := a.conversation(a.streamChat); chat != nil && chat.ProviderID == id {
+		a.stop()
+	}
+	for chatID, job := range a.titleJobs {
+		chat := a.conversation(chatID)
+		if (chat != nil && chat.ProviderID == id) || a.state.Settings.TitleProviderID == id {
+			job.cancel()
+			delete(a.titleJobs, chatID)
+		}
+	}
+}
+
+func (a *app) removeProvider(id string) error {
+	index := slices.IndexFunc(a.state.Settings.Providers, func(p store.Provider) bool { return p.ID == id })
+	if index < 0 {
+		return nil
+	}
+	r := a.providerState(id)
+	if r.credentialsBusy {
+		return errors.New("this provider's sign-in is still being saved; try again")
+	}
+	r.credentialsBusy = true
+	err := a.clearProviderCredentials(id)
+	r.credentialsBusy = false
+	if err != nil {
+		r.credentialNotice = "Could not delete provider: its saved sign-in could not be removed. Try again. " + err.Error()
+		return err
+	}
+	a.cancelProviderWork(id)
+	a.state.Settings.Providers = slices.Delete(a.state.Settings.Providers, index, index+1)
+	delete(a.providers, id)
+	if a.state.Settings.ActiveProviderID == id {
+		a.resetDefaultProvider()
+	}
+	if a.state.Settings.TitleProviderID == id {
+		a.state.Settings.TitleProviderID, a.state.Settings.TitleModel = "", ""
+	}
+	if a.providerSettingsID == id {
+		a.providerSettingsID = ""
+		if len(a.state.Settings.Providers) > 0 {
+			a.providerSettingsID = a.state.Settings.Providers[min(index, len(a.state.Settings.Providers)-1)].ID
+		}
+	}
+	a.saveSettings()
+	return nil
+}
+
+func (a *app) setProviderEnabled(id string, enabled bool) {
+	p := a.provider(id)
+	if p == nil || p.Disabled == !enabled {
+		return
+	}
+	p.Disabled = !enabled
+	if !enabled {
+		a.cancelProviderWork(id)
+		a.providerState(id).modelsAttemptedAt = time.Time{}
+		if a.state.Settings.ActiveProviderID == id {
+			a.resetDefaultProvider()
+		}
+	}
+	a.saveSettings()
+	if enabled && providerCatalogRefreshDue(*p, a.providers[id], time.Now()) {
+		a.refreshProviderModels(id)
+	}
+}
+
+// refreshDueProviderModels is called on the UI thread at startup and by the
+// application's periodic timer. Network work is dispatched by provider; disabled
+// providers retain their saved credentials and catalog without making requests.
+func (a *app) refreshDueProviderModels(now time.Time) {
+	if a.quitting {
+		return
+	}
+	for _, p := range a.state.Settings.Providers {
+		if providerCatalogRefreshDue(p, a.providers[p.ID], now) {
+			a.refreshProviderModels(p.ID)
+		}
+	}
+}
+
+func providerCatalogRefreshDue(p store.Provider, r *providerRuntime, now time.Time) bool {
+	if p.Disabled || r == nil || r.client == nil || r.modelsBusy || r.authBusy {
+		return false
+	}
+	if !r.modelsAttemptedAt.IsZero() && now.Sub(r.modelsAttemptedAt) >= 0 && now.Sub(r.modelsAttemptedAt) < providerCatalogRetryInterval {
+		return false
+	}
+	return (!r.modelsLoaded && len(r.models) == 0) || p.ModelsRefreshedAt.IsZero() || now.Before(p.ModelsRefreshedAt) || now.Sub(p.ModelsRefreshedAt) >= providerCatalogRefreshInterval
+}
+
+func (a *app) beginProviderLogin(id string) {
+	p := a.provider(id)
+	if p == nil || p.Disabled {
+		return
+	}
+	r := a.providerState(id)
+	if r.authBusy || r.credentialsBusy || a.quitting {
+		return
+	}
+	client, err := copilot.NewClientForHost("", p.Host)
+	if err != nil {
+		r.status = err.Error()
+		return
+	}
+	r.authEpoch++
+	epoch := r.authEpoch
+	r.authBusy, r.authCode, r.status = true, copilot.DeviceCode{}, "Requesting a device code…"
+	ctx, cancel := context.WithCancel(context.Background())
+	r.authCancel = cancel
+	failed := func(err error) {
+		a.update(func() {
+			defer cancel()
+			if !a.currentProviderLogin(id, epoch, ctx) {
+				return
+			}
+			r.authBusy, r.authCancel, r.authCode = false, nil, copilot.DeviceCode{}
+			r.status = err.Error()
+		})
+	}
+	go func() {
+		code, err := client.BeginLogin(ctx)
+		if err != nil {
+			failed(err)
+			return
+		}
+		a.update(func() {
+			if a.currentProviderLogin(id, epoch, ctx) {
+				r.authCode = code
+				r.status = "Enter this code on GitHub to connect your Copilot account."
+			}
+		})
+		token, err := client.PollLogin(ctx, code)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			failed(err)
+			return
+		}
+		accountCtx, accountCancel := context.WithTimeout(ctx, 20*time.Second)
+		account, accountErr := client.Account(accountCtx)
+		accountCancel()
+		a.update(func() {
+			defer cancel()
+			if !a.currentProviderLogin(id, epoch, ctx) {
+				return
+			}
+			r.credentialsBusy = true
+			defer func() { r.credentialsBusy = false }()
+			secretErr := a.credentials().Set(providerCredentialKey(id), []byte(token))
+			if !a.currentProviderLogin(id, epoch, ctx) {
+				if secretErr == nil {
+					_ = a.credentials().Delete(providerCredentialKey(id))
+				}
+				return
+			}
+			a.cancelProviderModels(id)
+			r.client, r.models = client, nil
+			r.modelsLoaded = false
+			r.authBusy, r.authCancel, r.authCode = false, nil, copilot.DeviceCode{}
+			r.status = "Connected."
+			r.credentialNotice = ""
+			a.updateProviderAccount(id, account, accountErr, true)
+			if secretErr != nil {
+				r.credentialNotice = "Connected for this session. Could not save sign-in: " + secretErr.Error()
+			}
+			a.saveSettings()
+			a.refreshProviderModels(id)
+		})
+	}()
+}
+
+func (a *app) currentProviderLogin(id string, epoch uint64, ctx context.Context) bool {
+	r := a.providers[id]
+	p := a.provider(id)
+	return r != nil && p != nil && !p.Disabled && !a.quitting && r.authBusy && r.authEpoch == epoch && ctx.Err() == nil
+}
+
+func (a *app) cancelProviderLogin(id string) {
+	if r := a.providers[id]; r != nil {
+		r.authEpoch++
+		if r.authCancel != nil {
+			r.authCancel()
+			r.authCancel = nil
+		}
+		r.authBusy, r.authCode = false, copilot.DeviceCode{}
+	}
+}
+
+func (a *app) cancelLogin() {
+	for id := range a.providers {
+		a.cancelProviderLogin(id)
+	}
+}
+
+func (a *app) cancelProviderModels(id string) {
+	if r := a.providers[id]; r != nil {
+		r.modelsEpoch++
+		if r.modelsCancel != nil {
+			r.modelsCancel()
+			r.modelsCancel = nil
+		}
+		r.modelsBusy = false
+	}
+}
+
+func (a *app) cancelModelRefresh() {
+	for id := range a.providers {
+		a.cancelProviderModels(id)
+	}
+}
+
+func (a *app) signOutProvider(id string) {
+	r := a.providerState(id)
+	if r.credentialsBusy {
+		return
+	}
+	a.cancelProviderWork(id)
+	r.client, r.models = nil, nil
+	r.modelsLoaded = false
+	if p := a.provider(id); p != nil {
+		p.Login = ""
+	}
+	r.credentialsBusy = true
+	defer func() { r.credentialsBusy = false }()
+	err := a.clearProviderCredentials(id)
+	r.status = "Signed out."
+	r.credentialNotice = ""
+	if err != nil {
+		r.credentialNotice = "Signed out for this session. Could not remove saved sign-in: " + err.Error()
+	}
+	a.saveSettings()
+}
+
+func (a *app) clearProviderCredentials(id string) error {
+	err := a.credentials().Delete(providerCredentialKey(id))
+	if errors.Is(err, mygo.ErrSecretNotFound) {
+		err = nil
+	}
+	if id == store.DefaultProviderID {
+		if legacyErr := a.credentials().Delete("github-copilot-token"); legacyErr != nil && !errors.Is(legacyErr, mygo.ErrSecretNotFound) && err == nil {
+			err = legacyErr
+		}
+	}
+	return err
+}
+
+func (a *app) updateProviderAccount(id string, account copilot.AccountInfo, err error, newSignIn bool) {
+	p := a.provider(id)
+	if p == nil {
+		return
+	}
+	if newSignIn {
+		// A successful sign-in can replace the account even when /user fails.
+		p.Login = ""
+	}
+	if err != nil {
+		r := a.providerState(id)
+		r.status = strings.TrimSuffix(r.status, ".") + ". Could not load GitHub username: " + err.Error()
+		return
+	}
+	p.Login = account.Login
+}
+
+func (a *app) refreshProviderModels(id string) {
+	p := a.provider(id)
+	r := a.providerState(id)
+	if p == nil || p.Disabled || r.client == nil || r.modelsBusy || a.quitting {
+		return
+	}
+	r.modelsEpoch++
+	epoch, client := r.modelsEpoch, r.client
+	r.modelsBusy = true
+	r.modelsAttemptedAt = time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	r.modelsCancel = cancel
+	go func() {
+		defer cancel()
+		models, err := client.Models(ctx)
+		var account copilot.AccountInfo
+		var accountErr error
+		if err == nil {
+			account, accountErr = client.Account(ctx)
+		}
+		a.update(func() {
+			if r.client != client || r.modelsEpoch != epoch || a.quitting || a.provider(id) == nil || a.provider(id).Disabled {
+				return
+			}
+			r.modelsBusy, r.modelsCancel = false, nil
+			if err != nil {
+				r.status = err.Error()
+				return
+			}
+			r.models = models
+			r.modelsLoaded = true
+			a.provider(id).ModelsRefreshedAt = time.Now()
+			r.status = fmt.Sprintf("Connected · %d models available", len(models))
+			a.updateProviderAccount(id, account, accountErr, false)
+			if available := a.providerModels(id); len(available) > 0 && a.state.Settings.ActiveProviderID == id && a.state.Settings.Model == "" {
+				a.state.Settings.Model = available[0].ID
+			}
+			a.saveSettings()
+		})
+	}()
+}

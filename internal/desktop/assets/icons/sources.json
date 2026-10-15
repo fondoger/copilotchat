@@ -1,0 +1,95 @@
+{
+  "source": "ChatWise 26.9.1 resources/app.asar: out/client/_app/immutable/assets/0.BxQNCRRI.css",
+  "sourceSHA256": "fc86bb9f3f0edb724b8d126992885df12f2960d92793d0cef376df3b0637f971",
+  "adaptations": "CSS mask black paint becomes currentColor for native tinting. SVG paths and view boxes are unchanged.",
+  "icons": {
+    "tabler-menu-2.svg": {
+      "selector": ".i-tabler-menu-2",
+      "sourceSHA256": "2e6eb47a0938dca39019b0286e8ce1f83a7deb677e60f33a51d57b266785cb32"
+    },
+    "custom-edit.svg": {
+      "selector": ".i-custom-edit",
+      "sourceSHA256": "3af9789d2d191b14c511ff8155b7b77c759c9860ddf2bdf461c2a247d58307ef"
+    },
+    "tabler-settings.svg": {
+      "selector": ".i-tabler-settings",
+      "sourceSHA256": "570d02dc01ba2c7bc0209c1f8b31883c2411ee41523b0f8010e2c7380e8e752c"
+    },
+    "fe-search.svg": {
+      "selector": ".i-fe-search",
+      "sourceSHA256": "a03c95fa73af3609ea32b06a9e4b5c7651054d9d031c41d8a9c361ae053a721e"
+    },
+    "ri-attachment-2.svg": {
+      "selector": ".i-ri-attachment-2",
+      "sourceSHA256": "d3707b603b0cfd183ce77d4530fdc503d21c46a98a99d853302c96f12477bfe8"
+    },
+    "ri-arrow-up-line.svg": {
+      "selector": ".i-ri-arrow-up-line",
+      "sourceSHA256": "1b96c80a93e547bedebdee382fa61e2754853892b1ba4bc98324d99ede041b44"
+    },
+    "bi-stop-fill.svg": {
+      "selector": ".i-bi-stop-fill",
+      "sourceSHA256": "9346f689bd1e8884a17541a91e3f2e556f94421a0001ab18921fad205ded8c09"
+    },
+    "mingcute-copy-2-line.svg": {
+      "selector": ".i-mingcute-copy-2-line",
+      "sourceSHA256": "c722830fbdf7c3e9740e8d328ff23fbd0c6052b40cf859000539a2fc1687120d"
+    },
+    "mingcute-refresh-3-line.svg": {
+      "selector": ".i-mingcute-refresh-3-line",
+      "sourceSHA256": "10e54382f278fd4d6e493d6bd6d9f5ed05ff94dc09939b701555b96292784cea"
+    },
+    "tabler-dots.svg": {
+      "selector": ".i-tabler-dots",
+      "sourceSHA256": "ad93bbecece44567f6b75603053e0c9539f064b80ff815ec4a58b01763dff8fc"
+    },
+    "tabler-x.svg": {
+      "selector": ".i-tabler-x",
+      "sourceSHA256": "64293b7080cbf8f5761f935b665c18e7578b02c194bd1b317ad15ab7fc978539"
+    },
+    "tabler-chevron-right.svg": {
+      "selector": ".i-tabler-chevron-right",
+      "sourceSHA256": "6c95421b51659991dc28ae3ba3b45d458131dde70a7c547c496bc3bf357b9a05"
+    },
+    "tabler-chevron-down.svg": {
+      "selector": ".i-tabler-chevron-down",
+      "sourceSHA256": "1e3a06c50f69e8e4a67f88989a4aabee1cc502fe5d669204642427a0dae6d2f7"
+    },
+    "tabler-star.svg": {
+      "selector": ".i-tabler-star",
+      "sourceSHA256": "0d97a1a3266cfccea38edc741211574f08715077fb54031c601c839f32580749"
+    },
+    "bi-chat-square-quote.svg": {
+      "selector": ".i-bi-chat-square-quote",
+      "sourceSHA256": "a0a32eff089086883251f676fd3185b8e212cf86ed9f081724cc405fc4952d9c"
+    },
+    "ion-color-palette-outline.svg": {
+      "selector": ".i-ion-color-palette-outline",
+      "sourceSHA256": "938b07effa0d4d763eab7a195e2f859b454ee1ae936c8b3310c82f9b88d53aa1"
+    },
+    "ion-hardware-chip-outline.svg": {
+      "selector": ".i-ion-hardware-chip-outline",
+      "sourceSHA256": "3a606c1186a090d51a4b7e3c9b29d7a9db246827166c230bff2bd962dd3bcf2a"
+    },
+    "ion-extension-puzzle-outline.svg": {
+      "selector": ".i-ion-extension-puzzle-outline",
+      "sourceSHA256": "da5551b7b4366458d62f678982d88e99d9a39262b6717e255abcde3807da134b"
+    },
+    "f7-hammer.svg": {
+      "selector": ".i-f7-hammer",
+      "sourceSHA256": "04d24cc36f20f208be7861306dc35d1b23765fce5289d014dc36ba7c196d8daf"
+    },
+    "chatwise-sidebar-open.svg": {
+      "source": "nodes/3.CraAOkMI.js: Gj/Kj, left sidebar open state",
+      "sourceSHA256": "684fb5675099d5cbf73ff63573dca2c1963f577844af462494f9899341318e01"
+    },
+    "chatwise-sidebar-closed.svg": {
+      "source": "nodes/3.CraAOkMI.js: Gj/Kj, left sidebar closed state",
+      "sourceSHA256": "684fb5675099d5cbf73ff63573dca2c1963f577844af462494f9899341318e01"
+    },
+    "copilot-mono.svg": {
+      "source": "ChatWise 26.9.1 out/client/_app/immutable/chunks/CDQJJyzO.js: be/xe (copilot-mono.svg)",
+      "sourceSHA256": "32a5c9d1b6d3610d962ac981ba4db55057e618341cb70b003ed21186159c196f"
+    }
+  }
+}

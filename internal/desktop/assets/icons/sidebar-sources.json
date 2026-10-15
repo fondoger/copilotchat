@@ -1,0 +1,19 @@
+{
+  "source": "ChatWise 26.9.1 resources/app.asar: out/client/_app/immutable/assets/0.BxQNCRRI.css",
+  "sourceSHA256": "fc86bb9f3f0edb724b8d126992885df12f2960d92793d0cef376df3b0637f971",
+  "adaptations": "CSS mask black paint becomes currentColor for native tinting. SVG paths and view boxes are unchanged.",
+  "icons": {
+    "mingcute-edit-2-line.svg": {
+      "selector": ".i-mingcute-edit-2-line",
+      "sourceSHA256": "1e1f5334c8a0cee71aa257ef01c0b9076827d44fafabf75e0b28040b0300a0ad"
+    },
+    "tabler-star-filled.svg": {
+      "selector": ".i-tabler-star-filled",
+      "sourceSHA256": "32bafd79fcc6fb142ce94ae7c7c41dfce27a62c47e1508dd16994a4fb1b2ff77"
+    },
+    "tabler-sun.svg": {
+      "selector": ".i-tabler-sun",
+      "sourceSHA256": "e90420445f0800a915e861d9f94d7515f7974c1933e4a3c6a3aae6ce033060d8"
+    }
+  }
+}

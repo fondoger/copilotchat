@@ -1,0 +1,10 @@
+{
+  "name": "Copilot Chat",
+  "identifier": "io.qinyuan.copilotchat",
+  "version": "0.3.0",
+  "out": "dist",
+  "resources": [
+    "THIRD_PARTY_NOTICES.md",
+    "README.md"
+  ]
+}

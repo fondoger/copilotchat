@@ -1,0 +1,55 @@
+{
+  "source": "ChatWise 26.9.1 resources/app.asar: out/client/_app/immutable/assets/0.BxQNCRRI.css",
+  "sourceSHA256": "fc86bb9f3f0edb724b8d126992885df12f2960d92793d0cef376df3b0637f971",
+  "adaptations": "CSS mask black paint becomes currentColor for native tinting. SVG paths and view boxes are unchanged.",
+  "icons": {
+    "mingcute-dashboard-2-line.svg": {
+      "selector": ".i-mingcute-dashboard-2-line",
+      "sourceSHA256": "c24815fc8b821879a07edbe680807ab60dc74f74f24cc6c0dbca0664cc8a171a"
+    },
+    "tabler-trash.svg": {
+      "selector": ".i-tabler-trash",
+      "sourceSHA256": "9db11bbaa1af4c5e0ebb11b952386ea6ca0c1d35c8d48817949607fef751bc3a"
+    },
+    "ion-chevron-expand.svg": {
+      "selector": ".i-ion-chevron-expand",
+      "sourceSHA256": "f76a7a10eccf8636b94408245c2a766834d60ab26f62a5584473834990811b46"
+    },
+    "ion-chevron-collapse.svg": {
+      "selector": ".i-ion-chevron-collapse",
+      "sourceSHA256": "b6d453aa3f5363cd254e318b05d99edc0c05a056151e3a98f26e343e75b8bcc8"
+    },
+    "f7-play.svg": {
+      "selector": ".i-f7-play",
+      "sourceSHA256": "6dcc2ee63bc3c9da21d6c27f49dfa1d506c9605d95023b1970d42d063dc327f4"
+    },
+    "f7-play-fill.svg": {
+      "selector": ".i-f7-play-fill",
+      "sourceSHA256": "5a9ba9a41b667d545c72025aff255a1561a9f7962e4582f14cdf4bc412d9443f"
+    },
+    "tabler-check.svg": {
+      "selector": ".i-tabler-check",
+      "sourceSHA256": "21766c7534ef54ae90ce1dc81cee4a9794fe88feda0ae1847fb3e2af750d6338"
+    },
+    "tabler-search.svg": {
+      "selector": ".i-tabler-search",
+      "sourceSHA256": "8a7d0a2b7c432469ab563c5fc433d05ef4de254a50109b47edf1b9eb655fe866"
+    },
+    "f7-xmark-circle-fill.svg": {
+      "selector": ".i-f7-xmark-circle-fill",
+      "sourceSHA256": "8767cb9f01fe674d897b498f793dc473efaa26a6e302f03466e6c4ba4c878ceb"
+    },
+    "mingcute-message-2-line.svg": {
+      "selector": ".i-mingcute-message-2-line",
+      "sourceSHA256": "f45958ba5f36ae24330849a27804779116a7993a7ce0a12fdfd96fccddd6e1d1"
+    },
+    "tabler-plus.svg": {
+      "selector": ".i-tabler-plus",
+      "sourceSHA256": "88495c5272e12a34464f00d6da1889642b3a82ac4b3a60fb38ad525f59e16a0e"
+    },
+    "tabler-minus.svg": {
+      "selector": ".i-tabler-minus",
+      "sourceSHA256": "93547266ea0e766762ada089574e51007acb3f938a2476761dcdece6bebae99d"
+    }
+  }
+}
