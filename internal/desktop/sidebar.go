@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -315,6 +316,9 @@ func (a *app) sidebarSettingsButton(c *ui.Context) {
 	button.Children(func() {
 		ui.Icon(c, iSettings).Size(16, 16)
 		ui.Text(c, "Settings").FontSize(12).FontWeight(500)
+		if a.updateSnapshot().Phase == appupdate.Ready {
+			ui.Text(c, "Update ready").FontSize(10).TextColor(c.Theme().Accent)
+		}
 	}).OnClick(func() { *open = !*open })
 	ui.PopoverBase(c, button, open, func(panel ui.Element) {
 		panel.Width(220).Margin(4, 0, 0, 0).Padding(4).Gap(2).Radius(8).Border(1, c.Theme().Border).Background(c.Theme().Background)
@@ -332,6 +336,14 @@ func (a *app) sidebarSettingsButton(c *ui.Context) {
 			}
 		})
 		ui.Divider(c).MarginY(3)
+		updateLabel := "Check for updates"
+		if a.updateSnapshot().Phase == appupdate.Ready {
+			updateLabel = "Update ready…"
+		}
+		sidebarPopupItem(c, iRetry, updateLabel).OnClick(func() {
+			*open = false
+			a.openUpdateSettings()
+		})
 		sidebarPopupItem(c, iSettings, "Settings").Label("Open Settings").OnClick(func() {
 			*open = false
 			a.openSettings("General")
@@ -443,6 +455,7 @@ func (a *app) applicationMenuItems(toggleModel func()) []*mygo.MenuItem {
 		{Label: "Help", Submenu: []*mygo.MenuItem{
 			{Label: "Documentation", Disabled: a.win == nil, Click: action(a.showDocumentation)},
 			{Label: "About Copilot Chat", Disabled: a.win == nil, Click: action(a.showAbout)},
+			{Label: "Check for updates", Click: action(a.openUpdateSettings)},
 		}},
 		mygo.Separator(),
 		{Label: "Settings", Accelerator: "CmdOrCtrl+,", Click: action(func() { a.openSettings("General") })},

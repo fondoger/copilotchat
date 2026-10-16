@@ -218,6 +218,7 @@ func (a *app) dialogs(c *ui.Context) {
 	})
 	switch ui.AlertDialog(c, &a.deleteOpen, "Delete conversation?", "This conversation and its attachments will be removed from this device.", "Cancel", "Delete") {
 	case 1:
+		delete(a.drafts, a.deleteID)
 		if a.preview != nil && a.preview.chatID == a.deleteID {
 			a.closePreview()
 		}

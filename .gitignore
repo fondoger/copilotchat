@@ -6,3 +6,4 @@ release/
 .local/
 *.log
 coverage.out
+mygo-update.key

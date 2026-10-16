@@ -9,10 +9,19 @@ try {
     $tagCommit = Resolve-ReleaseTagCommit $Tag
     if (-not $env:GITHUB_REPOSITORY) { throw 'Publishing requires the GitHub Actions repository context.' }
     $repository = $env:GITHUB_REPOSITORY
-    $expected = @(Get-ReleaseAssetNames $config.version | Sort-Object)
+    $expected = @(Get-ReleaseAssetNames -Version $config.version -Config $config | Sort-Object)
     $actual = @(Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object Name | Sort-Object)
     if (Compare-Object $expected $actual) {
         throw "Refusing an incomplete release. Expected: $($expected -join ', '). Found: $($actual -join ', ')."
+    }
+    $updateAssets = @(Get-ReleaseUpdateAssets $config)
+    $updateReleaseNotes = ''
+    if ($updateAssets.Count -gt 0) {
+        if ($config.updates.github -cne $repository) { throw 'The update repository does not match the release repository.' }
+        Assert-ReleaseUpdateArtifacts -Config $config -Directory (Join-Path (Get-Location) 'release')
+        $firstManifest = Get-Content -LiteralPath (Join-Path 'release' $updateAssets[0].Manifest) -Raw | ConvertFrom-Json
+        $manifestNotes = $firstManifest.PSObject.Properties['notes']
+        if ($manifestNotes -and $manifestNotes.Value -is [string]) { $updateReleaseNotes = $manifestNotes.Value.Trim() }
     }
     $hashes = @{}
     $sizes = @{}
@@ -49,6 +58,12 @@ Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot, with st
 
 Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. The four native CI targets run automated tests and packaging checks; this does not claim interactive testing on a physical Mac. See the README for installation and troubleshooting. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party notices and license texts.
 "@
+    if ($updateReleaseNotes) {
+        $notes += "`n## Changes`n`n$updateReleaseNotes`n"
+    }
+    if ($updateAssets.Count -gt 0) {
+        $notes += "`nThe four ``update-*.json`` manifests and signed ``.tar.gz`` archives support in-app updates. Their Ed25519 signatures are verified against the public key built into the app; this is separate from operating-system code signing.`n"
+    }
     [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
     if (-not $existing) {
         Invoke-CheckedCommand -Command gh -Arguments @('release', 'create', $Tag, '--repo', $repository, '--verify-tag', '--target', $tagCommit, '--draft', '--title', "Copilot Chat $Tag", '--notes-file', $notesPath, '--generate-notes')
@@ -69,7 +84,7 @@ Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer I
         throw 'The draft tag or target changed before asset verification.'
     }
     if (Compare-Object @($names | Sort-Object) @($metadata.assets | ForEach-Object name | Sort-Object)) {
-        throw 'The draft does not contain exactly the eight packages and checksum file.'
+        throw 'The draft does not contain exactly the required packages, update assets, and checksum file.'
     }
     foreach ($asset in $metadata.assets) {
         if ($asset.state -ne 'uploaded' -or $asset.size -ne $sizes[$asset.name]) { throw "Upload verification failed for $($asset.name)." }

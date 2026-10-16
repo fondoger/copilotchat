@@ -13,11 +13,12 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/mcp"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.3.0"
+const version = "0.3.1"
 
 type toolApproval struct {
 	Server, Name, Arguments string
@@ -37,6 +38,10 @@ type app struct {
 	storage                        *store.Store
 	dataDir                        string
 	quitting                       bool
+	updater                        *appupdate.Manager
+	updateCancel                   context.CancelFunc
+	updateError                    string
+	updateQuitWaiting              bool
 	draft, query, status           string
 	attachments                    []store.Attachment
 	drafts                         map[string]chatDraft
@@ -90,8 +95,13 @@ func Run(dataDir string) error {
 	a.loadProviders()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 	mygo.App.OnActivate(func(bool) { a.show() })
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+	mygo.App.OnBeforeQuit(func(event *mygo.QuitEvent) {
+		if a.deferQuitForUpdate() {
+			event.PreventDefault()
+			return
+		}
 		a.quitting = true
+		a.stopUpdates()
 		a.closePreview()
 		a.stop()
 		a.cancelLogin()
@@ -117,15 +127,13 @@ func Run(dataDir string) error {
 				a.win.Hide()
 				a.save()
 			} else if !a.quitting {
-				a.quitting = true
-				a.stop()
-				a.cancelLogin()
-				a.save()
+				e.PreventDefault()
 				mygo.App.Quit()
 			}
 		})
 		a.syncTray()
 		a.startProviderRefreshLoop()
+		a.startUpdates()
 	})
 	mygo.App.OnQuit(func() {
 		if a.tray != nil {

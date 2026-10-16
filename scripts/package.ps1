@@ -4,6 +4,7 @@ param(
     [ValidateSet('windows/amd64', 'windows/arm64', 'darwin/amd64', 'darwin/arm64')]
     [string]$Platform,
     [string]$ExpectedTag = '',
+    [switch]$RequireSignedUpdates,
     [switch]$SkipTests
 )
 
@@ -13,6 +14,10 @@ $previousCgo = $env:CGO_ENABLED
 Push-Location $projectRoot
 try {
     $config = Get-ReleaseConfig -ExpectedTag $ExpectedTag
+    $updateAssets = @(Get-ReleaseUpdateAssets -Config $config -Targets @($Platform.Replace('/', '-')))
+    if ($RequireSignedUpdates -and ($updateAssets.Count -ne 1 -or -not $env:MYGO_UPDATER_PRIVATE_KEY)) {
+        throw 'Release packaging requires configured signed updates and MYGO_UPDATER_PRIVATE_KEY.'
+    }
     $goos, $goarch = $Platform.Split('/')
     if (($goos -eq 'darwin' -and -not $IsMacOS) -or ($goos -eq 'windows' -and -not $IsWindows)) {
         throw "Packaging $Platform needs its native OS (macOS for codesign/DMG, Windows for NSIS)."
@@ -81,10 +86,20 @@ try {
         Invoke-CheckedCommand -Command hdiutil -Arguments @('verify', $installerPath)
         Invoke-CheckedCommand -Command ditto -Arguments @('-c', '-k', '--sequesterRsrc', '--keepParent', $appPath, $zipPath)
     } else {
-        $portableFiles = @(Get-ChildItem -LiteralPath $packageRoot | Where-Object { $_.FullName -ne $installerPath } | ForEach-Object FullName)
+        $portableFiles = @(Get-ChildItem -LiteralPath $packageRoot | Where-Object {
+            $_.FullName -ne $installerPath -and $_.Name -notlike '*.tar.gz' -and
+            $_.Name -notlike '*.delta' -and $_.Name -notlike 'update-*.json'
+        } | ForEach-Object FullName)
         Compress-Archive -LiteralPath $portableFiles -DestinationPath $zipPath -CompressionLevel Optimal
     }
     Copy-Item -LiteralPath $installerPath -Destination $installerAsset -Force
+
+    if ($updateAssets.Count -gt 0 -and ($RequireSignedUpdates -or $env:MYGO_UPDATER_PRIVATE_KEY)) {
+        Assert-ReleaseUpdateArtifacts -Config $config -Directory $packageRoot -Targets @($Platform.Replace('/', '-'))
+        foreach ($asset in $updateAssets) {
+            Copy-Item -LiteralPath (Join-Path $packageRoot $asset.Archive), (Join-Path $packageRoot $asset.Manifest) -Destination $releaseRoot -Force
+        }
+    }
 
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
     try {

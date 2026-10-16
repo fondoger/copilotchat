@@ -65,11 +65,61 @@ function Get-GitHubRelease {
 }
 
 function Get-ReleaseAssetNames {
-    param([Parameter(Mandatory)][string]$Version)
+    param([Parameter(Mandatory)][string]$Version, [object]$Config = $null)
     foreach ($architecture in @('x64', 'arm64')) {
         "copilotchat-$Version-windows-$architecture.zip"
         "copilotchat-$Version-windows-$architecture-setup.exe"
         "copilotchat-$Version-macos-$architecture.zip"
         "copilotchat-$Version-macos-$architecture.dmg"
+    }
+    if ($null -ne $Config) {
+        foreach ($asset in Get-ReleaseUpdateAssets $Config) {
+            $asset.Archive
+            $asset.Manifest
+        }
+    }
+}
+
+function Get-ReleaseUpdateAssets {
+    param([Parameter(Mandatory)][object]$Config, [string[]]$Targets = @('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64'))
+    if (-not $Config.PSObject.Properties['updates'] -or $null -eq $Config.updates) { return }
+    $updates = $Config.updates
+    if (-not $updates.PSObject.Properties['deltas'] -or $updates.deltas -ne 0) {
+        throw 'This release pipeline requires updates.deltas=0; delta publishing is not configured.'
+    }
+    if (-not $updates.PSObject.Properties['github'] -or $updates.github -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+        throw 'Signed updates require updates.github in owner/repository form.'
+    }
+    if ($updates.PSObject.Properties['tagPrefix'] -and $updates.tagPrefix -and $updates.tagPrefix -cne 'v') {
+        throw 'This release pipeline requires the v tag prefix.'
+    }
+    if (-not $updates.PSObject.Properties['publicKey'] -or -not $updates.publicKey) {
+        throw 'Signed updates require updates.publicKey.'
+    }
+    $slug = [regex]::Replace($Config.name.ToLowerInvariant(), '[^a-z0-9]+', '-').Trim('-')
+    if (-not $slug) { $slug = 'app' }
+    foreach ($target in $Targets) {
+        if ($target -cnotmatch '^(windows|darwin)-(amd64|arm64)$') { throw "Unsupported update target: $target" }
+        $archive = "$slug-$($Config.version)-$target.tar.gz"
+        [pscustomobject]@{
+            Target = $target
+            Archive = $archive
+            Manifest = "update-$target.json"
+            URL = "https://github.com/$($updates.github)/releases/download/v$($Config.version)/$archive"
+        }
+    }
+}
+
+function Assert-ReleaseUpdateArtifacts {
+    param([Parameter(Mandatory)][object]$Config, [Parameter(Mandatory)][string]$Directory, [string[]]$Targets = @('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64'))
+    foreach ($asset in Get-ReleaseUpdateAssets -Config $Config -Targets $Targets) {
+        $archive = Join-Path $Directory $asset.Archive
+        $manifest = Join-Path $Directory $asset.Manifest
+        foreach ($path in @($archive, $manifest)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing signed update asset: $path" }
+        }
+        Invoke-CheckedCommand -Command go -Arguments @('run', (Join-Path $PSScriptRoot 'verify-update/main.go'),
+            '-archive', $archive, '-manifest', $manifest, '-version', $Config.version, '-url', $asset.URL,
+            '-public-key', $Config.updates.publicKey, '-app-name', $Config.name, '-target', $asset.Target)
     }
 }

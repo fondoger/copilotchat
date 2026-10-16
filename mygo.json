@@ -1,10 +1,15 @@
 {
   "name": "Copilot Chat",
   "identifier": "io.qinyuan.copilotchat",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "out": "dist",
   "resources": [
     "THIRD_PARTY_NOTICES.md",
     "README.md"
-  ]
+  ],
+  "updates": {
+    "publicKey": "j2pkQaS+TWxtgFGFnb/3VrmWOgKMVTkRFW9Yz/iRSpw=",
+    "github": "fondoger/copilotchat",
+    "deltas": 0
+  }
 }

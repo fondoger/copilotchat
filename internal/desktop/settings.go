@@ -135,6 +135,7 @@ func (a *app) generalSettings(c *ui.Context) {
 			})
 		})
 	})
+	a.updateSettings(c)
 }
 
 func (a *app) appearanceSettings(c *ui.Context) {

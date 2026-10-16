@@ -38,6 +38,36 @@ The script runs tests and `go vet`, then invokes `go tool mygo build`. MyGo's in
 
 Windows packages are unsigned. macOS packages use ad-hoc signing and are not notarized by Apple. No signing certificate or Apple account is required for this workflow. These packages may require an explicit first-open confirmation in the operating system.
 
+### Signed update assets
+
+Starting with v0.3.1, releases also contain a signed MyGo update archive and manifest for each target:
+
+| Target | Update archive | Update manifest |
+| --- | --- | --- |
+| Windows x64 | `copilot-chat-<version>-windows-amd64.tar.gz` | `update-windows-amd64.json` |
+| Windows ARM64 | `copilot-chat-<version>-windows-arm64.tar.gz` | `update-windows-arm64.json` |
+| macOS Intel | `copilot-chat-<version>-darwin-amd64.tar.gz` | `update-darwin-amd64.json` |
+| macOS Apple Silicon | `copilot-chat-<version>-darwin-arm64.tar.gz` | `update-darwin-arm64.json` |
+
+These are separate from the ZIP, setup executable, and DMG used for manual installation. MyGo embeds the public key and platform feed from `mygo.json` into the application. It downloads the appropriate manifest from the latest GitHub release, verifies the archive's Ed25519 signature over its SHA-256 digest, and replaces the installed application. Updates require a writable installation directory; a macOS app must first be copied out of its disk image. Delta updates are disabled (`updates.deltas: 0`).
+
+**v0.3.0 does not contain an updater. Install v0.3.1 or later manually once to enable future in-app updates.**
+
+For a local signed package, load the private key from its protected location outside the repository and require signed output:
+
+```powershell
+$env:MYGO_UPDATER_PRIVATE_KEY = Get-Content -LiteralPath '<private-key-file>' -Raw
+try {
+    ./scripts/package.ps1 -Platform windows/amd64 -RequireSignedUpdates
+} finally {
+    Remove-Item Env:MYGO_UPDATER_PRIVATE_KEY
+}
+```
+
+The private key must match `updates.publicKey`. Keep a secure backup outside the repository: existing installations trust that key, so losing it prevents signing future compatible updates. GitHub Actions stores it as the repository secret `MYGO_UPDATER_PRIVATE_KEY`; only release-tag builds receive it. Normal CI can build and test the installation packages without this secret. Release packaging fails when signed updates are required and the key or generated assets are missing.
+
+Ed25519 update signing is separate from Windows Authenticode and Apple Developer ID signing/notarization. It authenticates downloaded updates against the key already in the app; it does not remove operating-system warnings when initially installing these packages.
+
 Windows x64 has been exercised in a native desktop session. Windows ARM64 and both macOS architectures have not yet received physical-device runtime testing. Successful builds and automated tests do not verify login dialogs, clipboard behavior, tray/menu-bar integration, rendering, or HTML previews on those systems.
 
 ## Continuous integration
@@ -47,18 +77,20 @@ Windows x64 has been exercised in a native desktop session. Windows ARM64 and bo
 To publish a release, keep the application version in `internal/desktop/app.go`, the request User-Agent in `internal/copilot/client.go`, and `mygo.json` consistent. Update any versioned download references in the README, then commit the release source before creating the tag:
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
-The `v*` tag workflow builds and checks all four targets, gathers the eight package files, and creates `SHA256SUMS.txt`. It uploads a draft release and publishes only after checking that the complete asset set is present. If a build or check fails, inspect the workflow run before retrying; do not publish a partial asset set.
+The `v*` tag workflow builds and checks all four targets, gathers eight installation packages and eight signed update assets, and creates `SHA256SUMS.txt` for all sixteen files. Before uploading, it verifies every update manifest's version, immutable archive URL, size, Ed25519 signature, and archive layout. It uploads a draft release and publishes only after checking the exact asset set, uploaded sizes, and SHA-256 hashes. If a build or check fails, inspect the workflow run before retrying; do not publish a partial asset set. Tags from before updater configuration retain their original eight-package format.
+
+The release-publisher regression suite runs without GitHub credentials or live API calls. Run `pwsh ./scripts/test-release.ps1` and `go test ./scripts/verify-update` to check draft retries, tagged-source isolation, incomplete-release rejection, signed manifests, and altered archives.
 
 ### Retry a failed release
 
 Keep the existing release tag unchanged. After a workflow or publishing-script fix has landed on `main`, dispatch the current **Release** workflow with the existing tag. The required `tag` input has no default and must have the form `vMAJOR.MINOR.PATCH`:
 
 ```sh
-gh workflow run release.yml --ref main -f tag=v0.3.0 --repo fondoger/copilotchat
+gh workflow run release.yml --ref main -f tag=v0.3.1 --repo fondoger/copilotchat
 ```
 
 The same action is available through **Actions → Release → Run workflow**: select `main` and enter the existing tag. Use this new dispatch to pick up the repaired workflow; rerunning the original failed run uses its original workflow revision.
@@ -70,13 +102,13 @@ Validation and all four builds check out the requested tag, so the application s
 Download the package and `SHA256SUMS.txt` from the same release. Compare the computed hash with the entry for that filename.
 
 ```powershell
-Get-FileHash ./copilotchat-0.3.0-windows-x64.zip -Algorithm SHA256
+Get-FileHash ./copilotchat-0.3.1-windows-x64.zip -Algorithm SHA256
 ```
 
 On macOS:
 
 ```sh
-shasum -a 256 copilotchat-0.3.0-macos-arm64.zip
+shasum -a 256 copilotchat-0.3.1-macos-arm64.zip
 ```
 
 ## Documentation screenshots

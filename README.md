@@ -2,7 +2,7 @@
 
 基于 [MyGo](https://github.com/egoist/mygo) 的原生 GitHub Copilot 聊天客户端，使用 Go 绘制界面，支持 Windows 和 macOS。布局参考 ChatWise，提供本地会话、多个 Copilot 账号、附件、模型思考设置和 MCP 工具。
 
-[下载 v0.3.0](https://github.com/fondoger/copilotchat/releases/tag/v0.3.0) · [所有发行版](https://github.com/fondoger/copilotchat/releases) · [问题反馈](https://github.com/fondoger/copilotchat/issues)
+[下载最新版](https://github.com/fondoger/copilotchat/releases/latest) · [所有发行版](https://github.com/fondoger/copilotchat/releases) · [问题反馈](https://github.com/fondoger/copilotchat/issues)
 
 ![聊天界面](docs/screenshots/chat-light.png)
 
@@ -12,16 +12,26 @@
 
 在 [Releases](https://github.com/fondoger/copilotchat/releases) 中选择对应架构。每个发行版同时提供 `SHA256SUMS.txt` 校验文件。
 
-| 系统 | 架构 | v0.3.0 发行文件 |
+| 系统 | 架构 | v0.3.1 发行文件 |
 | --- | --- | --- |
-| Windows | x64 / AMD64 | `copilotchat-0.3.0-windows-x64-setup.exe`、`copilotchat-0.3.0-windows-x64.zip` |
-| Windows | ARM64 | `copilotchat-0.3.0-windows-arm64-setup.exe`、`copilotchat-0.3.0-windows-arm64.zip` |
-| macOS | Intel x64 | `copilotchat-0.3.0-macos-x64.dmg`、`copilotchat-0.3.0-macos-x64.zip` |
-| macOS | Apple Silicon ARM64 | `copilotchat-0.3.0-macos-arm64.dmg`、`copilotchat-0.3.0-macos-arm64.zip` |
+| Windows | x64 / AMD64 | `copilotchat-0.3.1-windows-x64-setup.exe`、`copilotchat-0.3.1-windows-x64.zip` |
+| Windows | ARM64 | `copilotchat-0.3.1-windows-arm64-setup.exe`、`copilotchat-0.3.1-windows-arm64.zip` |
+| macOS | Intel x64 | `copilotchat-0.3.1-macos-x64.dmg`、`copilotchat-0.3.1-macos-x64.zip` |
+| macOS | Apple Silicon ARM64 | `copilotchat-0.3.1-macos-arm64.dmg`、`copilotchat-0.3.1-macos-arm64.zip` |
 
 Windows 安装程序用于安装应用，ZIP 可解压后直接运行。macOS 可从 DMG 将应用拖入 Applications，也可以解压 ZIP。Windows 版本未做代码签名；macOS 使用 ad-hoc 签名，尚未做 Apple notarization，首次运行可能需要通过系统的安全设置确认打开。
 
 Windows x64 已做原生窗口、登录聊天和托盘行为检查。Windows ARM64、macOS Intel 和 Apple Silicon 提供构建目标，但尚未做实机运行验证；CI 测试不能替代真实桌面环境验证。Windows 的 HTML/SVG 预览使用 WebView2，需安装相应运行时。
+
+## 自动更新
+
+从 v0.3.1 开始，应用通过 [MyGo 官方更新机制](https://github.com/egoist/mygo/blob/main/docs/updates.md)检查本仓库的最新稳定 Release，下载对应系统及架构的更新包，并使用内置公钥验证 Ed25519 签名后安装。
+
+在 **Settings → General → Updates** 中可以关闭或开启自动更新、手动检查，以及选择每小时、6 小时、12 小时、每天或每周检查，设置立即生效并自动保存。默认每天后台检查；关闭自动更新仍可手动检查和安装。侧栏左下角 **Settings** 菜单也提供 **Check for updates**。
+
+后台安装不会主动重启或打断聊天。更新就绪后点击 **Restart to update**，或等下次正常启动生效。正在回复、编辑消息或存在未发送草稿时，重启按钮会提示先处理这些内容。网络错误会显示在设置中，后台检查失败后至少等待 15 分钟再试。
+
+**v0.3.0 未内置更新器，需要手动安装一次 v0.3.1 或更新版本。** 自动更新要求安装位置可写：Windows 推荐使用安装程序的默认用户目录，macOS 从 DMG 复制到可写的 Applications 目录；开发版本不会自动更新。Release 中的 `update-*.json` 和 `.tar.gz` 供更新器使用，手动安装仍选择上表的文件。更新包签名不等同于 Windows 代码签名或 Apple 公证。
 
 ## 首次连接
 
@@ -44,6 +54,7 @@ Windows x64 已做原生窗口、登录聊天和托盘行为检查。Windows ARM
 - **MCP**：stdio 与 Streamable HTTP，提供配置校验、启用开关和连接测试。每次模型工具调用均展示服务器、工具名及参数，由用户选择 **Allow once** 或 **Deny**。
 - **Chat Title**：首轮回复后自动生成标题，可选择模型或关闭。标题生成使用所选模型的正常请求额度。
 - **原生设置**：跟随系统、浅色和深色主题，聊天字号，Enter / Ctrl+Enter 发送，以及可选托盘驻留。
+- **自动更新**：GitHub Release 签名更新、可调检查频率、手动检查、下载进度及延后重启。
 
 托盘驻留默认关闭。开启后，关闭主窗口会隐藏窗口并保留进程；点击托盘图标恢复，右键菜单可新建聊天、打开设置或退出。输入框保留附件、模型思考选项和发送/停止操作；设置包含 General、Appearance、Providers、MCP、Extensions。
 

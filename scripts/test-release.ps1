@@ -11,7 +11,7 @@ function git {
     switch ($arguments -join ' ') {
         'rev-parse --verify refs/tags/v0.3.0^{commit}' { return $global:copilotChatReleaseTest.TagCommit }
         'rev-parse HEAD' { return $global:copilotChatReleaseTest.WorkflowCommit }
-        "show $($global:copilotChatReleaseTest.TagCommit):mygo.json" { return '{"version":"0.3.0"}' }
+        "show $($global:copilotChatReleaseTest.TagCommit):mygo.json" { return $global:copilotChatReleaseTest.Config | ConvertTo-Json -Depth 5 -Compress }
         "show $($global:copilotChatReleaseTest.TagCommit):internal/desktop/app.go" { return 'const version = "0.3.0"' }
         "show $($global:copilotChatReleaseTest.TagCommit):internal/copilot/client.go" { return 'const userAgent = "CopilotChatNative/0.3.0"' }
         default { throw "Unexpected mocked git command: $($arguments -join ' ')" }
@@ -34,6 +34,8 @@ function gh {
         if ($targetIndex -lt 0 -or $arguments[$targetIndex + 1] -cne $global:copilotChatReleaseTest.TagCommit) {
             throw 'Create must target the tag commit, not the workflow commit.'
         }
+        $notesIndex = [Array]::IndexOf($arguments, '--notes-file')
+        $global:copilotChatReleaseTest.ReleaseNotes = Get-Content -LiteralPath $arguments[$notesIndex + 1] -Raw
         $global:copilotChatReleaseTest.Release = New-TestRelease
         return
     }
@@ -98,6 +100,8 @@ function Reset-TestState {
         BadDigest = $false
         OmitDigest = $false
         ListFails = $false
+        ReleaseNotes = ''
+        Config = [pscustomobject]@{ name = 'Copilot Chat'; version = '0.3.0' }
     }
     $env:GITHUB_REPOSITORY = 'test-owner/test-repo'
     $env:GITHUB_SHA = $global:copilotChatReleaseTest.WorkflowCommit
@@ -115,6 +119,7 @@ $savedExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyCo
 try {
     New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'scripts'), (Join-Path $fixtureRoot 'release'), (Join-Path $fixtureRoot 'internal/desktop'), (Join-Path $fixtureRoot 'internal/copilot') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-common.ps1'), (Join-Path $PSScriptRoot 'publish-release.ps1') -Destination (Join-Path $fixtureRoot 'scripts')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-update') -Destination (Join-Path $fixtureRoot 'scripts/verify-update') -Recurse
     . (Join-Path $fixtureRoot 'scripts/release-common.ps1')
     $publisher = Join-Path $fixtureRoot 'scripts/publish-release.ps1'
     # Current workflow metadata deliberately differs from the release tag.
@@ -196,6 +201,50 @@ try {
     Assert-Throws { & $publisher -Tag v0.3.0 } '*incomplete release*'
     Assert-True ($global:copilotChatReleaseTest.Calls.Count -eq 0) 'Missing packages must fail before calling GitHub.'
     Write-Host 'PASS: missing platform package blocks all GitHub calls'
+
+    Set-Content -LiteralPath (Join-Path $fixtureRoot 'release/copilotchat-0.3.0-macos-arm64.dmg') -Value 'restored package fixture'
+    Invoke-CheckedCommand -Command go -Arguments @('run', (Join-Path $PSScriptRoot 'testdata/update-fixtures.go'), (Join-Path $fixtureRoot 'release'))
+    $testPublicKeyPath = Join-Path $fixtureRoot 'release/test-public-key.txt'
+    $testPublicKey = Get-Content -LiteralPath $testPublicKeyPath -Raw
+    Remove-Item -LiteralPath $testPublicKeyPath
+    $signedConfig = [pscustomobject]@{
+        name = 'Copilot Chat'; version = '0.3.0'
+        updates = [pscustomobject]@{ github = 'test-owner/test-repo'; publicKey = $testPublicKey; deltas = 0 }
+    }
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config = $signedConfig
+    & $publisher -Tag v0.3.0
+    Assert-True (-not $global:copilotChatReleaseTest.Release.draft) 'A complete signed release must publish.'
+    Assert-True ($global:copilotChatReleaseTest.Release.assets.Count -eq 17) 'Signed release requires eight packages, eight update assets, and the checksum.'
+    Write-Host 'PASS: signed releases verify all four manifests and archives before publication'
+
+    $manifestPath = Join-Path $fixtureRoot 'release/update-windows-amd64.json'
+    $manifestSource = Get-Content -LiteralPath $manifestPath -Raw
+    $manifestWithNotes = $manifestSource | ConvertFrom-Json
+    $manifestWithNotes | Add-Member -NotePropertyName notes -NotePropertyValue 'Release fixture: install this version manually once to enable future updates.'
+    Set-Content -LiteralPath $manifestPath -Value ($manifestWithNotes | ConvertTo-Json)
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config = $signedConfig
+    & $publisher -Tag v0.3.0
+    Assert-True ($global:copilotChatReleaseTest.ReleaseNotes.Contains($manifestWithNotes.notes)) 'Release notes must include changes from the verified update manifest.'
+    Write-Host 'PASS: release notes include the verified manifest changelog when present'
+
+    $invalidManifest = $manifestSource | ConvertFrom-Json
+    $invalidManifest.signature = [Convert]::ToBase64String([byte[]]::new(64))
+    Set-Content -LiteralPath $manifestPath -Value ($invalidManifest | ConvertTo-Json)
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config = $signedConfig
+    Assert-Throws { & $publisher -Tag v0.3.0 } '*go failed with exit code*'
+    Assert-True ($global:copilotChatReleaseTest.Calls.Count -eq 0) 'Invalid update signatures must fail before calling GitHub.'
+    Set-Content -LiteralPath $manifestPath -Value $manifestSource
+    Write-Host 'PASS: invalid update signature blocks all GitHub calls'
+
+    Remove-Item -LiteralPath $manifestPath
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config = $signedConfig
+    Assert-Throws { & $publisher -Tag v0.3.0 } '*incomplete release*'
+    Assert-True ($global:copilotChatReleaseTest.Calls.Count -eq 0) 'Missing update manifests must fail before calling GitHub.'
+    Write-Host 'PASS: missing platform update manifest blocks all GitHub calls'
 } finally {
     $env:GITHUB_REPOSITORY = $savedRepository
     $env:GITHUB_SHA = $savedSHA

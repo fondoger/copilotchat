@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	CurrentSchemaVersion         = 2
-	DefaultProviderID            = "github.com"
-	DefaultSidebarWidth  float32 = 240
-	MinSidebarWidth      float32 = 240
-	MaxSidebarWidth      float32 = 500
+	CurrentSchemaVersion               = 2
+	DefaultProviderID                  = "github.com"
+	DefaultUpdateIntervalHours         = 24
+	DefaultSidebarWidth        float32 = 240
+	MinSidebarWidth            float32 = 240
+	MaxSidebarWidth            float32 = 500
 )
 
 type Settings struct {
@@ -32,6 +33,9 @@ type Settings struct {
 	SidebarWidth         float32         `json:"sidebarWidth"`
 	SendWithEnter        bool            `json:"sendWithEnter"`
 	StayInTray           bool            `json:"stayInTray"`
+	AutomaticUpdates     bool            `json:"automaticUpdates"`
+	UpdateIntervalHours  int             `json:"updateIntervalHours"`
+	LastUpdateCheck      time.Time       `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
 	ChatTitle            bool            `json:"chatTitle"`
 	TitleModel           string          `json:"titleModel,omitempty"`
 	TitleProviderID      string          `json:"titleProviderId,omitempty"`
@@ -118,7 +122,11 @@ type State struct {
 func DefaultState() State {
 	return State{
 		SchemaVersion: CurrentSchemaVersion,
-		Settings:      Settings{Theme: "system", FontSize: 16, SidebarWidth: DefaultSidebarWidth, SendWithEnter: true, ChatTitle: true, ActiveProviderID: DefaultProviderID, Providers: []Provider{DefaultProvider()}},
+		Settings: Settings{
+			Theme: "system", FontSize: 16, SidebarWidth: DefaultSidebarWidth, SendWithEnter: true, ChatTitle: true,
+			AutomaticUpdates: true, UpdateIntervalHours: DefaultUpdateIntervalHours,
+			ActiveProviderID: DefaultProviderID, Providers: []Provider{DefaultProvider()},
+		},
 		Conversations: []Conversation{},
 	}
 }
@@ -249,6 +257,11 @@ func normalize(state *State) {
 	}
 	if state.Settings.FontSize < 10 || state.Settings.FontSize > 32 {
 		state.Settings.FontSize = 16
+	}
+	switch state.Settings.UpdateIntervalHours {
+	case 1, 6, 12, 24, 168:
+	default:
+		state.Settings.UpdateIntervalHours = DefaultUpdateIntervalHours
 	}
 	state.Settings.SidebarWidth = ClampSidebarWidth(state.Settings.SidebarWidth)
 	if state.Conversations == nil {
