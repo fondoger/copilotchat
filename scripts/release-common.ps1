@@ -58,7 +58,15 @@ function Get-GitHubRelease {
     # returns 404 for them. Keep the ID for subsequent draft metadata requests.
     $json = & gh api --paginate --slurp "repos/$Repository/releases?per_page=100"
     if ($LASTEXITCODE -ne 0) { throw 'Could not query existing releases.' }
-    $matches = @($json | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object tag_name -CEQ $Tag)
+    # --slurp returns an array of page arrays. Preserve that shape explicitly:
+    # neither singleton pages nor pages with many releases should change how
+    # PowerShell enumerates the individual release objects.
+    $pages = ConvertFrom-Json -InputObject ($json -join "`n") -NoEnumerate
+    $matches = @(foreach ($page in $pages) {
+        foreach ($release in $page) {
+            if ($release.tag_name -ceq $Tag) { $release }
+        }
+    })
     if ($matches.Count -gt 1) { throw "More than one release exists for $Tag." }
     if ($matches.Count -eq 1) { return $matches[0] }
     return $null

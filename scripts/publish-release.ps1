@@ -66,14 +66,32 @@ Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer I
     }
     [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
     if (-not $existing) {
-        Invoke-CheckedCommand -Command gh -Arguments @('release', 'create', $Tag, '--repo', $repository, '--verify-tag', '--target', $tagCommit, '--draft', '--title', "Copilot Chat $Tag", '--notes-file', $notesPath, '--generate-notes')
-        $existing = Get-GitHubRelease $repository $Tag
-        if (-not $existing) { throw 'Created draft was not returned by the authenticated release list.' }
+        # Keep the former --verify-tag behavior: never let release creation
+        # manufacture a missing remote tag. The local tag was resolved above.
+        Invoke-CheckedCommand -Command gh -Arguments @('api', "repos/$repository/git/ref/tags/$Tag", '--silent')
+        $requestPath = Join-Path (Get-Location) 'dist/create-release.json'
+        $request = @{
+            tag_name = $Tag
+            target_commitish = $tagCommit
+            name = "Copilot Chat $Tag"
+            body = $notes
+            draft = $true
+            generate_release_notes = $true
+        } | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText($requestPath, $request, [Text.UTF8Encoding]::new($false))
+        # A freshly created draft can be absent from release listings briefly.
+        # The POST response already contains the authoritative numeric REST ID.
+        $createdJSON = & gh api --method POST "repos/$repository/releases" --input $requestPath
+        if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
+        $existing = $createdJSON | ConvertFrom-Json
     }
-    if (-not $existing.draft -or $existing.target_commitish -cne $tagCommit) {
-        throw 'The existing draft targets a different commit; inspect it before retrying.'
+    if (-not $existing.draft -or $existing.target_commitish -cne $tagCommit -or $existing.tag_name -cne $Tag) {
+        throw 'The draft has a different tag or targets a different commit; inspect it before retrying.'
     }
-    $releaseID = $existing.id
+    $releaseID = 0L
+    if (-not [long]::TryParse([string]$existing.id, [ref]$releaseID) -or $releaseID -le 0) {
+        throw 'The draft did not provide a valid numeric REST release ID.'
+    }
     $paths = @($names | ForEach-Object { Join-Path release $_ })
     Invoke-CheckedCommand -Command gh -Arguments (@('release', 'upload', $Tag, '--repo', $repository, '--clobber') + $paths)
 
