@@ -12,12 +12,12 @@
 
 在 [Releases](https://github.com/fondoger/copilotchat/releases) 中选择对应架构。每个发行版同时提供 `SHA256SUMS.txt` 校验文件。
 
-| 系统 | 架构 | v0.3.1 发行文件 |
+| 系统 | 架构 | v0.3.2 发行文件 |
 | --- | --- | --- |
-| Windows | x64 / AMD64 | `copilotchat-0.3.1-windows-x64-setup.exe`、`copilotchat-0.3.1-windows-x64.zip` |
-| Windows | ARM64 | `copilotchat-0.3.1-windows-arm64-setup.exe`、`copilotchat-0.3.1-windows-arm64.zip` |
-| macOS | Intel x64 | `copilotchat-0.3.1-macos-x64.dmg`、`copilotchat-0.3.1-macos-x64.zip` |
-| macOS | Apple Silicon ARM64 | `copilotchat-0.3.1-macos-arm64.dmg`、`copilotchat-0.3.1-macos-arm64.zip` |
+| Windows | x64 / AMD64 | `copilotchat-0.3.2-windows-x64-setup.exe`、`copilotchat-0.3.2-windows-x64.zip` |
+| Windows | ARM64 | `copilotchat-0.3.2-windows-arm64-setup.exe`、`copilotchat-0.3.2-windows-arm64.zip` |
+| macOS | Intel x64 | `copilotchat-0.3.2-macos-x64.dmg`、`copilotchat-0.3.2-macos-x64.zip` |
+| macOS | Apple Silicon ARM64 | `copilotchat-0.3.2-macos-arm64.dmg`、`copilotchat-0.3.2-macos-arm64.zip` |
 
 Windows 安装程序用于安装应用，ZIP 可解压后直接运行。macOS 可从 DMG 将应用拖入 Applications，也可以解压 ZIP。Windows 版本未做代码签名；macOS 使用 ad-hoc 签名，尚未做 Apple notarization，首次运行可能需要通过系统的安全设置确认打开。
 

@@ -138,7 +138,7 @@ func TestChatReadingColumnAcrossWindowSizes(t *testing.T) {
 	a.state.ActiveID = "layout"
 	a.state.Conversations = []store.Conversation{{ID: "layout", Title: "问候与对话开启", Messages: []store.Message{
 		{ID: "user", Role: "user", Content: "hello?"},
-		{ID: "assistant", Role: "assistant", Content: "A plain assistant reply"},
+		{ID: "assistant", Role: "assistant", Reasoning: "Check the conversation context before replying.", Content: "A plain assistant reply"},
 	}}}
 	tt := ui.NewTester(a.view, 1920, 1032)
 	tt.SetTitleBar(ui.TitleBar{Height: 50, Right: 138})

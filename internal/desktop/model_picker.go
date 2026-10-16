@@ -9,7 +9,8 @@ import (
 
 // Small stroke icons keep a consistent size with the original model picker.
 var (
-	modelPinIcon   = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-4 1-3 5 1 3-3 1-6-6 1-3 3 1 5-3zM8 16l-5 5"/></svg>`))
+	// Tabler's pinned outline matches the app's other Tabler controls (MIT).
+	modelPinIcon   = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v6l-2 4v2h10v-2l-2 -4v-6M12 16v5M8 4h8"/></svg>`))
 	modelEyeIcon   = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`))
 	modelBrainIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 18V5a3 3 0 0 0-5.8-1A4 4 0 0 0 3 10a4 4 0 0 0 1 7.5A4 4 0 0 0 12 18Zm0 0V5a3 3 0 0 1 5.8-1A4 4 0 0 1 21 10a4 4 0 0 1-1 7.5A4 4 0 0 1 12 18ZM6 9l3 1M5 15l3-1m10-5-3 1m4 5-3-1"/></svg>`))
 	modelCheckIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>`))
@@ -81,8 +82,11 @@ func (a *app) modelPicker(c *ui.Context) {
 		if t.Dark {
 			fill = ui.Hex("#272729")
 		}
-		panel.Label("Model options").Width(min(float32(480), width-24)).MaxHeight(min(float32(540), height-70)).Margin(6, 0, 0, 0).Padding(8).Gap(8).Radius(10).Background(fill).Border(1, t.Border).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, .2))
-		ui.Scroll(c.Key("model-picker-list")).MaxHeight(min(float32(510), height-100)).Gap(6).Children(func() {
+		panel.Label("Model options").Width(min(float32(360), width-24)).MaxHeight(min(float32(540), height-70)).Margin(6, 0, 0, 0).Padding(8).Gap(8).Radius(10).Background(fill).Border(1, t.Border).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, .2))
+		// MyGo overlays its scroll thumb and wider pointer track on the right
+		// edge. Keep both clear of the pin button, including while dragging.
+		scrollbarGutter := max(t.ScrollbarWidth, float32(6)) + 10
+		ui.Scroll(c.Key("model-picker-list")).Label("Model list").MaxHeight(min(float32(510), height-100)).Padding(0, scrollbarGutter, 0, 0).Gap(6).Children(func() {
 			count := 0
 			for _, provider := range a.state.Settings.Providers {
 				if a.clientForProvider(provider.ID) == nil {
@@ -105,12 +109,12 @@ func (a *app) modelPicker(c *ui.Context) {
 				if grouped {
 					ui.Row(c.Key("group-"+provider.ID)).Padding(4, 8).Gap(7).Children(func() {
 						ui.Icon(c, iChat).Size(16, 16).TextColor(t.TextMuted)
-						ui.Text(c, provider.Name).FontSize(12).FontWeight(500).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine()
+						ui.Text(c, provider.Name).FontSize(12).FontWeight(500).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine().Tooltip(provider.Name)
 						identity := provider.Host
 						if provider.Login != "" {
 							identity += " · " + provider.Login
 						}
-						ui.Text(c, identity).FontSize(10).TextColor(t.TextMuted).SingleLine()
+						ui.Text(c, identity).FontSize(10).TextColor(t.TextMuted).MaxWidth(140).SingleLine().Tooltip(identity)
 					})
 				}
 				for _, model := range models {
@@ -134,7 +138,7 @@ func (a *app) modelPicker(c *ui.Context) {
 						if pinned {
 							pinLabel = "Unpin " + modelDisplayName(model) + " from " + provider.Name
 						}
-						pin := iconButton(c, modelPinIcon, pinLabel)
+						pin := iconButton(c, modelPinIcon, pinLabel).Shrink(0)
 						if pinned {
 							pin.TextColor(t.Accent)
 						} else {

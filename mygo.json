@@ -1,7 +1,7 @@
 {
   "name": "Copilot Chat",
   "identifier": "io.qinyuan.copilotchat",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "out": "dist",
   "resources": [
     "THIRD_PARTY_NOTICES.md",

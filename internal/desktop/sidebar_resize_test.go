@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/store"
@@ -42,8 +41,8 @@ func TestNativeSidebarDragKeyboardAndPersistence(t *testing.T) {
 		t.Fatalf("keyboard divider width: %v", a.state.Settings.SidebarWidth)
 	}
 	// Persistence is debounced so dragging does not repeatedly serialize
-	// every attachment. Headless time passes normally; the frame flushes it.
-	time.Sleep(sidebarSaveDelay + 30*time.Millisecond)
+	// every attachment. Advance MyGo's deterministic UI clock to flush it.
+	tt.Advance(sidebarSaveDelay)
 	tt.Frame()
 	loaded, err := disk.Load()
 	if err != nil || loaded.Settings.SidebarWidth != 330 {

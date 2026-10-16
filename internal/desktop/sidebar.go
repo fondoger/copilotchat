@@ -43,7 +43,7 @@ func (a *app) sidebar(c *ui.Context) {
 				if collapsed {
 					continue
 				}
-				row := ui.Row(c.Key(chat.ID)).Label(chat.Title).FillWidth().Height(32).Padding(6, 8).Gap(8).Background(ui.Transparent).Radius(8)
+				row := ui.Row(c.Key(chat.ID)).Label(chat.Title).FillWidth().Height(32).Padding(6, 8).Gap(8).Background(ui.Transparent).Radius(8).Clip()
 				_, _, over := row.PointerPosition()
 				if chat.ID == a.state.ActiveID {
 					row.Background(selected)

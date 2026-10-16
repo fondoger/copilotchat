@@ -97,7 +97,7 @@ func (a *app) reasoningView(c *ui.Context, m *store.Message, streaming bool) {
 		if !streaming {
 			label = "Thought process"
 		}
-		button := ui.ButtonBase(c).Label("Toggle reasoning").Padding(4, 0).Gap(5).TextColor(c.Theme().TextMuted)
+		button := ui.ButtonBase(c).Label("Toggle reasoning").AlignSelf(ui.Start).Justify(ui.Start).Padding(4, 0).Gap(5).TextColor(c.Theme().TextMuted)
 		button.Children(func() {
 			icon := ui.Icon(c, iChevron).Size(12, 12)
 			if *expanded {

@@ -3,7 +3,7 @@ module github.com/fondoger/copilotchat
 go 1.27.1
 
 require (
-	github.com/egoist/mygo v0.5.2-0.20261015013204-7e8688284e4b
+	github.com/egoist/mygo v0.5.5
 	golang.org/x/image v0.46.0
 )
 
