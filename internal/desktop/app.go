@@ -18,7 +18,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.4.2"
+const version = "0.4.3"
 
 type toolApproval struct {
 	Server, Name, Arguments string

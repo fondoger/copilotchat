@@ -44,8 +44,29 @@ func TestClaudeConfigurationHasNoTokenAndPinsEveryModelAlias(t *testing.T) {
 			t.Fatal("static credential field")
 		}
 	}
-	if !strings.HasPrefix(parsed.Helper, "powershell.exe -NoProfile -NonInteractive -EncodedCommand ") {
-		t.Fatal("unsafe helper invocation")
+	if want := `"C:\Apps with spaces\helper.exe" "--provider" "work-id" "--data-dir" "C:\Data\你好"`; parsed.Helper != want {
+		t.Fatalf("expected a direct executable command, got %q", parsed.Helper)
+	}
+}
+
+func TestClaudeWindowsRejectsShellExpansion(t *testing.T) {
+	for _, value := range []string{`C:\%USERNAME%\helper.exe`, `C:\!USERNAME!\helper.exe`, "bad\"quote", "bad\rnewline", "bad\nnewline", "bad\x00null"} {
+		for _, field := range []string{"helper", "data directory", "provider ID"} {
+			t.Run(field+"/"+value, func(t *testing.T) {
+				o := fixture()
+				switch field {
+				case "helper":
+					o.Helper = value
+				case "data directory":
+					o.DataDir = value
+				case "provider ID":
+					o.Provider.ID = value
+				}
+				if _, err := Generate(o); err == nil {
+					t.Fatal("unsafe cmd command accepted")
+				}
+			})
+		}
 	}
 }
 
@@ -90,40 +111,29 @@ func TestProtocolSelectionAndAccountRouting(t *testing.T) {
 	}
 }
 
-func TestHelperShellQuotingRoundTrip(t *testing.T) {
+func TestHelperPOSIXShellQuotingRoundTrip(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses cmd.exe; covered by TestHelperWindowsShellQuotingRoundTrip")
+	}
 	dir := filepath.Join(t.TempDir(), "space '$ % 你好")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"--provider", "p'$ & %name%", "--data-dir", dir}
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		path := filepath.Join(dir, "helper.ps1")
-		if err := os.WriteFile(path, []byte("ConvertTo-Json -InputObject @($args) -Compress\nexit 37\n"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		command := shellCommand("windows", path, args)
-		parts := strings.Fields(command)
-		cmd = exec.Command(parts[0], parts[1:]...)
-	} else {
-		path := filepath.Join(dir, "helper")
-		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 37\n"), 0700); err != nil {
-			t.Fatal(err)
-		}
-		cmd = exec.Command("/bin/sh", "-c", shellCommand(runtime.GOOS, path, args))
+	path := filepath.Join(dir, "helper")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 37\n"), 0700); err != nil {
+		t.Fatal(err)
 	}
+	command, err := shellCommand(runtime.GOOS, path, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", command)
 	output, err := cmd.Output()
 	if err == nil || cmd.ProcessState.ExitCode() != 37 {
 		t.Fatalf("exit status lost: %v", err)
 	}
-	var got []string
-	if runtime.GOOS == "windows" {
-		if json.Unmarshal(output, &got) != nil {
-			t.Fatal("invalid result", string(output))
-		}
-	} else {
-		got = strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
-	}
+	got := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
 	if len(got) != len(args) {
 		t.Fatal("argument count changed")
 	}

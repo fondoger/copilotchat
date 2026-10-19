@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Generate a readable direct executable command for Claude Code on Windows, without a PowerShell or Base64 wrapper. Re-copy the configuration from Agent setup to replace an earlier command.
+- Verify native command execution with spaces, Unicode, shell metacharacters, and trailing directory separators, including preservation of the helper's exit status.
+
 ## 0.4.2
 
 - Bundle a standalone credential helper for Windows and macOS. It reads the selected GitHub or Microsoft 365 provider from the system credential store, including silent Microsoft token renewal, without requiring the GUI to run.

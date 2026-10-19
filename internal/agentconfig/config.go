@@ -3,8 +3,6 @@ package agentconfig
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf16"
 
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft"
@@ -89,12 +86,16 @@ func Generate(o Options) (string, error) {
 	}
 	sort.Strings(keys)
 	if o.Agent == ClaudeCode {
+		command, err := shellCommand(o.OS, o.Helper, args)
+		if err != nil {
+			return "", err
+		}
 		lines := make([]string, 0, len(headers))
 		for _, key := range keys {
 			lines = append(lines, key+": "+headers[key])
 		}
 		config := map[string]any{
-			"apiKeyHelper": shellCommand(o.OS, o.Helper, args),
+			"apiKeyHelper": command,
 			"env": map[string]string{
 				"ANTHROPIC_BASE_URL":                strings.TrimRight(o.BaseURL, "/"),
 				"ANTHROPIC_MODEL":                   o.Model.ID,
@@ -132,23 +133,25 @@ func quotedArgs(args []string) string {
 	return strings.Join(quoted, ", ")
 }
 
-func shellCommand(goos, helper string, args []string) string {
+func shellCommand(goos, helper string, args []string) (string, error) {
 	values := append([]string{helper}, args...)
 	if goos == "windows" {
-		// Claude runs a shell string. EncodedCommand survives both cmd.exe and
-		// Git Bash, including spaces, apostrophes, %, $, and non-ASCII paths.
+		// Claude Code executes apiKeyHelper through cmd.exe on Windows.
+		// Invoke the executable directly; double quotes protect spaces and
+		// cmd metacharacters. Refuse values that could expand environment
+		// variables (including delayed expansion) or break out of the quotes.
 		for i, value := range values {
-			values[i] = "'" + strings.ReplaceAll(value, "'", "''") + "'"
+			if strings.ContainsAny(value, "%!\"\x00\r\n") {
+				return "", errors.New("Windows Claude Code helper paths and arguments cannot contain %, !, double quotes, or line breaks")
+			}
+			// The native argv parser consumes a backslash before a closing quote.
+			trailing := len(value) - len(strings.TrimRight(value, `\`))
+			values[i] = `"` + value + strings.Repeat(`\`, trailing) + `"`
 		}
-		units := utf16.Encode([]rune("& " + strings.Join(values, " ") + "; exit $LASTEXITCODE"))
-		data := make([]byte, 2*len(units))
-		for i, u := range units {
-			binary.LittleEndian.PutUint16(data[2*i:], u)
-		}
-		return "powershell.exe -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(data)
+		return strings.Join(values, " "), nil
 	}
 	for i, value := range values {
 		values[i] = "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 	}
-	return strings.Join(values, " ")
+	return strings.Join(values, " "), nil
 }

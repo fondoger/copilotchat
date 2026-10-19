@@ -21,7 +21,7 @@ helper 直接读取 Copilot Chat 的系统凭据库，绑定配置中的 Provide
 & 'C:\path\to\copilot-chat-api-key-helper.exe' --provider '<provider-id>' --check
 ```
 
-如果应用使用自定义数据目录，需传入 `--data-dir '<directory>'`；配置页会自动包含这一参数。Windows 的 Claude Code 命令使用系统 PowerShell 编码参数，兼容路径中的空格、中文和 shell 特殊字符。
+如果应用使用自定义数据目录，需传入 `--data-dir '<directory>'`；配置页会自动包含这一参数。Claude Code 的配置直接调用 helper，Windows 路径使用双引号，支持空格和中文，不需要 PowerShell 或 Base64 编码。Windows 安装路径和数据目录请避免 `%`、`!`，以免被 Claude Code 使用的系统 shell 展开为环境变量。
 
 ## 开发与验证
 
