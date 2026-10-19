@@ -21,7 +21,7 @@ const (
 	apiVersion     = "2026-08-01"
 	userAPIVersion = "2025-04-01"
 	restAPIVersion = "2022-11-28"
-	userAgent      = "CopilotChatNative/0.3.2"
+	userAgent      = "CopilotChatNative/0.3.3"
 )
 
 type DeviceCode struct {

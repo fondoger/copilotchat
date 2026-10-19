@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Focus the chat input with Ctrl+L on Windows or Command+L on macOS.
+- Preserve the existing text, cursor, and selection when the input already has focus.
+
 ## 0.3.2
 
 - Upgrade MyGo to the latest stable release, v0.5.5.

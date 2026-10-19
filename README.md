@@ -12,12 +12,12 @@
 
 在 [Releases](https://github.com/fondoger/copilotchat/releases) 中选择对应架构。每个发行版同时提供 `SHA256SUMS.txt` 校验文件。
 
-| 系统 | 架构 | v0.3.2 发行文件 |
+| 系统 | 架构 | v0.3.3 发行文件 |
 | --- | --- | --- |
-| Windows | x64 / AMD64 | `copilotchat-0.3.2-windows-x64-setup.exe`、`copilotchat-0.3.2-windows-x64.zip` |
-| Windows | ARM64 | `copilotchat-0.3.2-windows-arm64-setup.exe`、`copilotchat-0.3.2-windows-arm64.zip` |
-| macOS | Intel x64 | `copilotchat-0.3.2-macos-x64.dmg`、`copilotchat-0.3.2-macos-x64.zip` |
-| macOS | Apple Silicon ARM64 | `copilotchat-0.3.2-macos-arm64.dmg`、`copilotchat-0.3.2-macos-arm64.zip` |
+| Windows | x64 / AMD64 | `copilotchat-0.3.3-windows-x64-setup.exe`、`copilotchat-0.3.3-windows-x64.zip` |
+| Windows | ARM64 | `copilotchat-0.3.3-windows-arm64-setup.exe`、`copilotchat-0.3.3-windows-arm64.zip` |
+| macOS | Intel x64 | `copilotchat-0.3.3-macos-x64.dmg`、`copilotchat-0.3.3-macos-x64.zip` |
+| macOS | Apple Silicon ARM64 | `copilotchat-0.3.3-macos-arm64.dmg`、`copilotchat-0.3.3-macos-arm64.zip` |
 
 Windows 安装程序用于安装应用，ZIP 可解压后直接运行。macOS 可从 DMG 将应用拖入 Applications，也可以解压 ZIP。Windows 版本未做代码签名；macOS 使用 ad-hoc 签名，尚未做 Apple notarization，首次运行可能需要通过系统的安全设置确认打开。
 
@@ -60,7 +60,7 @@ Windows x64 已做原生窗口、登录聊天和托盘行为检查。Windows ARM
 
 ![深色聊天界面](docs/screenshots/chat-dark.png)
 
-常用快捷键：`Ctrl+N` 新建会话、`Ctrl+,` 设置、`Ctrl+B` 切换侧栏、`Ctrl+F` 搜索会话、`Escape` 停止回复、`Shift+Enter` 换行。macOS 对应的主修饰键为 `Command`。
+常用快捷键：`Ctrl+L` 聚焦聊天输入框、`Ctrl+N` 新建会话、`Ctrl+,` 设置、`Ctrl+B` 切换侧栏、`Ctrl+F` 搜索会话、`Escape` 停止回复、`Shift+Enter` 换行。macOS 对应的主修饰键为 `Command`，例如 `⌘L` 聚焦输入框。
 
 ## 本地数据
 

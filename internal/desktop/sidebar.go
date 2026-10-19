@@ -377,6 +377,11 @@ func (a *app) modelPickerToggle(c *ui.Context) func() {
 // Call at the start of the window view. Context.OnShortcut inside a toolbar
 // only covers that toolbar's focus subtree, not the composer or popup search.
 func (a *app) applicationMenuShortcuts(c *ui.Context) {
+	c.OnShortcut(ui.Cmd, ui.KeyL, func() {
+		if !a.composer.Focused(c) {
+			a.composer.Focus(c)
+		}
+	})
 	c.OnShortcut(ui.Cmd, ui.KeySlash, a.modelPickerToggle(c))
 	// The native composer keeps focus while this lightweight popup is open.
 	// Route Escape at the window root as well as the overlay's own handler.

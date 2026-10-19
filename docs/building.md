@@ -77,8 +77,8 @@ Windows x64 has been exercised in a native desktop session. Windows ARM64 and bo
 To publish a release, keep the application version in `internal/desktop/app.go`, the request User-Agent in `internal/copilot/client.go`, and `mygo.json` consistent. Update any versioned download references in the README, then commit the release source before creating the tag:
 
 ```sh
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 The `v*` tag workflow builds and checks all four targets, gathers eight installation packages and eight signed update assets, and creates `SHA256SUMS.txt` for all sixteen files. Before uploading, it verifies every update manifest's version, immutable archive URL, size, Ed25519 signature, and archive layout. It uploads a draft release and publishes only after checking the exact asset set, uploaded sizes, and SHA-256 hashes. If a build or check fails, inspect the workflow run before retrying; do not publish a partial asset set. Tags from before updater configuration retain their original eight-package format.
@@ -90,7 +90,7 @@ The release-publisher regression suite runs without GitHub credentials or live A
 Keep the existing release tag unchanged. After a workflow or publishing-script fix has landed on `main`, dispatch the current **Release** workflow with the existing tag. The required `tag` input has no default and must have the form `vMAJOR.MINOR.PATCH`:
 
 ```sh
-gh workflow run release.yml --ref main -f tag=v0.3.2 --repo fondoger/copilotchat
+gh workflow run release.yml --ref main -f tag=v0.3.3 --repo fondoger/copilotchat
 ```
 
 The same action is available through **Actions → Release → Run workflow**: select `main` and enter the existing tag. Use this new dispatch to pick up the repaired workflow; rerunning the original failed run uses its original workflow revision.
@@ -102,13 +102,13 @@ Validation and all four builds check out the requested tag, so the application s
 Download the package and `SHA256SUMS.txt` from the same release. Compare the computed hash with the entry for that filename.
 
 ```powershell
-Get-FileHash ./copilotchat-0.3.2-windows-x64.zip -Algorithm SHA256
+Get-FileHash ./copilotchat-0.3.3-windows-x64.zip -Algorithm SHA256
 ```
 
 On macOS:
 
 ```sh
-shasum -a 256 copilotchat-0.3.2-macos-arm64.zip
+shasum -a 256 copilotchat-0.3.3-macos-arm64.zip
 ```
 
 ## Documentation screenshots
