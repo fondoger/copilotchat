@@ -27,6 +27,7 @@ type manifest struct {
 
 type options struct {
 	archive, manifest, version, url, publicKey, appName, target string
+	requireHelper                                               bool
 }
 
 func main() {
@@ -38,6 +39,7 @@ func main() {
 	flag.StringVar(&o.publicKey, "public-key", "", "base64 Ed25519 public key")
 	flag.StringVar(&o.appName, "app-name", "", "application name")
 	flag.StringVar(&o.target, "target", "", "MyGo target")
+	flag.BoolVar(&o.requireHelper, "require-helper", false, "require the bundled credential helper")
 	flag.Parse()
 	if err := verify(o); err != nil {
 		fmt.Fprintln(os.Stderr, "Invalid signed update:", err)
@@ -99,10 +101,10 @@ func verify(o options) error {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	return verifyArchive(f, o.appName, o.target)
+	return verifyArchive(f, o.appName, o.target, o.requireHelper)
 }
 
-func verifyArchive(r io.Reader, appName, target string) error {
+func verifyArchive(r io.Reader, appName, target string, requireHelper bool) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return err
@@ -115,6 +117,13 @@ func verifyArchive(r io.Reader, appName, target string) error {
 		executable = appName + ".app/Contents/MacOS/" + appName
 	}
 	want := map[string]bool{executable: false, prefix + "README.md": false, prefix + "THIRD_PARTY_NOTICES.md": false}
+	helper := prefix + "copilot-chat-api-key-helper"
+	if !mac {
+		helper += ".exe"
+	}
+	if requireHelper {
+		want[helper] = false
+	}
 	licenses := false
 	tr := tar.NewReader(gz)
 	for {
@@ -141,7 +150,7 @@ func verifyArchive(r io.Reader, appName, target string) error {
 			}
 			want[name] = true
 		}
-		if name == executable && mac && h.Mode&0o111 == 0 {
+		if (name == executable || (requireHelper && name == helper)) && mac && h.Mode&0o111 == 0 {
 			return errors.New("macOS update executable has no execute permission")
 		}
 		if strings.HasPrefix(name, prefix+"licenses/") && h.Size > 0 {

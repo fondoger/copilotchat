@@ -38,7 +38,7 @@ type CatalogEntry struct {
 // A provider may adjust a copy of the entry to add documented capability defaults.
 func (remote CatalogEntry) Model(endpoint string) Model {
 	supports := remote.Capabilities.Supports
-	model := Model{ID: remote.ID, Name: remote.Name, Endpoint: endpoint,
+	model := Model{ID: remote.ID, Name: remote.Name, Endpoint: endpoint, Endpoints: append([]string(nil), remote.Endpoints...),
 		MaxOutputTokens: remote.Capabilities.Limits.MaxOutput}
 	if supports.Vision != nil {
 		model.Vision, model.VisionKnown = *supports.Vision, true

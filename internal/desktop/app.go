@@ -18,7 +18,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.4.1"
+const version = "0.4.2"
 
 type toolApproval struct {
 	Server, Name, Arguments string
@@ -59,6 +59,8 @@ type app struct {
 	titleJobs                      map[string]*titleJob
 	preview                        *artifactPreview
 	settingsPage                   string
+	extensionPage                  string
+	agentSetup                     agentSetupState
 	mcpJSON, mcpStatus             string
 	mcpBusy                        bool
 	approval                       *toolApproval

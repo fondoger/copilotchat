@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/fondoger/copilotchat/internal/credentials"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
@@ -36,7 +37,7 @@ type providerRuntime struct {
 const providerCatalogRefreshInterval = 24 * time.Hour
 const providerCatalogRetryInterval = 15 * time.Minute
 
-func providerCredentialKey(id string) string { return "github-copilot-token:" + id }
+func providerCredentialKey(id string) string { return credentials.GitHubKey(id) }
 
 func (a *app) credentials() credentialStore {
 	if a.providerSecrets != nil {

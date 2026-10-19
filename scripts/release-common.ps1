@@ -126,8 +126,10 @@ function Assert-ReleaseUpdateArtifacts {
         foreach ($path in @($archive, $manifest)) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing signed update asset: $path" }
         }
-        Invoke-CheckedCommand -Command go -Arguments @('run', (Join-Path $PSScriptRoot 'verify-update/main.go'),
+        $verifyArguments = @('run', (Join-Path $PSScriptRoot 'verify-update/main.go'),
             '-archive', $archive, '-manifest', $manifest, '-version', $Config.version, '-url', $asset.URL,
             '-public-key', $Config.updates.publicKey, '-app-name', $Config.name, '-target', $asset.Target)
+        if ([version]$Config.version -ge [version]'0.4.2') { $verifyArguments += '-require-helper' }
+        Invoke-CheckedCommand -Command go -Arguments $verifyArguments
     }
 }

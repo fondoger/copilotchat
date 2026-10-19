@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Bundle a standalone credential helper for Windows and macOS. It reads the selected GitHub or Microsoft 365 provider from the system credential store, including silent Microsoft token renewal, without requiring the GUI to run.
+- Add Settings → Extensions → Agent setup. Select a provider, Claude Code or Codex / ChatGPT Desktop, and a compatible model to copy its configuration without embedding a token.
+- Filter agent model choices by Messages or Responses support and preserve all advertised model protocols.
+- Include and verify the helper in installation packages and signed updates for all four platforms.
+
 ## 0.4.1
 
 - Sign in to Microsoft 365 directly with Windows Web Account Manager, without Copilot CLI or additional authentication DLLs. Each new provider opens the system account picker.

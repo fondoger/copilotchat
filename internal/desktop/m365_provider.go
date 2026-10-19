@@ -2,68 +2,25 @@ package desktop
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/fondoger/copilotchat/internal/credentials"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/cli"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft/entra"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/wam"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-func (a *app) m365BrokerHome(id string) (string, error) {
-	if a.dataDir == "" || id == "" {
-		return "", errors.New("could not locate the Microsoft sign-in profile")
-	}
-	// Provider IDs from saved state never become path components directly.
-	key := fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
-	return filepath.Abs(filepath.Join(a.dataDir, "microsoft-accounts", key))
-}
-
 func (a *app) m365Client(id string, entry m365SavedSignIn) (provider.Client, interface{ Revoke() }, error) {
-	var account entra.Account
-	var token microsoft.TokenSource
-	var renewable interface{ Revoke() }
-	switch entry.Mode {
-	case "windows-wam":
-		if entry.WAM == nil {
-			return nil, nil, errors.New("invalid Windows account; reconnect this provider")
-		}
-		source, err := wam.NewSource(*entry.WAM)
-		if err != nil {
-			return nil, nil, err
-		}
-		account, token, renewable = entry.WAM.Account, source.Token, source
-	case "copilot-cli", "copilot-broker":
-		if entry.CLI == nil {
-			return nil, nil, errors.New("invalid Copilot CLI account; reconnect this provider")
-		}
-		var source *cli.Source
-		var err error
-		if entry.Mode == "copilot-broker" {
-			var home string
-			home, err = a.m365BrokerHome(id)
-			if err == nil {
-				source, err = cli.NewBrokerSource(*entry.CLI, home)
-			}
-		} else {
-			source, err = cli.NewSource(*entry.CLI)
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-		account, token, renewable = entry.CLI.Account, source.Token, source
-	default:
-		return nil, nil, errors.New("unsupported Microsoft sign-in; reconnect this provider")
+	source, account, err := credentials.MicrosoftSource(a.dataDir, id, entry)
+	if err != nil {
+		return nil, nil, err
 	}
-	return microsoft.NewClient(token, provider.AccountInfo{Login: account.Username, Host: microsoft.Host}), renewable, nil
+	return microsoft.NewClient(source.Token, provider.AccountInfo{Login: account.Username, Host: microsoft.Host}), source, nil
 }
 
 func (a *app) loadM365Provider(p store.Provider, r *providerRuntime) {

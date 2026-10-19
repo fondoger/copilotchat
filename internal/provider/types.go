@@ -26,6 +26,7 @@ type Model struct {
 	Vision            bool     `json:"vision"`
 	PDF               bool     `json:"pdf"`
 	Endpoint          string   `json:"endpoint"`
+	Endpoints         []string `json:"endpoints,omitempty"` // All advertised protocols, for external clients.
 	MaxOutputTokens   int      `json:"max_output_tokens"`
 	Tools             bool     `json:"tools"`
 	Reasoning         bool     `json:"reasoning"`

@@ -146,6 +146,14 @@ func (c *Client) credentials() (string, string) {
 	return c.token, c.baseURL
 }
 
+// APIBaseURL returns the account route resolved when loading its model catalog.
+// It contains no credentials and does not initiate a network request.
+func (c *Client) APIBaseURL() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.baseURL
+}
+
 func (c *Client) do(ctx context.Context, method, endpoint string, body any, token, version string) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
