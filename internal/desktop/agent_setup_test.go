@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/agentconfig"
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
@@ -15,26 +16,34 @@ import (
 func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	a := newSettingsTestApp(t)
 	a.settingsPage = "Extensions"
-	a.agentSetup.helperPath = filepath.Join(t.TempDir(), "fixture-helper")
-	if err := os.WriteFile(a.agentSetup.helperPath, []byte("fixture"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	a.state.Settings.LocalForwarding = true
+	a.state.Settings.LocalKey = "fixture-local-key"
+	a.forwarder = localproxy.New(a.state.Settings.LocalKey)
+	t.Cleanup(a.stopForwarding)
 	a.providers[store.DefaultProviderID].models = []provider.Model{
 		{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"},
 		{ID: "gpt-fixture", Name: "GPT Fixture", Endpoint: "/responses"},
 	}
-	tester := ui.NewTester(a.settingsView, 900, 720)
+	tester := ui.NewTester(a.settingsView, 1000, 1100)
 	settingsClick(t, tester, "Agent setup extension")
 	if !tester.HasText("Select an enabled provider to generate its configuration.") {
 		t.Fatal("missing initial guidance")
 	}
 	settingsClick(t, tester, "Provider source")
 	settingsClick(t, tester, "Select Provider source GitHub Copilot")
-	if a.agentSetup.providerID != store.DefaultProviderID || a.agentSetup.modelID != "claude-fixture" {
-		t.Fatal("selection did not choose a compatible model")
+	if a.agentSetup.providerID != store.DefaultProviderID || a.agentSetup.modelID != "" {
+		t.Fatal("Claude model should be optional")
+	}
+	if !tester.HasText("Choose in Claude Code") {
+		t.Fatal("missing optional model selection")
 	}
 	if _, ok := tester.Find("Generated agent configuration"); !ok {
 		t.Fatal("configuration missing")
+	}
+	settingsClick(t, tester, "Agent model")
+	settingsClick(t, tester, "Select Agent model Claude Fixture")
+	if a.agentSetup.modelID != "claude-fixture" {
+		t.Fatal("explicit compatible model selection failed")
 	}
 	settingsClick(t, tester, "Agent application")
 	settingsClick(t, tester, "Select Agent application "+agentconfig.Codex)
@@ -55,7 +64,7 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		}
 	}
 	a.providers[store.DefaultProviderID].models = a.providers[store.DefaultProviderID].models[:1]
-	tester = ui.NewTester(a.settingsView, 900, 720)
+	tester = ui.NewTester(a.settingsView, 1000, 1100)
 	if _, ok := tester.Find("Generated agent configuration"); ok {
 		t.Fatal("unsupported protocol generated configuration")
 	}

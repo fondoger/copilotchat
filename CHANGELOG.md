@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Replace the standalone credential helper with an embedded, authenticated loopback forwarding service. Copy a provider-specific base URL and fixed local key for Claude Code or Codex.
+- Preserve raw Messages/Responses payloads and streamed usage, expose Claude model discovery, and map agent session IDs to stable provider-scoped conversation IDs. M365 request headers and ID lifetimes were checked against captured Copilot CLI traffic.
+- Add Open at login, tray/startup recommendations, and confirmation before exiting or disabling tray mode while forwarding is enabled.
+- Stop in-flight forwarding when its provider is disabled, signed out, or removed. Document setup and protocol handling in Chinese.
+- Remove helper executable sources and packaging; existing users should re-copy Agent setup configuration.
+
 ## 0.4.3
 
 - Generate a readable direct executable command for Claude Code on Windows, without a PowerShell or Base64 wrapper. Re-copy the configuration from Agent setup to replace an earlier command.

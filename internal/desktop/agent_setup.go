@@ -1,24 +1,20 @@
 package desktop
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
 	"slices"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/agentconfig"
-	"github.com/fondoger/copilotchat/internal/apikeyhelper"
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/provider/github"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft"
-	"github.com/fondoger/copilotchat/internal/store"
 )
 
 type agentSetupState struct {
+	portText                   string
+	portInitialized            bool
 	providerID, agent, modelID string
-	helperPath, notice         string
+	notice                     string
 }
 
 type setupOption struct{ id, label string }
@@ -51,25 +47,14 @@ func setupSelect(c *ui.Context, key, label string, value *string, options []setu
 	sel.Trigger.OnChange(changed)
 }
 
-func bundledHelperPath() string {
-	root, err := mygo.App.Path(mygo.PathResources)
-	if err != nil {
-		return ""
-	}
-	name := apikeyhelper.Name
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return filepath.Join(root, name)
-}
-
 func (a *app) agentSetupSettings(c *ui.Context) {
 	s := &a.agentSetup
 	if s.agent == "" {
 		s.agent = agentconfig.ClaudeCode
 	}
-	if s.helperPath == "" {
-		s.helperPath = bundledHelperPath()
+	a.forwardingSettings(c)
+	if a.forwarder == nil {
+		return
 	}
 	ui.Text(c, "Use a Copilot Chat account in your coding agent.").TextColor(c.Theme().TextMuted)
 	options := []setupOption{}
@@ -102,15 +87,21 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 			models = append(models, model)
 		}
 	}
-	if len(models) == 0 {
+	if len(models) == 0 && s.agent != agentconfig.ClaudeCode {
 		ui.Text(c, "No compatible models are loaded. Claude Code needs Messages; Codex needs Responses. A Messages-only model cannot be used directly in Codex.").TextColor(c.Theme().TextMuted)
 		ui.Button(c, "Refresh models").Disabled(r.modelsBusy).OnClick(func() { a.refreshProviderModels(p.ID) })
 		return
 	}
 	if !slices.ContainsFunc(models, func(m provider.Model) bool { return m.ID == s.modelID }) {
-		s.modelID = models[0].ID
+		s.modelID = ""
+		if s.agent != agentconfig.ClaudeCode {
+			s.modelID = models[0].ID
+		}
 	}
 	modelOptions := make([]setupOption, 0, len(models))
+	if s.agent == agentconfig.ClaudeCode {
+		modelOptions = append(modelOptions, setupOption{"", "Choose in Claude Code"})
+	}
 	var selected provider.Model
 	for _, model := range models {
 		modelOptions = append(modelOptions, setupOption{model.ID, modelDisplayName(model)})
@@ -119,43 +110,37 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 		}
 	}
 	ui.Column(c).Gap(6).Children(func() {
-		ui.Text(c, "Model").FontWeight(500)
+		label := "Model"
+		if s.agent == agentconfig.ClaudeCode {
+			label = "Model (optional)"
+		}
+		ui.Text(c, label).FontWeight(500)
 		setupSelect(c, "agent-model", "Agent model", &s.modelID, modelOptions, func() { s.notice = "" })
 	})
-	base := microsoft.BaseURL
-	if client, ok := r.client.(*github.Client); ok {
-		base = client.APIBaseURL()
-	}
-	dir, err := store.DataDir(a.dataDir)
-	if err != nil {
-		ui.Text(c, "Could not locate the application settings directory.")
-		return
-	}
-	config, err := agentconfig.Generate(agentconfig.Options{Provider: *p, Model: selected, Agent: s.agent, Helper: s.helperPath, DataDir: dir, BaseURL: base, OS: runtime.GOOS})
+	base := localproxy.BaseURL(a.state.Settings.LocalPort, p.ID)
+	config, err := agentconfig.Generate(agentconfig.Options{Provider: *p, Model: selected, Agent: s.agent, BaseURL: base, Key: a.state.Settings.LocalKey})
 	if err != nil {
 		ui.Text(c, err.Error()).TextColor(c.Theme().TextMuted)
 		return
 	}
-	info, helperErr := os.Stat(s.helperPath)
-	helperReady := helperErr == nil && !info.IsDir()
-	if !helperReady {
-		ui.Text(c, "The bundled credential helper is missing. Reinstall the app, or build it with scripts/build.ps1.").TextColor(c.Theme().TextMuted)
-	}
 	file := "~/.claude/settings.json"
-	instructions := "Merge these fields into your settings JSON. Remove conflicting ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY values, then restart Claude Code. All model aliases below use the selected model."
+	instructions := "Merge these env fields into your settings JSON. Remove the old apiKeyHelper, custom headers and conflicting API keys or model aliases. Restart Claude Code, then choose a model with /model."
 	if s.agent == agentconfig.Codex {
 		file = "~/.codex/config.toml"
-		instructions = "Merge the top-level model keys and provider tables into config.toml; replace matching entries rather than duplicating them. Restart Codex or ChatGPT Desktop. Use a current client that supports provider auth commands."
+		instructions = "Merge the top-level model keys and provider tables into config.toml; replace matching entries rather than duplicating them. Remove the old provider auth command, env_key and custom headers. Restart Codex or ChatGPT Desktop."
 	}
 	ui.Text(c, file).FontWeight(500).Selectable()
 	ui.Text(c, instructions).FontSize(12).TextColor(c.Theme().TextMuted)
-	ui.Button(c, "Copy configuration").Disabled(!helperReady).OnClick(func() {
+	if s.agent == agentconfig.ClaudeCode && s.modelID == "" && len(models) > 0 {
+		ui.Text(c, "For example: /model "+models[0].ID).FontSize(12).Selectable()
+	}
+	ui.Button(c, "Copy configuration").OnClick(func() {
 		mygo.Clipboard.WriteText(config)
 		s.notice = "Configuration copied."
 	})
 	if s.notice != "" {
 		ui.Text(c, s.notice).FontSize(12).TextColor(c.Theme().TextMuted)
 	}
-	ui.TextArea(c.Key("agent-config-"+p.ID+"-"+s.agent+"-"+s.modelID), &config).ReadOnly(true).Height(300).Font("Consolas").FontSize(12).Label("Generated agent configuration")
-	ui.Text(c, "The helper works while Copilot Chat is closed. It reads the selected account from the system credential store; this configuration contains no token. If sign-in expires, reconnect in Providers. Regenerate this configuration if you move the app.").FontSize(12).TextColor(c.Theme().TextMuted)
+	ui.TextArea(c.Key("agent-config-"+p.ID+"-"+s.agent+"-"+s.modelID), &config).ReadOnly(true).Height(230).Font("Consolas").FontSize(12).Label("Generated agent configuration")
+	ui.Text(c, "Keep Copilot Chat running. This fixed local key authorizes enabled providers through the loopback endpoint; it is not your upstream account token. Reconnect expired accounts in Providers.").FontSize(12).TextColor(c.Theme().TextMuted)
 }

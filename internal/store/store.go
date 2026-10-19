@@ -37,6 +37,9 @@ type Settings struct {
 	SidebarWidth         float32         `json:"sidebarWidth"`
 	SendWithEnter        bool            `json:"sendWithEnter"`
 	StayInTray           bool            `json:"stayInTray"`
+	LocalForwarding      bool            `json:"localForwarding"`
+	LocalPort            int             `json:"localPort"`
+	LocalKey             string          `json:"localKey,omitempty"` // Local gateway key only; never an upstream credential.
 	AutomaticUpdates     bool            `json:"automaticUpdates"`
 	UpdateIntervalHours  int             `json:"updateIntervalHours"`
 	LastUpdateCheck      time.Time       `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
@@ -129,6 +132,7 @@ func DefaultState() State {
 		Settings: Settings{
 			Theme: "system", FontSize: 16, SidebarWidth: DefaultSidebarWidth, SendWithEnter: true, ChatTitle: true,
 			AutomaticUpdates: true, UpdateIntervalHours: DefaultUpdateIntervalHours,
+			LocalPort:        39321,
 			ActiveProviderID: DefaultProviderID, Providers: []Provider{DefaultProvider()},
 		},
 		Conversations: []Conversation{},

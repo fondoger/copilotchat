@@ -74,16 +74,6 @@ func TestSignedPlatforms(t *testing.T) {
 	}
 }
 
-func TestHelperIsRequiredInNewUpdates(t *testing.T) {
-	for _, target := range []string{"windows-amd64", "darwin-arm64"} {
-		o, _ := signedFixture(t, target)
-		o.requireHelper = true
-		if err := verify(o); err == nil || !strings.Contains(err.Error(), "copilot-chat-api-key-helper") {
-			t.Fatal("missing helper accepted", err)
-		}
-	}
-}
-
 func TestRejectAlteredSignedUpdates(t *testing.T) {
 	for _, test := range []struct {
 		name string

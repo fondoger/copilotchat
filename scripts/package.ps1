@@ -30,9 +30,6 @@ try {
         Invoke-CheckedCommand -Command go -Arguments @('tool', 'mygo', 'vet')
     }
 
-    # Build the helper before MyGo collects resources, signs, and creates updates.
-    ./scripts/build-helper.ps1 -Platform $Platform
-
     # MyGo includes resources/licenses automatically and the explicit resources
     # in mygo.json before making either installer. Do not add files after signing.
     foreach ($notice in @('README.md', 'THIRD_PARTY_NOTICES.md')) {
@@ -67,14 +64,6 @@ try {
             throw "MyGo did not produce the required artifact: $path"
         }
     }
-    $helperName = if ($goos -eq 'windows') { 'copilot-chat-api-key-helper.exe' } else { 'copilot-chat-api-key-helper' }
-    $helperPath = Join-Path $resourceRoot $helperName
-    if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) { throw 'Packaged credential helper is missing.' }
-    $helperInfo = & go version -m $helperPath
-    if ($LASTEXITCODE -ne 0 -or ($helperInfo -join "`n") -notmatch "\bGOOS=$goos\b" -or ($helperInfo -join "`n") -notmatch "\bGOARCH=$goarch\b") {
-        throw 'Credential helper architecture does not match the application.'
-    }
-    Invoke-CheckedCommand -Command $helperPath -Arguments @('--help')
     $buildInfo = & go version -m $executable
     if ($LASTEXITCODE -ne 0 -or ($buildInfo -join "`n") -notmatch "\bGOOS=$goos\b" -or ($buildInfo -join "`n") -notmatch "\bGOARCH=$goarch\b") {
         throw "Executable does not contain the expected $Platform build metadata."
@@ -119,7 +108,6 @@ try {
         foreach ($notice in @('README.md', 'THIRD_PARTY_NOTICES.md')) {
             if ($entries -cnotcontains "$noticePrefix$notice") { throw "ZIP is missing $notice." }
         }
-        if ($entries -cnotcontains "$noticePrefix$helperName") { throw 'ZIP is missing the credential helper.' }
         if (-not ($entries | Where-Object { $_.StartsWith("${noticePrefix}licenses/") -and -not $_.EndsWith('/') })) {
             throw 'ZIP is missing third-party licenses.'
         }

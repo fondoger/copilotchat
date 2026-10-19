@@ -129,7 +129,6 @@ function Assert-ReleaseUpdateArtifacts {
         $verifyArguments = @('run', (Join-Path $PSScriptRoot 'verify-update/main.go'),
             '-archive', $archive, '-manifest', $manifest, '-version', $Config.version, '-url', $asset.URL,
             '-public-key', $Config.updates.publicKey, '-app-name', $Config.name, '-target', $asset.Target)
-        if ([version]$Config.version -ge [version]'0.4.2') { $verifyArguments += '-require-helper' }
         Invoke-CheckedCommand -Command go -Arguments $verifyArguments
     }
 }

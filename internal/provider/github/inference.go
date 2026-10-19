@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/fondoger/copilotchat/internal/provider"
 )
@@ -38,7 +39,7 @@ func (c *Client) PrepareInference(ctx context.Context, request provider.Request,
 	if vision {
 		req.Header.Set("Copilot-Vision-Request", "true")
 	}
-	if model.Endpoint == "/v1/messages" {
+	if strings.HasPrefix(model.Endpoint, "/v1/messages") {
 		req.Header.Set("anthropic-version", "2023-06-01")
 		req.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
 	}

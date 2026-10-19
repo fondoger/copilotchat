@@ -7,7 +7,3 @@ release/
 *.log
 coverage.out
 mygo-update.key
-resources/windows-amd64/copilot-chat-api-key-helper.exe
-resources/windows-arm64/copilot-chat-api-key-helper.exe
-resources/darwin-amd64/copilot-chat-api-key-helper
-resources/darwin-arm64/copilot-chat-api-key-helper

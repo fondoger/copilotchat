@@ -1,4 +1,4 @@
-// Package agentconfig builds token-free configuration for direct agent access.
+// Package agentconfig builds copyable configuration for the local agent API.
 package agentconfig
 
 import (
@@ -8,11 +8,9 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -20,9 +18,9 @@ const ClaudeCode = "Claude Code"
 const Codex = "Codex / ChatGPT Desktop"
 
 type Options struct {
-	Provider                            store.Provider
-	Model                               provider.Model
-	Agent, Helper, DataDir, BaseURL, OS string
+	Provider            store.Provider
+	Model               provider.Model
+	Agent, BaseURL, Key string
 }
 
 func Compatible(model provider.Model, agent string) bool {
@@ -45,113 +43,30 @@ func Generate(o Options) (string, error) {
 	if o.Provider.ID == "" || o.Provider.Disabled {
 		return "", errors.New("select an enabled provider")
 	}
-	if o.Model.ID == "" || !Compatible(o.Model, o.Agent) {
-		return "", errors.New("this model does not advertise the protocol required by the selected agent")
+	if o.Agent != ClaudeCode && o.Agent != Codex {
+		return "", errors.New("select a supported agent")
 	}
-	if o.Helper == "" || o.DataDir == "" {
-		return "", errors.New("could not locate the bundled helper or settings directory")
+	if (o.Agent != ClaudeCode || o.Model.ID != "") && !Compatible(o.Model, o.Agent) {
+		return "", errors.New("model does not support this agent's protocol")
 	}
 	u, err := url.Parse(o.BaseURL)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", errors.New("invalid provider API endpoint")
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/providers/"+o.Provider.ID {
+		return "", errors.New("invalid local provider endpoint")
 	}
-	headers := map[string]string{"User-Agent": provider.UserAgent}
-	switch o.Provider.Kind {
-	case store.ProviderKindM365:
-		if o.BaseURL != microsoft.BaseURL {
-			return "", errors.New("unexpected Microsoft 365 API endpoint")
-		}
-		headers["X-ClientType"] = "GitHub"
-	case store.ProviderKindGitHub:
-		host := strings.ToLower(u.Hostname())
-		valid := o.Provider.Host == "github.com" && (host == "githubcopilot.com" || strings.HasSuffix(host, ".githubcopilot.com"))
-		valid = valid || (strings.HasSuffix(o.Provider.Host, ".ghe.com") && strings.HasSuffix(host, "."+o.Provider.Host))
-		if !valid || (u.Path != "" && u.Path != "/") {
-			return "", errors.New("unexpected GitHub Copilot API endpoint")
-		}
-		headers["X-GitHub-Api-Version"] = "2026-08-01"
-		headers["Openai-Intent"] = "conversation-edits"
-		headers["X-Interaction-Type"] = "conversation-agent"
-		headers["x-initiator"] = "user"
-		if o.Model.Vision {
-			headers["Copilot-Vision-Request"] = "true"
-		}
-	default:
-		return "", errors.New("unsupported provider kind")
+	if o.Key == "" {
+		return "", errors.New("enable local forwarding first")
 	}
-	args := []string{"--provider", o.Provider.ID, "--data-dir", o.DataDir}
-	keys := make([]string, 0, len(headers))
-	for key := range headers {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 	if o.Agent == ClaudeCode {
-		command, err := shellCommand(o.OS, o.Helper, args)
-		if err != nil {
-			return "", err
+		env := map[string]string{"ANTHROPIC_BASE_URL": o.BaseURL, "ANTHROPIC_AUTH_TOKEN": o.Key, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}
+		if o.Model.ID != "" {
+			env["ANTHROPIC_MODEL"] = o.Model.ID
 		}
-		lines := make([]string, 0, len(headers))
-		for _, key := range keys {
-			lines = append(lines, key+": "+headers[key])
-		}
-		config := map[string]any{
-			"apiKeyHelper": command,
-			"env": map[string]string{
-				"ANTHROPIC_BASE_URL":                strings.TrimRight(o.BaseURL, "/"),
-				"ANTHROPIC_MODEL":                   o.Model.ID,
-				"ANTHROPIC_DEFAULT_OPUS_MODEL":      o.Model.ID,
-				"ANTHROPIC_DEFAULT_SONNET_MODEL":    o.Model.ID,
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL":     o.Model.ID,
-				"ANTHROPIC_SMALL_FAST_MODEL":        o.Model.ID,
-				"ANTHROPIC_CUSTOM_HEADERS":          strings.Join(lines, "\n"),
-				"CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
-			},
-		}
-		data, err := json.MarshalIndent(config, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"env": env}, "", "  ")
 		return string(data) + "\n", err
 	}
 	id := fmt.Sprintf("copilot_chat_%x", sha256.Sum256([]byte(o.Provider.ID)))[:29]
 	var out strings.Builder
-	fmt.Fprintf(&out, "model_provider = %s\nmodel = %s\n\n[model_providers.%s]\nname = %s\nbase_url = %s\nwire_api = \"responses\"\nhttp_headers = { ", quote(id), quote(o.Model.ID), id, quote(o.Provider.Name), quote(strings.TrimRight(o.BaseURL, "/")))
-	for i, key := range keys {
-		if i > 0 {
-			out.WriteString(", ")
-		}
-		fmt.Fprintf(&out, "%s = %s", quote(key), quote(headers[key]))
-	}
-	out.WriteString(" }\n")
-	fmt.Fprintf(&out, "\n[model_providers.%s.auth]\ncommand = %s\nargs = [%s]\ntimeout_ms = 75000\nrefresh_interval_ms = 300000\n", id, quote(o.Helper), quotedArgs(args))
+	fmt.Fprintf(&out, "model_provider = %s\nmodel = %s\n\n[model_providers.%s]\nname = %s\nbase_url = %s\nwire_api = \"responses\"\nexperimental_bearer_token = %s\n", quote(id), quote(o.Model.ID), id, quote(o.Provider.Name), quote(o.BaseURL), quote(o.Key))
 	return out.String(), nil
 }
-
 func quote(value string) string { data, _ := json.Marshal(value); return string(data) }
-func quotedArgs(args []string) string {
-	quoted := make([]string, len(args))
-	for i, arg := range args {
-		quoted[i] = quote(arg)
-	}
-	return strings.Join(quoted, ", ")
-}
-
-func shellCommand(goos, helper string, args []string) (string, error) {
-	values := append([]string{helper}, args...)
-	if goos == "windows" {
-		// Claude Code executes apiKeyHelper through cmd.exe on Windows.
-		// Invoke the executable directly; double quotes protect spaces and
-		// cmd metacharacters. Refuse values that could expand environment
-		// variables (including delayed expansion) or break out of the quotes.
-		for i, value := range values {
-			if strings.ContainsAny(value, "%!\"\x00\r\n") {
-				return "", errors.New("Windows Claude Code helper paths and arguments cannot contain %, !, double quotes, or line breaks")
-			}
-			// The native argv parser consumes a backslash before a closing quote.
-			trailing := len(value) - len(strings.TrimRight(value, `\`))
-			values[i] = `"` + value + strings.Repeat(`\`, trailing) + `"`
-		}
-		return strings.Join(values, " "), nil
-	}
-	for i, value := range values {
-		values[i] = "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-	}
-	return strings.Join(values, " "), nil
-}

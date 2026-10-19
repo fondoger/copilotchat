@@ -80,7 +80,7 @@ func (c *Client) requestToken(ctx context.Context) (string, error) {
 
 func allowedEndpoint(endpoint string) bool {
 	switch endpoint {
-	case BaseURL + "/models", BaseURL + "/v1/messages", BaseURL + "/chat/completions", BaseURL + "/responses":
+	case BaseURL + "/models", BaseURL + "/v1/messages", BaseURL + "/v1/messages/count_tokens", BaseURL + "/chat/completions", BaseURL + "/responses":
 		return true
 	default:
 		return false
@@ -105,7 +105,7 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body any, toke
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", provider.UserAgent)
-	req.Header.Set("X-ClientType", "GitHub")
+	serviceHeaders(req.Header, "", false)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -134,11 +134,13 @@ func (c *Client) PrepareInference(ctx context.Context, request provider.Request,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("User-Agent", provider.UserAgent)
-	req.Header.Set("X-ClientType", "GitHub")
-	if request.ConversationID != "" {
-		req.Header.Set("X-ConversationId", request.ConversationID)
+	conversation := request.ConversationID
+	if conversation == "" {
+		conversation = provider.RequestID()
 	}
-	if model.Endpoint == "/v1/messages" {
+	agent := request.Background || (len(request.Messages) > 0 && request.Messages[len(request.Messages)-1].Role != "user")
+	serviceHeaders(req.Header, conversation, agent)
+	if strings.HasPrefix(model.Endpoint, "/v1/messages") {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 	return req, nil

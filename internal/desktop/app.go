@@ -14,11 +14,12 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/fondoger/copilotchat/internal/appupdate"
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/mcp"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.4.3"
+const version = "0.5.0"
 
 type toolApproval struct {
 	Server, Name, Arguments string
@@ -68,6 +69,11 @@ type app struct {
 	renameID, renameText, deleteID string
 	renameOpen, deleteOpen         bool
 	editMessageID, editText        string
+
+	forwarder                        *localproxy.Server
+	forwardError, startupError       string
+	openAtLogin, forwardQuitApproved bool
+	confirmForwarding                func(string, string, string) bool
 }
 
 func Run(dataDir string) error {
@@ -98,11 +104,16 @@ func Run(dataDir string) error {
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 	mygo.App.OnActivate(func(bool) { a.show() })
 	mygo.App.OnBeforeQuit(func(event *mygo.QuitEvent) {
+		if !a.allowForwardingQuit() {
+			event.PreventDefault()
+			return
+		}
 		if a.deferQuitForUpdate() {
 			event.PreventDefault()
 			return
 		}
 		a.quitting = true
+		a.stopForwarding()
 		a.stopUpdates()
 		a.closePreview()
 		a.stop()
@@ -134,6 +145,13 @@ func Run(dataDir string) error {
 			}
 		})
 		a.syncTray()
+		a.openAtLogin = mygo.App.OpenAtLogin()
+		if a.state.Settings.LocalForwarding {
+			a.startForwarding()
+		}
+		if mygo.App.WasOpenedAtLogin() && a.tray != nil {
+			a.win.Hide()
+		}
 		a.startProviderRefreshLoop()
 		a.startUpdates()
 	})
@@ -175,6 +193,7 @@ func (a *app) update(fn func()) {
 	}
 	a.win.Update(func() {
 		fn()
+		a.syncForwardingProviders()
 		if a.settingsWin != nil {
 			a.settingsWin.Invalidate()
 		}
@@ -182,6 +201,7 @@ func (a *app) update(fn func()) {
 }
 
 func (a *app) save() {
+	a.syncForwardingProviders()
 	if a.storage == nil {
 		return
 	}
@@ -261,6 +281,7 @@ func (a *app) selectChat(id string) {
 }
 
 func (a *app) openSettings(page string) {
+	a.openAtLogin = mygo.App.OpenAtLogin()
 	if page != "" {
 		a.settingsPage = page
 	}

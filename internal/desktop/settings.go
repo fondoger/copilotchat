@@ -133,12 +133,13 @@ func (a *app) generalSettings(c *ui.Context) {
 			})
 		})
 		settingsRow(c, "Keep running in the tray", "Closing the chat window keeps the app available from the system tray.", func() {
-			ui.Switch(c.Key("tray"), &a.state.Settings.StayInTray).Label("Keep running in the tray").OnChange(func() {
-				a.syncTray()
-				a.saveSettings()
-			})
+			ui.Switch(c.Key("tray"), &a.state.Settings.StayInTray).Label("Keep running in the tray").OnChange(a.changeStayInTray)
 		})
+		settingsRow(c, "Open at login", "Start Copilot Chat when you sign in to this computer.", func() { a.startupControl(c) })
 	})
+	if a.startupError != "" {
+		ui.Text(c, a.startupError).TextColor(c.Theme().TextMuted)
+	}
 	a.updateSettings(c)
 }
 
