@@ -12,9 +12,9 @@ import (
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft/broker"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/cli"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/entra"
+	"github.com/fondoger/copilotchat/internal/provider/microsoft/wam"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -32,6 +32,15 @@ func (a *app) m365Client(id string, entry m365SavedSignIn) (provider.Client, int
 	var token microsoft.TokenSource
 	var renewable interface{ Revoke() }
 	switch entry.Mode {
+	case "windows-wam":
+		if entry.WAM == nil {
+			return nil, nil, errors.New("invalid Windows account; reconnect this provider")
+		}
+		source, err := wam.NewSource(*entry.WAM)
+		if err != nil {
+			return nil, nil, err
+		}
+		account, token, renewable = entry.WAM.Account, source.Token, source
 	case "copilot-cli", "copilot-broker":
 		if entry.CLI == nil {
 			return nil, nil, errors.New("invalid Copilot CLI account; reconnect this provider")
@@ -127,7 +136,11 @@ func (a *app) finishM365Login(id string, epoch uint64, ctx context.Context, canc
 		r.client, r.m365Auth, r.models, r.modelsLoaded = client, source, nil, false
 		r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 		r.status, r.credentialNotice = "Connected.", ""
-		a.provider(id).Login = entry.CLI.Account.Username
+		if entry.Mode == "windows-wam" {
+			a.provider(id).Login = entry.WAM.Account.Username
+		} else {
+			a.provider(id).Login = entry.CLI.Account.Username
+		}
 		if secretErr != nil {
 			r.credentialNotice = "Connected for this session. Could not save sign-in: " + secretErr.Error()
 		}
@@ -144,25 +157,19 @@ func (a *app) beginM365Login(id string) {
 	if !ok {
 		return
 	}
-	home, err := a.m365BrokerHome(id)
-	if err != nil {
-		a.failedM365Login(id, epoch, ctx, cancel, err)
+	owner := a.settingsWin
+	if owner == nil {
+		owner = a.win
+	}
+	if owner == nil {
+		a.failedM365Login(id, epoch, ctx, cancel, errors.New("Microsoft sign-in requires an application window"))
 		return
 	}
+	hwnd := owner.NativeHandle()
 	go func() {
-		err := broker.SignIn(ctx, home)
-		var reference cli.Reference
-		if err == nil {
-			reference, err = cli.SelectedAt(home)
-		}
-		if err == nil {
-			var source *cli.Source
-			source, err = cli.NewBrokerSource(reference, home)
-			if err == nil {
-				_, err = source.Token(ctx)
-				source.Revoke()
-			}
-		}
+		loginCtx, loginCancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer loginCancel()
+		reference, err := wam.SignIn(loginCtx, hwnd)
 		if ctx.Err() != nil {
 			cancel()
 			return
@@ -171,7 +178,7 @@ func (a *app) beginM365Login(id string) {
 			a.failedM365Login(id, epoch, ctx, cancel, err)
 			return
 		}
-		a.finishM365Login(id, epoch, ctx, cancel, m365SavedSignIn{Version: 1, Mode: "copilot-broker", CLI: &reference})
+		a.finishM365Login(id, epoch, ctx, cancel, m365SavedSignIn{Version: 1, Mode: "windows-wam", WAM: &reference})
 	}()
 }
 

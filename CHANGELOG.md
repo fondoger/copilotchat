@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Sign in to Microsoft 365 directly with Windows Web Account Manager, without Copilot CLI or additional authentication DLLs. Each new provider opens the system account picker.
+- Bind silent token renewal to the selected Windows account and cancel pending renewal when the provider signs out.
+- Keep Copilot CLI account reuse available, including on macOS. Existing CLI-backed providers can sign out and use Sign in with Microsoft to switch to native WAM on Windows.
+- Simplify the README and keep a single light-theme screenshot.
+
 ## 0.4.0
 
 - Add Microsoft 365 Copilot providers with Windows WAM sign-in and existing Copilot CLI account reuse. A compatible local Copilot CLI and account access to the model service are required.

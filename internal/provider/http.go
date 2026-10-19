@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const UserAgent = "CopilotChatNative/0.4.0"
+const UserAgent = "CopilotChatNative/0.4.1"
 
 // NewHTTPClient never follows redirects carrying account credentials.
 func NewHTTPClient() *http.Client {

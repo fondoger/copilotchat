@@ -56,7 +56,7 @@ Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot and Micr
 | macOS 12+ | Intel x64 | ``copilotchat-$($config.version)-macos-x64.dmg`` or ``copilotchat-$($config.version)-macos-x64.zip`` |
 | macOS 12+ | Apple silicon | ``copilotchat-$($config.version)-macos-arm64.dmg`` or ``copilotchat-$($config.version)-macos-arm64.zip`` |
 
-Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. The four native CI targets run automated tests and packaging checks; this does not claim interactive testing on a physical Mac. See the README for installation and troubleshooting. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party notices and license texts.
+Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. The four native CI targets run automated tests and packaging checks; this does not claim interactive testing on a physical Mac. See the [build documentation](https://github.com/fondoger/copilotchat/blob/main/docs/building.md) for platform requirements. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party notices and license texts.
 "@
     if ($updateReleaseNotes) {
         $notes += "`n## Changes`n`n$updateReleaseNotes`n"

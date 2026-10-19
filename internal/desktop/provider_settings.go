@@ -201,9 +201,9 @@ func (a *app) providerSettings(c *ui.Context) {
 			}
 		})
 		if microsoft {
-			help := "Windows WAM is available on Windows. Use a work account already signed in to Copilot CLI on this platform."
+			help := "Native Microsoft sign-in requires Windows. On this platform, use a Copilot CLI work account."
 			if runtime.GOOS == "windows" {
-				help = "Microsoft sign-in opens Windows WAM through Copilot CLI. Or use the work account already selected in Copilot CLI."
+				help = "Windows WAM sign-in does not require Copilot CLI. You can also reuse a CLI work account."
 			}
 			ui.Text(c, help).FontSize(11).TextColor(t.TextMuted)
 		}

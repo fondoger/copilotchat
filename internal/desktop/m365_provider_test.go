@@ -8,12 +8,59 @@ import (
 
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/cli"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/entra"
+	"github.com/fondoger/copilotchat/internal/provider/microsoft/wam"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
 type boundedCredentials struct {
 	memoryCredentials
 	failKey string
+}
+
+func TestM365NativeWAMReferenceRestoresWithoutCLIAndStaysOutOfState(t *testing.T) {
+	a := providerTestApp(t)
+	id, err := a.addProviderKind(store.ProviderKindM365, "Native work", store.M365ProviderHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := m365SavedSignIn{Version: 1, Mode: "windows-wam", WAM: &wam.Reference{
+		ID:      "opaque-windows-account-fixture",
+		Account: entra.Account{ID: "12345678-1234-1234-1234-123456789abc", TenantID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", Username: "work@example.test"},
+	}}
+	if err := saveM365SignIn(a.credentials(), id, entry); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "") // Restoring a native account must not launch/locate the CLI.
+	a.loadM365Provider(*a.provider(id), a.providerState(id))
+	if a.clientForProvider(id) == nil || a.providerState(id).m365Auth == nil {
+		t.Fatal("native WAM account did not restore independently")
+	}
+	loaded, err := loadM365SignIn(a.credentials(), id)
+	if err != nil || loaded.Mode != "windows-wam" || loaded.WAM == nil || loaded.WAM.ID != entry.WAM.ID || loaded.CLI != nil {
+		t.Fatal("native account did not round trip through the credential vault", err)
+	}
+	a.saveSettings()
+	data, _ := json.Marshal(settingsSavedState(t, a))
+	if strings.Contains(string(data), entry.WAM.ID) || strings.Contains(string(data), entry.WAM.Account.ID) {
+		t.Fatal("native WAM account reference leaked to state.json")
+	}
+	a.signOutProvider(id)
+	if a.clientForProvider(id) != nil || a.providerState(id).m365Auth != nil {
+		t.Fatal("native WAM source survived sign-out")
+	}
+	if _, err := loadM365SignIn(a.credentials(), id); err == nil {
+		t.Fatal("native sign-out retained its saved account reference")
+	}
+}
+
+func TestM365NativeWAMRejectsMissingOrInvalidReference(t *testing.T) {
+	a := providerTestApp(t)
+	for _, ref := range []*wam.Reference{nil, {}, {ID: "opaque-id"}} {
+		client, source, err := a.m365Client("native", m365SavedSignIn{Version: 1, Mode: "windows-wam", WAM: ref})
+		if err == nil || client != nil || source != nil {
+			t.Fatal("invalid native account reference was accepted")
+		}
+	}
 }
 
 func (s *boundedCredentials) Set(key string, value []byte) error {

@@ -1,5 +1,5 @@
 // Package entra validates account identity for the Microsoft 365 Copilot gateway.
-// Authentication and renewal belong to Copilot CLI and its WAM/native broker.
+// Authentication and renewal belong to Windows WAM or the selected Copilot CLI.
 // Some organizations restrict device-code grants or browser redirect flows, so
 // this provider deliberately uses the broker or an existing CLI sign-in instead
 // of implementing those alternative login flows.
@@ -65,7 +65,7 @@ func validateAccessToken(token string, expected Account, now time.Time) (Account
 	if claims.Audience != Resource {
 		return Account{}, time.Time{}, errors.New("this Microsoft account token is not for the configured Microsoft 365 model gateway")
 	}
-	// Copilot CLI signs in through the organizations authority. The selected
+	// WAM and Copilot CLI use the organizations authority. The selected
 	// account supplies its tenant; the gateway still decides service access.
 	claims.Tenant = strings.ToLower(claims.Tenant)
 	claims.ObjectID = strings.ToLower(claims.ObjectID)

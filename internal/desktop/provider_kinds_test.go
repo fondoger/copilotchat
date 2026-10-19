@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -38,6 +39,13 @@ func TestProviderPickerAddsMicrosoftWithoutChangingGitHub(t *testing.T) {
 	}
 	if !tester.HasText("Use Copilot CLI sign-in") {
 		t.Fatal("Microsoft provider did not offer the existing Copilot CLI sign-in")
+	}
+	if runtime.GOOS == "windows" {
+		if !tester.HasText("Windows WAM sign-in does not require Copilot CLI") {
+			t.Fatal("Windows Microsoft sign-in incorrectly requires Copilot CLI")
+		}
+	} else if !tester.HasText("On this platform, use a Copilot CLI work account") {
+		t.Fatal("Microsoft sign-in did not explain this platform's CLI requirement")
 	}
 	if _, ok := tester.Find("Microsoft 365 service domain"); ok {
 		t.Fatal("Microsoft provider must not display a service domain input")

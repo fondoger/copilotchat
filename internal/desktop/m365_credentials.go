@@ -10,12 +10,14 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft/cli"
+	"github.com/fondoger/copilotchat/internal/provider/microsoft/wam"
 )
 
 type m365SavedSignIn struct {
 	Version int            `json:"version"`
 	Mode    string         `json:"mode"`
 	CLI     *cli.Reference `json:"cli,omitempty"`
+	WAM     *wam.Reference `json:"wam,omitempty"`
 }
 
 type secretManifest struct {
@@ -76,7 +78,7 @@ func deleteSecretGeneration(secrets credentialStore, key string, generation secr
 
 // Windows Credential Manager limits each generic secret to 2560 bytes. Commit
 // a manifest only after all account-reference chunks exist. Access tokens remain
-// owned by Copilot CLI in the operating-system vault.
+// managed by Windows WAM or Copilot CLI; only account references are saved here.
 func saveM365SignIn(secrets credentialStore, id string, entry m365SavedSignIn) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
