@@ -1,19 +1,38 @@
 # 在 Claude Code / Codex 中使用 Copilot Chat
 
-Copilot Chat 内置本地转发服务。外部 Agent 只需要本地 Base URL 和固定的本地 key，上游账号的认证与续期由 Copilot Chat 负责。服务随主程序运行，无需独立 EXE、PowerShell、凭据 helper 或额外运行时。
+Copilot Chat 内置本地转发服务。外部 Agent 使用 profile 的 Base URL 和明文 key `copilotchat`，上游账号的认证与续期由 Copilot Chat 负责。服务随主程序运行，无需独立 EXE、PowerShell、凭据 helper 或额外运行时。
 
 ## 配置
 
 1. 在 **Settings → Providers** 登录 GitHub Copilot 或 Microsoft 365 Copilot，等待模型加载完成。
 2. 打开 **Settings → Extensions → Agent setup**，开启 **Local forwarding**。默认监听 `127.0.0.1:39321`；端口占用时可以关闭转发、更改端口后重新开启。
-3. 选择 Provider 和 Agent，复制生成的配置。每个 Provider 的地址形如 `http://127.0.0.1:39321/providers/<provider-id>`，不同账号不会互相回退。
-4. Claude Code 合并到 `~/.claude/settings.json`；Codex 合并到 `~/.codex/config.toml`，然后重启 Agent。界面会生成实际地址和 key，无需手工填写占位符。
+3. 新建或复制 profile，为它命名。在 **Shared models** 中组合不同 Provider 的模型，勾选要开放的模型，并编辑各自的 alias。修改自动保存。
+4. 选择 Agent，复制配置。Claude Code 合并到 `~/.claude/settings.json`；Codex 合并到 `~/.codex/config.toml`，然后重启 Agent。
 
-从旧版本升级时，删除原来的 `apiKeyHelper`、Provider `auth` 命令及旧的自定义 HTTP headers。Claude Code 还应清理冲突的 `ANTHROPIC_API_KEY`、环境变量及模型别名；Codex 删除旧的 `env_key`，避免多种认证配置同时生效。
+### Profile 与模型别名
 
-Claude Code 的模型可以留空，通过 `/model` 选择。生成配置会开启 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`；本地 `/v1/models` 将已加载、已启用且支持 Messages 的模型转换为 Claude Code 的目录格式。M365 原始服务的 `/models` 与这个接口不同，转换由转发层完成。
+每份 profile 都有独立的模型勾选状态、alias 和地址。例如：
 
-Codex 配置使用 `wire_api = "responses"`，并通过 `experimental_bearer_token` 保存固定本地 key。此处的 key 只用于本机服务，不是 Microsoft 或 GitHub 令牌。Codex 模型选择框只列出支持 Responses 的模型；不会将仅支持 Messages 的 Claude 模型伪装成 Responses 模型。
+```text
+http://127.0.0.1:39321/my-claude-code-profile
+http://127.0.0.1:39321/my-codex-profile
+```
+
+名称使用 1–64 个英文字母、数字、连字符或下划线，并以字母或数字开头。重命名会改变 URL，需重新复制配置；旧地址立即停止服务。删除 profile 会撤销其进行中的请求，其他 profile 不受影响。复制 profile 后，两份配置可以独立修改。
+
+默认勾选已加载的模型，alias 使用原模型 ID。同一 profile 出现重名时，依次使用 `gpt-5.5`、`gpt-5.5 (2)` 等名字。同一 profile 的 alias 必须唯一，不同 profile 可以重名。模型刷新、Provider 暂时离线或禁用都不会重新编号。新加载的模型会自动加入；已取消的勾选会保留。
+
+模型 API 的 `id`、`name`、`display_name` 均为 alias；Codex 目录的 `slug` 也为 alias。推理时，转发层根据当前 profile 的 alias 找到唯一的 Provider 和真实模型 ID，不会在其他账号或 profile 中回退。
+
+Provider 页面隐藏的模型仍不会开放给 Agent；profile 可以进一步缩小模型范围。模型的实际 API 能力也保持不变：改名不会把 Messages 模型转换为 Responses 模型。
+
+从 0.5.0 升级后，需要重新复制配置：原来的 `/providers/<id>` 地址已改为 profile 地址，自动生成的长 key 改为 `copilotchat`。更早版本还需删除 `apiKeyHelper`、Provider `auth` 命令及自定义 HTTP headers。清理冲突的 `ANTHROPIC_API_KEY`、环境变量和 Codex 的旧 `env_key`。
+
+Claude Code 的模型可以留空，通过 `/model` 选择。生成配置会开启 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`；`/<profile>/v1/models` 返回当前 profile 中支持 Messages 的模型。Claude Code 自身只自动发现 ID 中包含 `claude` 或 `anthropic` 的模型，因此建议在 Claude profile 使用这类 alias，例如 `claude-work`。其他 alias 仍可在配置页面显式选为 `ANTHROPIC_MODEL`。改名后重启 Claude Code 刷新目录。
+
+Codex 配置使用 `wire_api = "responses"` 和 `experimental_bearer_token = "copilotchat"`。本机验证的 Codex 0.146.0 尚不支持 `model_catalog_url`，因此生成配置采用 `model_catalog_json`：Copilot Chat 将每份 profile 的目录写入自己的数据目录，在模型或 alias 改动时自动更新。复制配置即可，无需手工创建文件；改动后重启 Codex 加载新列表。只列出支持 Responses 的模型。
+
+服务同时提供 `/<profile>/models`（通用目录）和 `/<profile>/codex/models`（Codex 原生目录 API）。支持 `model_catalog_url` 的客户端可以使用后者。原生目录要求指令模板，使用随应用分发的 Codex 官方通用默认模板，来源与许可见第三方声明。
 
 ## 常驻与开机自启
 
@@ -27,7 +46,7 @@ Agent setup 会分别显示托盘常驻、开机自启的“推荐开启”或�
 
 M365 推理要求 `X-ConversationId`。不能在复制的配置中写死一个所有聊天共用的值，也不能每一轮都换成新的 ID。
 
-转发层依次读取以下标识，并用 Provider ID、标识来源及原值生成稳定的 UUIDv5：
+转发层依次读取以下标识，并用 profile 的内部 ID、Provider ID、标识来源及原值生成稳定的 UUIDv5：
 
 | 来源 | 使用的标识 |
 | --- | --- |
@@ -36,7 +55,7 @@ M365 推理要求 `X-ConversationId`。不能在复制的配置中写死一个�
 | 较早的 Codex | `session_id` |
 | 其他客户端 | 显式提供的 `X-ConversationId` |
 
-同一 Provider、同一会话在多轮请求及 Copilot Chat 重启后保持一致；不同 Provider 或会话使用不同值。Codex 的 `session-id` 可能用于共享缓存亲和性，因此有真实 `thread-id` 时优先使用它。没有任何会话标识的客户端会被视为独立调用，每次生成新 ID；需要连续会话时应传入 `X-ConversationId`。
+同一 profile、Provider 和会话在多轮请求及 Copilot Chat 重启后保持一致；不同 profile、Provider 或会话使用不同值。profile 重命名不会改变内部 ID。Codex 的 `session-id` 可能用于共享缓存亲和性，因此有真实 `thread-id` 时优先使用它。没有任何会话标识的客户端会被视为独立调用，每次生成新 ID；需要连续会话时应传入 `X-ConversationId`。
 
 Copilot Chat 自身的聊天直接使用已保存的聊天 ID，后续追问和重新打开聊天不会改变它。后台标题请求也关联对应聊天。GitHub Provider 继续使用自身的会话亲和性请求头。
 
@@ -60,15 +79,15 @@ Copilot Chat 自身的聊天直接使用已保存的聊天 ID，后续追问和�
 
 ### 协议与缓存
 
-支持 `POST /v1/messages`、`POST /responses`、`POST /chat/completions`，以及 OpenAI 风格的 `/v1/responses`、`/v1/chat/completions` 别名。`/v1/messages/count_tokens` 转给上游；服务不支持时返回其错误，不捏造 token 数量。暂不提供 Responses WebSocket、远程压缩、文件上传、Batch 等其他 API。
+在 profile Base URL 下支持 `POST /v1/messages`、`POST /responses`、`POST /chat/completions`，以及 OpenAI 风格的 `/v1/responses`、`/v1/chat/completions` 路径。`/v1/messages/count_tokens` 转给上游；服务不支持时返回其错误，不捏造 token 数量。暂不提供 Responses WebSocket、远程压缩、文件上传、Batch 等其他 API。
 
-请求 JSON 与响应正文原样传输，包括工具调用、图片、thinking 签名、`cache_control`、未知扩展字段和缓存用量。SSE 数据到达后立即刷新到 Agent，不等待整条回答结束。转发层不会重写系统提示词、拼接本地历史、注入工具或自动重试推理请求。`Anthropic-Version`、`Anthropic-Beta`、`OpenAI-Beta` 和 `beta=true` 会透传；其他客户端私有请求头不直接送往上游。
+请求仅将顶层 `model` 从 alias 映射为上游模型 ID；工具调用、图片、thinking 签名、`cache_control` 和未知扩展字段的内容保持不变。上游响应正文原样传输，包括真实模型 ID 和缓存用量。SSE 数据到达后立即刷新到 Agent，不等待整条回答结束。转发层不会重写推理请求的系统提示词、拼接本地历史、注入工具或自动重试推理请求。`Anthropic-Version`、`Anthropic-Beta`、`OpenAI-Beta` 和 `beta=true` 会透传；其他客户端私有请求头不直接送往上游。
 
 缓存是否命中仍取决于上游和 Agent 的提示词。稳定会话 ID 与保留缓存标记有助于维持请求语义，但不能保证每次命中。上游的 `cache_read_input_tokens`、`cached_tokens` 等字段会原样返回，不会被统一写成 0。
 
 ### 认证与生命周期
 
-服务仅绑定 IPv4 `127.0.0.1`。支持 `Authorization: Bearer <local-key>` 或 `x-api-key: <local-key>`；拒绝浏览器 Origin 请求。第一次开启时生成随机 key，并以明文保存到本地设置，之后保持不变。该 key 可访问本应用内已启用且已连接的 Provider，应像其他本地凭据一样保管。
+服务仅绑定 IPv4 `127.0.0.1`。支持 `Authorization: Bearer copilotchat` 或 `x-api-key: copilotchat`；拒绝浏览器 Origin 请求。`copilotchat` 是易读的本机明文 key，不是 Microsoft 或 GitHub 令牌。它适用于全部 profile；profile 用于组织模型，不是不同用户之间的权限边界。
 
 转发前替换为所选 Provider 的上游认证。上游令牌不返回给 Agent，不复制 Agent 的 Cookie，也不跟随上游重定向。没有任意 URL 转发入口。单次请求正文上限为 32 MiB。
 

@@ -1,10 +1,11 @@
 package desktop
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -13,6 +14,7 @@ import (
 )
 
 func (a *app) syncForwardingProviders() {
+	a.reconcileForwardModels()
 	if a.forwarder == nil {
 		return
 	}
@@ -20,10 +22,38 @@ func (a *app) syncForwardingProviders() {
 	for _, p := range a.state.Settings.Providers {
 		client, ok := a.clientForProvider(p.ID).(provider.RawClient)
 		if ok {
-			targets[p.ID] = localproxy.Target{Client: client, Models: a.providerModels(p.ID)}
+			targets[p.ID] = localproxy.Target{Client: client}
 		}
 	}
-	a.forwarder.Update(targets)
+	profiles := map[string]localproxy.Profile{}
+	for i := range a.state.Settings.ForwardProfiles {
+		profile := &a.state.Settings.ForwardProfiles[i]
+		models := a.forwardingModels(profile)
+		profiles[profile.Name] = localproxy.Profile{ID: profile.ID, Models: models}
+		a.syncForwardCatalog(profile.ID, models)
+	}
+	a.forwarder.Update(targets, profiles)
+}
+
+func (a *app) syncForwardCatalog(id string, models []localproxy.Model) {
+	if a.storage == nil {
+		return
+	}
+	if a.forwardCatalogs == nil {
+		a.forwardCatalogs = map[string][32]byte{}
+		a.forwardCatalogErrors = map[string]string{}
+	}
+	data, _ := json.Marshal(models)
+	hash := sha256.Sum256(data)
+	if a.forwardCatalogs[id] == hash {
+		return
+	}
+	if err := a.storage.SaveAgentCatalog(id, localproxy.CodexCatalog(models)); err != nil {
+		a.forwardCatalogErrors[id] = "Could not update the Codex model catalog: " + err.Error()
+		return
+	}
+	a.forwardCatalogs[id] = hash
+	delete(a.forwardCatalogErrors, id)
 }
 
 func (a *app) startForwarding() {
@@ -42,13 +72,8 @@ func (a *app) startForwarding() {
 	if s.LocalPort < 1024 || s.LocalPort > 65535 {
 		s.LocalPort = localproxy.DefaultPort
 	}
-	if s.LocalKey == "" {
-		var key [32]byte
-		if _, err := rand.Read(key[:]); err != nil {
-			a.forwardError = "Could not generate a local API key."
-			return
-		}
-		s.LocalKey = "cc-local-" + hex.EncodeToString(key[:])
+	if s.LocalKey == "" || (strings.HasPrefix(s.LocalKey, "cc-local-") && len(s.LocalKey) == 73) {
+		s.LocalKey = localproxy.DefaultKey
 	}
 	// Persist the key before exposing the endpoint so restart cannot silently
 	// change a copied configuration after a failed settings write.
@@ -149,6 +174,11 @@ func (a *app) forwardingSettings(c *ui.Context) {
 			})
 		})
 	})
+	key := s.LocalKey
+	if key == "" || (strings.HasPrefix(key, "cc-local-") && len(key) == 73) {
+		key = localproxy.DefaultKey
+	}
+	ui.Text(c, "Local API key: "+key).FontSize(12).Selectable()
 	tray := "Recommended: enable Keep running in the tray in General settings."
 	if s.StayInTray {
 		tray = "Keep running in the tray is enabled."

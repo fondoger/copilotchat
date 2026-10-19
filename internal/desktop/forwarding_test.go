@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/fondoger/copilotchat/internal/localproxy"
 )
 
 func TestForwardingQuitAndTrayConfirmation(t *testing.T) {
@@ -57,8 +59,8 @@ func TestForwardingKeepsKeyAcrossBindFailureAndRestart(t *testing.T) {
 		t.Fatal("occupied port was not reported")
 	}
 	key := a.state.Settings.LocalKey
-	if !strings.HasPrefix(key, "cc-local-") || len(key) != 73 {
-		t.Fatal("local key not generated")
+	if key != localproxy.DefaultKey {
+		t.Fatal("local key is not readable")
 	}
 	saved, err := a.storage.Load()
 	if err != nil || saved.Settings.LocalKey != key {

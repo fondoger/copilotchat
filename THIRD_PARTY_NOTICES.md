@@ -10,6 +10,8 @@ The application depends on MyGo and its Go text/rendering dependencies. Their fu
 | golang.org/x/image | v0.46.0 | BSD-3-Clause |
 | golang.org/x/text | v0.43.0 | BSD-3-Clause |
 
+The generic Codex instruction template in `internal/localproxy/codex/prompt.md` comes from [OpenAI Codex](https://github.com/openai/codex/blob/bb8f5304fcd9f901d8e0747fccb8c8904cbc504e/codex-rs/models-manager/prompt.md), revision `bb8f5304fcd9f901d8e0747fccb8c8904cbc504e`, copyright 2025 OpenAI, Apache-2.0. It supplies the required instruction template in Codex-native model catalogs. Its license and notice are distributed under `resources/licenses/codex/`.
+
 The Copilot wire protocol was independently implemented in Go using the public OpenCode provider implementation as a reference; upstream links are recorded in `docs/copilot.md`.
 
 The owner explicitly authorized copying UI icons and colors from their ChatWise 26.9.1 installation. The 37 SVG files under `internal/desktop/assets/icons/` are extracted from that installation, with CSS mask paint changed from black to `currentColor` for native tinting. Their paths and view boxes are preserved. `sources.json`, `sidebar-sources.json`, and `interaction-sources.json` record the packaged source, selectors, and source hashes. Of these files, 34 come from the eight public icon sets listed below; the remaining three are ChatWise's custom new-chat and two sidebar-toggle variants, used under the owner's permission. Copilot Chat retains its own application name and original launcher/tray artwork; the extracted application JavaScript and other packaged files are not distributed.

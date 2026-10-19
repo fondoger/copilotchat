@@ -2,7 +2,6 @@
 package agentconfig
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,17 +9,17 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/store"
 )
 
 const ClaudeCode = "Claude Code"
 const Codex = "Codex / ChatGPT Desktop"
 
 type Options struct {
-	Provider            store.Provider
 	Model               provider.Model
 	Agent, BaseURL, Key string
+	CatalogPath         string
 }
 
 func Compatible(model provider.Model, agent string) bool {
@@ -40,9 +39,6 @@ func Compatible(model provider.Model, agent string) bool {
 }
 
 func Generate(o Options) (string, error) {
-	if o.Provider.ID == "" || o.Provider.Disabled {
-		return "", errors.New("select an enabled provider")
-	}
 	if o.Agent != ClaudeCode && o.Agent != Codex {
 		return "", errors.New("select a supported agent")
 	}
@@ -50,8 +46,8 @@ func Generate(o Options) (string, error) {
 		return "", errors.New("model does not support this agent's protocol")
 	}
 	u, err := url.Parse(o.BaseURL)
-	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/providers/"+o.Provider.ID {
-		return "", errors.New("invalid local provider endpoint")
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !localproxy.ValidProfileName(strings.TrimPrefix(u.Path, "/")) {
+		return "", errors.New("invalid local endpoint")
 	}
 	if o.Key == "" {
 		return "", errors.New("enable local forwarding first")
@@ -64,9 +60,11 @@ func Generate(o Options) (string, error) {
 		data, err := json.MarshalIndent(map[string]any{"env": env}, "", "  ")
 		return string(data) + "\n", err
 	}
-	id := fmt.Sprintf("copilot_chat_%x", sha256.Sum256([]byte(o.Provider.ID)))[:29]
+	if o.CatalogPath == "" {
+		return "", errors.New("local Codex model catalog is unavailable")
+	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "model_provider = %s\nmodel = %s\n\n[model_providers.%s]\nname = %s\nbase_url = %s\nwire_api = \"responses\"\nexperimental_bearer_token = %s\n", quote(id), quote(o.Model.ID), id, quote(o.Provider.Name), quote(o.BaseURL), quote(o.Key))
+	fmt.Fprintf(&out, "model_provider = \"copilot_chat\"\nmodel = %s\nmodel_catalog_json = %s\n\n[model_providers.copilot_chat]\nname = \"Copilot Chat\"\nbase_url = %s\nwire_api = \"responses\"\nexperimental_bearer_token = %s\n", quote(o.Model.ID), quote(o.CatalogPath), quote(o.BaseURL), quote(o.Key))
 	return out.String(), nil
 }
 func quote(value string) string { data, _ := json.Marshal(value); return string(data) }

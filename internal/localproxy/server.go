@@ -1,7 +1,8 @@
-// Package localproxy hosts the app's loopback-only, account-scoped agent API.
+// Package localproxy hosts the app's loopback-only agent API.
 package localproxy
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,11 +24,29 @@ import (
 )
 
 const DefaultPort = 39321
+const DefaultKey = "copilotchat"
 const MaxBody = 32 << 20
 
 type Target struct {
 	Client provider.RawClient
-	Models []provider.Model
+}
+
+// Model is a public alias bound to exactly one account and upstream model.
+type Model struct {
+	ProviderID string
+	Alias      string
+	Model      provider.Model
+}
+
+type Profile struct {
+	ID     string
+	Models []Model
+}
+
+type profileEntry struct {
+	Profile
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type entry struct {
@@ -36,26 +56,31 @@ type entry struct {
 }
 
 type Server struct {
-	mu      sync.RWMutex
-	targets map[string]*entry
-	key     [32]byte
-	http    *http.Server
-	address string
-	err     error
-	closed  bool
+	mu       sync.RWMutex
+	targets  map[string]*entry
+	profiles map[string]*profileEntry
+	key      [32]byte
+	http     *http.Server
+	address  string
+	err      error
+	closed   bool
 }
 
 func New(key string) *Server {
-	return &Server{targets: make(map[string]*entry), key: sha256.Sum256([]byte(key))}
+	return &Server{targets: make(map[string]*entry), profiles: make(map[string]*profileEntry), key: sha256.Sum256([]byte(key))}
 }
 
-func BaseURL(port int, id string) string {
-	return fmt.Sprintf("http://127.0.0.1:%d/providers/%s", port, url.PathEscape(id))
+var profileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+func ValidProfileName(name string) bool { return profileNamePattern.MatchString(name) }
+
+func BaseURL(port int, profile string) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/%s", port, url.PathEscape(profile))
 }
 
 // Update receives UI-owned snapshots. Replacing, disabling, signing out or
 // deleting an account cancels its in-flight requests as well as future access.
-func (s *Server) Update(targets map[string]Target) {
+func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -68,13 +93,44 @@ func (s *Server) Update(targets map[string]Target) {
 		}
 	}
 	for id, target := range targets {
-		target.Models = slices.Clone(target.Models)
 		if old := s.targets[id]; old != nil {
 			old.Target = target
 			continue
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		s.targets[id] = &entry{Target: target, ctx: ctx, cancel: cancel}
+	}
+	for name, old := range s.profiles {
+		if next, ok := profiles[name]; !ok || next.ID != old.ID {
+			old.cancel()
+			delete(s.profiles, name)
+		}
+	}
+	for name, profile := range profiles {
+		if !ValidProfileName(name) || profile.ID == "" {
+			continue
+		}
+		// Ambiguous aliases fail closed, never pick an account by map order.
+		counts := map[string]int{}
+		for _, model := range profile.Models {
+			counts[model.Alias]++
+		}
+		models := []Model{}
+		for _, model := range profile.Models {
+			if model.Alias != "" && model.Model.ID != "" && counts[model.Alias] == 1 && s.targets[model.ProviderID] != nil {
+				model.Model.Endpoints = slices.Clone(model.Model.Endpoints)
+				model.Model.ThinkingEfforts = slices.Clone(model.Model.ThinkingEfforts)
+				models = append(models, model)
+			}
+		}
+		slices.SortFunc(models, func(a, b Model) int { return cmp.Compare(a.Alias, b.Alias) })
+		profile.Models = models
+		if old := s.profiles[name]; old != nil {
+			old.Profile = profile
+		} else {
+			ctx, cancel := context.WithCancel(context.Background())
+			s.profiles[name] = &profileEntry{Profile: profile, ctx: ctx, cancel: cancel}
+		}
 	}
 }
 
@@ -115,6 +171,10 @@ func (s *Server) Close() {
 		entry.cancel()
 	}
 	s.targets = make(map[string]*entry)
+	for _, profile := range s.profiles {
+		profile.cancel()
+	}
+	s.profiles = make(map[string]*profileEntry)
 	server := s.http
 	s.mu.Unlock()
 	if server != nil {
@@ -144,30 +204,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusUnauthorized, "Invalid local API key.")
 		return
 	}
-	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 3)
-	if len(parts) != 3 || parts[0] != "providers" || parts[1] == "" {
-		apiError(w, http.StatusNotFound, "Use the provider base URL from Agent setup.")
+	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
+	if len(parts) != 2 || !ValidProfileName(parts[0]) {
+		apiError(w, 404, "Use the profile base URL from Agent setup.")
 		return
 	}
+	profileName, endpoint := parts[0], "/"+parts[1]
 	s.mu.RLock()
-	item := s.targets[parts[1]]
-	var target Target
-	var providerCtx context.Context
-	if item != nil {
-		target, providerCtx = item.Target, item.ctx
+	profile := s.profiles[profileName]
+	var models []Model
+	var profileCtx context.Context
+	var profileID string
+	if profile != nil {
+		models, profileCtx, profileID = slices.Clone(profile.Models), profile.ctx, profile.ID
 	}
 	s.mu.RUnlock()
-	if item == nil {
-		apiError(w, http.StatusServiceUnavailable, "Provider is disabled, disconnected, or deleted. Check Copilot Chat Providers.")
+	if profile == nil {
+		apiError(w, 404, "Profile does not exist. Check Agent setup in Copilot Chat.")
 		return
 	}
-	endpoint := "/" + parts[2]
-	if endpoint == "/models" || endpoint == "/v1/models" {
+	if endpoint == "/models" || endpoint == "/v1/models" || endpoint == "/codex/models" {
 		if r.Method != http.MethodGet {
 			apiError(w, 405, "Use GET for models.")
 			return
 		}
-		writeModels(w, target.Models, endpoint == "/v1/models")
+		if endpoint == "/codex/models" {
+			writeCodexModels(w, models)
+		} else {
+			writeModels(w, models, endpoint == "/v1/models")
+		}
 		return
 	}
 	if endpoint == "/v1/responses" || endpoint == "/v1/chat/completions" {
@@ -203,9 +268,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	protocol := strings.TrimSuffix(endpoint, "/count_tokens")
-	if !slices.ContainsFunc(target.Models, func(m provider.Model) bool { return m.ID == envelope.Model && supports(m, protocol) }) {
-		apiError(w, 400, "Model is hidden, unavailable, or does not support this API. Refresh models in Copilot Chat.")
+	s.mu.RLock()
+	var model Model
+	var target Target
+	var providerCtx context.Context
+	// Re-read after receiving the body so a removed/renamed profile or model
+	// cannot start a new request using an obsolete snapshot.
+	models = nil
+	if current := s.profiles[profileName]; current != nil && current.ID == profileID {
+		models = current.Models
+	}
+	for _, candidate := range models {
+		if candidate.Alias == envelope.Model && supports(candidate.Model, protocol) {
+			if item := s.targets[candidate.ProviderID]; item != nil {
+				model, target, providerCtx = candidate, item.Target, item.ctx
+			}
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if providerCtx == nil {
+		apiError(w, 400, "Model alias is disabled, unavailable, or does not support this API. Check Agent setup in Copilot Chat.")
 		return
+	}
+	if model.Alias != model.Model.ID {
+		// Only the routing field changes. RawMessage retains unknown fields,
+		// numeric precision, cache markers, tool arguments and thinking signatures.
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(body, &fields)
+		fields["model"], _ = json.Marshal(model.Model.ID)
+		body, _ = json.Marshal(fields)
 	}
 	agent := false
 	vision := hasImages(envelope.Input)
@@ -237,13 +329,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	stop := context.AfterFunc(providerCtx, cancel)
 	defer stop()
+	stopProfile := context.AfterFunc(profileCtx, cancel)
+	defer stopProfile()
 	// Remove the upload deadline before waiting on a long-running model stream.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 	query := url.Values{}
 	if beta := r.URL.Query().Get("beta"); beta == "true" {
 		query.Set("beta", beta)
 	}
-	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: r.Header, ConversationID: conversationID(parts[1], r.Header), AgentInitiated: agent, Vision: vision})
+	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: r.Header, ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
 	if err != nil {
 		apiError(w, 502, "Upstream request failed. Check the selected provider's sign-in and connection in Copilot Chat.")
 		return
@@ -316,13 +410,13 @@ func conversationID(id string, h http.Header) string {
 	return provider.RequestID()
 }
 
-func writeModels(w http.ResponseWriter, models []provider.Model, messages bool) {
+func writeModels(w http.ResponseWriter, models []Model, messages bool) {
 	data := []map[string]any{}
 	for _, model := range models {
-		if messages && !supports(model, "/v1/messages") {
+		if messages && !supports(model.Model, "/v1/messages") {
 			continue
 		}
-		data = append(data, map[string]any{"id": model.ID, "type": "model", "object": "model", "display_name": model.Name, "name": model.Name, "owned_by": "copilot-chat"})
+		data = append(data, map[string]any{"id": model.Alias, "type": "model", "object": "model", "display_name": model.Alias, "name": model.Alias, "owned_by": "copilot-chat"})
 	}
 	result := map[string]any{"data": data, "object": "list", "has_more": false, "first_id": nil, "last_id": nil}
 	if len(data) > 0 {

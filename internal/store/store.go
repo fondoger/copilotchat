@@ -3,6 +3,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,27 +33,44 @@ const (
 )
 
 type Settings struct {
-	Theme                string          `json:"theme"`
-	FontSize             int             `json:"fontSize"`
-	SidebarWidth         float32         `json:"sidebarWidth"`
-	SendWithEnter        bool            `json:"sendWithEnter"`
-	StayInTray           bool            `json:"stayInTray"`
-	LocalForwarding      bool            `json:"localForwarding"`
-	LocalPort            int             `json:"localPort"`
-	LocalKey             string          `json:"localKey,omitempty"` // Local gateway key only; never an upstream credential.
-	AutomaticUpdates     bool            `json:"automaticUpdates"`
-	UpdateIntervalHours  int             `json:"updateIntervalHours"`
-	LastUpdateCheck      time.Time       `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
-	ChatTitle            bool            `json:"chatTitle"`
-	TitleModel           string          `json:"titleModel,omitempty"`
-	TitleProviderID      string          `json:"titleProviderId,omitempty"`
-	Model                string          `json:"model,omitempty"`
-	ReasoningEffort      string          `json:"reasoningEffort,omitempty"`
-	ThinkingBudgetTokens int             `json:"thinkingBudgetTokens,omitempty"`
-	ActiveProviderID     string          `json:"activeProviderId"`
-	Providers            []Provider      `json:"providers"`
-	CollapsedGroups      map[string]bool `json:"collapsedGroups,omitempty"`
-	MCPServers           []mcp.Config    `json:"mcpServers,omitempty"`
+	Theme                string           `json:"theme"`
+	FontSize             int              `json:"fontSize"`
+	SidebarWidth         float32          `json:"sidebarWidth"`
+	SendWithEnter        bool             `json:"sendWithEnter"`
+	StayInTray           bool             `json:"stayInTray"`
+	LocalForwarding      bool             `json:"localForwarding"`
+	LocalPort            int              `json:"localPort"`
+	LocalKey             string           `json:"localKey,omitempty"` // Local gateway key only; never an upstream credential.
+	ForwardProfiles      []ForwardProfile `json:"forwardProfiles"`
+	AutomaticUpdates     bool             `json:"automaticUpdates"`
+	UpdateIntervalHours  int              `json:"updateIntervalHours"`
+	LastUpdateCheck      time.Time        `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
+	ChatTitle            bool             `json:"chatTitle"`
+	TitleModel           string           `json:"titleModel,omitempty"`
+	TitleProviderID      string           `json:"titleProviderId,omitempty"`
+	Model                string           `json:"model,omitempty"`
+	ReasoningEffort      string           `json:"reasoningEffort,omitempty"`
+	ThinkingBudgetTokens int              `json:"thinkingBudgetTokens,omitempty"`
+	ActiveProviderID     string           `json:"activeProviderId"`
+	Providers            []Provider       `json:"providers"`
+	CollapsedGroups      map[string]bool  `json:"collapsedGroups,omitempty"`
+	MCPServers           []mcp.Config     `json:"mcpServers,omitempty"`
+}
+
+// ForwardModel keeps a stable public alias even while its account or catalog is
+// temporarily unavailable. Enabled is independent of the native chat picker.
+type ForwardModel struct {
+	ProviderID string `json:"providerId"`
+	ModelID    string `json:"modelId"`
+	Alias      string `json:"alias"`
+	Enabled    bool   `json:"enabled"`
+}
+
+// ID remains stable across renames; Name is the profile's public URL segment.
+type ForwardProfile struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Models []ForwardModel `json:"models"`
 }
 
 type Provider struct {
@@ -133,6 +151,7 @@ func DefaultState() State {
 			Theme: "system", FontSize: 16, SidebarWidth: DefaultSidebarWidth, SendWithEnter: true, ChatTitle: true,
 			AutomaticUpdates: true, UpdateIntervalHours: DefaultUpdateIntervalHours,
 			LocalPort:        39321,
+			ForwardProfiles:  []ForwardProfile{{ID: "default", Name: "default"}},
 			ActiveProviderID: DefaultProviderID, Providers: []Provider{DefaultProvider()},
 		},
 		Conversations: []Conversation{},
@@ -149,6 +168,11 @@ func New(dir string) (*Store, error) {
 	if dir == "" {
 		return nil, errors.New("state directory must not be empty")
 	}
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	dir = absolute
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
 	}
@@ -204,7 +228,26 @@ func (s *Store) Save(state State) error {
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}
-	f, err := os.CreateTemp(s.dir, ".state-*.tmp")
+	return writeSnapshot(s.dir, s.path, data)
+}
+
+// AgentCatalogPath is stable across profile renames and safe for arbitrary IDs.
+func (s *Store) AgentCatalogPath(profileID string) string {
+	return filepath.Join(s.dir, "agent-catalogs", fmt.Sprintf("%x.json", sha256.Sum256([]byte(profileID))))
+}
+
+func (s *Store) SaveAgentCatalog(profileID string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := s.AgentCatalogPath(profileID)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return writeSnapshot(filepath.Dir(path), path, data)
+}
+
+func writeSnapshot(dir, path string, data []byte) error {
+	f, err := os.CreateTemp(dir, ".snapshot-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create state snapshot: %w", err)
 	}
@@ -220,7 +263,7 @@ func (s *Store) Save(state State) error {
 	if err = f.Close(); err != nil {
 		return fmt.Errorf("close state snapshot: %w", err)
 	}
-	if err = replaceSnapshot(temp, s.path); err != nil {
+	if err = replaceSnapshot(temp, path); err != nil {
 		return fmt.Errorf("replace state snapshot: %w", err)
 	}
 	return nil

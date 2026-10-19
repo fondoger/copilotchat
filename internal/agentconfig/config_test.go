@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/store"
 	"strings"
 	"testing"
 )
 
 func TestLocalAgentConfiguration(t *testing.T) {
-	p := store.DefaultProvider()
-	o := Options{Provider: p, Agent: ClaudeCode, BaseURL: localproxy.BaseURL(localproxy.DefaultPort, p.ID), Key: "fixture-local-key"}
+	o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(localproxy.DefaultPort, "my-claude-code-profile"), Key: localproxy.DefaultKey, CatalogPath: `C:\User Data\agent-catalog.json`}
 	text, err := Generate(o)
 	if err != nil {
 		t.Fatal(err)
@@ -31,9 +29,9 @@ func TestLocalAgentConfiguration(t *testing.T) {
 		}
 	}
 	o.Agent = Codex
-	o.Model = provider.Model{ID: "gpt-fixture", Endpoint: "/responses"}
+	o.Model = provider.Model{ID: "gpt-fixture (2)", Endpoint: "/responses"}
 	text, err = Generate(o)
-	if err != nil || !strings.Contains(text, `experimental_bearer_token = "fixture-local-key"`) || !strings.Contains(text, `wire_api = "responses"`) || strings.Contains(text, "http_headers") || strings.Contains(text, ".auth]") {
+	if err != nil || !strings.Contains(text, `experimental_bearer_token = "copilotchat"`) || !strings.Contains(text, `wire_api = "responses"`) || !strings.Contains(text, `model = "gpt-fixture (2)"`) || !strings.Contains(text, `model_catalog_json = "C:\\User Data\\agent-catalog.json"`) || strings.Contains(text, "http_headers") || strings.Contains(text, ".auth]") {
 		t.Fatal(text, err)
 	}
 	o.Model.Endpoint = "/v1/messages"

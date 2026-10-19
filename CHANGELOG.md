@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- Add named forwarding profiles with separate base URLs, independent model selections and aliases, plus create, duplicate, rename and delete controls.
+- Combine models from multiple GitHub and Microsoft 365 accounts. Resolve duplicate default aliases with `(2)`, `(3)`, and route each alias to its exact account and model.
+- Use the readable local key `copilotchat`. Re-copy Agent setup configuration after upgrading from provider-specific URLs and the previous long key.
+- Return aliases as model IDs and names. Support Claude Code discovery and a live local Codex catalog compatible with Codex 0.146.0; restart agents after editing a profile's models.
+- Preserve tools, thinking, cache fields and streamed usage while translating the request's model alias. Isolate conversation IDs and revoke active requests when a profile is deleted or renamed.
+
 ## 0.5.0
 
 - Replace the standalone credential helper with an embedded, authenticated loopback forwarding service. Copy a provider-specific base URL and fixed local key for Claude Code or Codex.

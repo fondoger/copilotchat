@@ -11,10 +11,12 @@ import (
 )
 
 type agentSetupState struct {
-	portText                   string
-	portInitialized            bool
-	providerID, agent, modelID string
-	notice                     string
+	portText                             string
+	portInitialized                      bool
+	agent, modelID                       string
+	aliases                              map[forwardModelKey]*aliasDraft
+	profileID, profileName, profileError string
+	notice                               string
 }
 
 type setupOption struct{ id, label string }
@@ -53,43 +55,31 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 		s.agent = agentconfig.ClaudeCode
 	}
 	a.forwardingSettings(c)
+	a.reconcileForwardModels()
+	a.forwardingProfileSettings(c)
+	profile := a.selectedForwardProfile()
+	if profile == nil {
+		return
+	}
+	a.forwardingModelSettings(c, profile)
 	if a.forwarder == nil {
 		return
 	}
-	ui.Text(c, "Use a Copilot Chat account in your coding agent.").TextColor(c.Theme().TextMuted)
-	options := []setupOption{}
-	for _, p := range a.state.Settings.Providers {
-		if !p.Disabled {
-			options = append(options, setupOption{p.ID, p.Name})
-		}
-	}
-	ui.Column(c).Gap(6).Children(func() {
-		ui.Text(c, "Provider").FontWeight(500)
-		setupSelect(c, "agent-provider", "Provider source", &s.providerID, options, func() { s.modelID, s.notice = "", "" })
-	})
+	ui.Text(c, "Agent configuration").FontWeight(500)
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Text(c, "Agent").FontWeight(500)
 		setupSelect(c, "agent-client", "Agent application", &s.agent, []setupOption{{agentconfig.ClaudeCode, agentconfig.ClaudeCode}, {agentconfig.Codex, agentconfig.Codex}}, func() { s.modelID, s.notice = "", "" })
 	})
-	p := a.provider(s.providerID)
-	if p == nil || p.Disabled {
-		ui.Text(c, "Select an enabled provider to generate its configuration.").TextColor(c.Theme().TextMuted)
-		return
-	}
-	r := a.providers[p.ID]
-	if r == nil || r.client == nil {
-		ui.Text(c, "Sign in to this provider in Providers first.").TextColor(c.Theme().TextMuted)
-		return
-	}
 	models := []provider.Model{}
-	for _, model := range a.providerModels(p.ID) {
+	for _, shared := range a.forwardingModels(profile) {
+		model := shared.Model
 		if agentconfig.Compatible(model, s.agent) {
+			model.ID, model.Name = shared.Alias, shared.Alias
 			models = append(models, model)
 		}
 	}
 	if len(models) == 0 && s.agent != agentconfig.ClaudeCode {
-		ui.Text(c, "No compatible models are loaded. Claude Code needs Messages; Codex needs Responses. A Messages-only model cannot be used directly in Codex.").TextColor(c.Theme().TextMuted)
-		ui.Button(c, "Refresh models").Disabled(r.modelsBusy).OnClick(func() { a.refreshProviderModels(p.ID) })
+		ui.Text(c, "No shared models support this agent. Enable a Responses model above for Codex.").TextColor(c.Theme().TextMuted)
 		return
 	}
 	if !slices.ContainsFunc(models, func(m provider.Model) bool { return m.ID == s.modelID }) {
@@ -104,7 +94,7 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 	}
 	var selected provider.Model
 	for _, model := range models {
-		modelOptions = append(modelOptions, setupOption{model.ID, modelDisplayName(model)})
+		modelOptions = append(modelOptions, setupOption{model.ID, model.ID})
 		if model.ID == s.modelID {
 			selected = model
 		}
@@ -117,8 +107,16 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 		ui.Text(c, label).FontWeight(500)
 		setupSelect(c, "agent-model", "Agent model", &s.modelID, modelOptions, func() { s.notice = "" })
 	})
-	base := localproxy.BaseURL(a.state.Settings.LocalPort, p.ID)
-	config, err := agentconfig.Generate(agentconfig.Options{Provider: *p, Model: selected, Agent: s.agent, BaseURL: base, Key: a.state.Settings.LocalKey})
+	base := localproxy.BaseURL(a.state.Settings.LocalPort, profile.Name)
+	catalogPath := ""
+	if a.storage != nil {
+		catalogPath = a.storage.AgentCatalogPath(profile.ID)
+	}
+	if s.agent == agentconfig.Codex && a.forwardCatalogErrors[profile.ID] != "" {
+		ui.Text(c, a.forwardCatalogErrors[profile.ID]).FontSize(12).TextColor(c.Theme().TextMuted)
+		return
+	}
+	config, err := agentconfig.Generate(agentconfig.Options{Model: selected, Agent: s.agent, BaseURL: base, Key: a.state.Settings.LocalKey, CatalogPath: catalogPath})
 	if err != nil {
 		ui.Text(c, err.Error()).TextColor(c.Theme().TextMuted)
 		return
@@ -127,7 +125,7 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 	instructions := "Merge these env fields into your settings JSON. Remove the old apiKeyHelper, custom headers and conflicting API keys or model aliases. Restart Claude Code, then choose a model with /model."
 	if s.agent == agentconfig.Codex {
 		file = "~/.codex/config.toml"
-		instructions = "Merge the top-level model keys and provider tables into config.toml; replace matching entries rather than duplicating them. Remove the old provider auth command, env_key and custom headers. Restart Codex or ChatGPT Desktop."
+		instructions = "Merge these fields into config.toml. Copilot Chat keeps this profile's local model catalog updated. Restart Codex after changing models or aliases to reload the list."
 	}
 	ui.Text(c, file).FontWeight(500).Selectable()
 	ui.Text(c, instructions).FontSize(12).TextColor(c.Theme().TextMuted)
@@ -141,6 +139,6 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 	if s.notice != "" {
 		ui.Text(c, s.notice).FontSize(12).TextColor(c.Theme().TextMuted)
 	}
-	ui.TextArea(c.Key("agent-config-"+p.ID+"-"+s.agent+"-"+s.modelID), &config).ReadOnly(true).Height(230).Font("Consolas").FontSize(12).Label("Generated agent configuration")
+	ui.TextArea(c.Key("agent-config-"+profile.Name+"-"+s.agent+"-"+s.modelID), &config).ReadOnly(true).Height(230).Font("Consolas").FontSize(12).Label("Generated agent configuration")
 	ui.Text(c, "Keep Copilot Chat running. This fixed local key authorizes enabled providers through the loopback endpoint; it is not your upstream account token. Reconnect expired accounts in Providers.").FontSize(12).TextColor(c.Theme().TextMuted)
 }

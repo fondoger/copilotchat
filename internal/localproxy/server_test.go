@@ -26,12 +26,15 @@ func response(body string) *http.Response {
 func fixture(t *testing.T, client *rawClient) (*Server, string) {
 	t.Helper()
 	s := New("fixture-key")
-	s.Update(map[string]Target{"p1": {Client: client, Models: []provider.Model{{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"}, {ID: "gpt-fixture", Endpoint: "/responses"}}}})
+	s.Update(map[string]Target{"p1": {Client: client}}, map[string]Profile{"fixture": {ID: "fixture-id", Models: []Model{
+		{ProviderID: "p1", Alias: "claude-fixture", Model: provider.Model{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"}},
+		{ProviderID: "p1", Alias: "gpt-fixture", Model: provider.Model{ID: "gpt-fixture", Endpoint: "/responses"}},
+	}}})
 	if err := s.Start(0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	return s, "http://" + s.Address() + "/providers/p1"
+	return s, "http://" + s.Address() + "/fixture"
 }
 func send(t *testing.T, method, url, body string, headers map[string]string) *http.Response {
 	t.Helper()
@@ -179,13 +182,13 @@ func TestStreamFlushAndProviderRevocation(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("stream was buffered")
 	}
-	s.Update(nil)
+	s.Update(nil, nil)
 	select {
 	case <-cancelled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("revoked provider kept streaming")
 	}
-	if send(t, "GET", base+"/models", "", map[string]string{"X-Api-Key": "fixture-key"}).StatusCode != 503 {
-		t.Fatal("revoked provider available")
+	if send(t, "POST", base+"/v1/messages", `{"model":"claude-fixture"}`, map[string]string{"X-Api-Key": "fixture-key"}).StatusCode != 404 {
+		t.Fatal("revoked model available")
 	}
 }

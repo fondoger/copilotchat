@@ -24,14 +24,13 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"},
 		{ID: "gpt-fixture", Name: "GPT Fixture", Endpoint: "/responses"},
 	}
-	tester := ui.NewTester(a.settingsView, 1000, 1100)
+	a.syncForwardingProviders()
+	tester := ui.NewTester(a.settingsView, 1000, 1500)
 	settingsClick(t, tester, "Agent setup extension")
-	if !tester.HasText("Select an enabled provider to generate its configuration.") {
-		t.Fatal("missing initial guidance")
+	if _, ok := tester.Find("Provider source"); ok {
+		t.Fatal("provider selector remains")
 	}
-	settingsClick(t, tester, "Provider source")
-	settingsClick(t, tester, "Select Provider source GitHub Copilot")
-	if a.agentSetup.providerID != store.DefaultProviderID || a.agentSetup.modelID != "" {
+	if a.agentSetup.modelID != "" {
 		t.Fatal("Claude model should be optional")
 	}
 	if !tester.HasText("Choose in Claude Code") {
@@ -41,7 +40,7 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		t.Fatal("configuration missing")
 	}
 	settingsClick(t, tester, "Agent model")
-	settingsClick(t, tester, "Select Agent model Claude Fixture")
+	settingsClick(t, tester, "Select Agent model claude-fixture")
 	if a.agentSetup.modelID != "claude-fixture" {
 		t.Fatal("explicit compatible model selection failed")
 	}
@@ -64,13 +63,13 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		}
 	}
 	a.providers[store.DefaultProviderID].models = a.providers[store.DefaultProviderID].models[:1]
-	tester = ui.NewTester(a.settingsView, 1000, 1100)
+	tester = ui.NewTester(a.settingsView, 1000, 1500)
 	if _, ok := tester.Find("Generated agent configuration"); ok {
 		t.Fatal("unsupported protocol generated configuration")
 	}
 	a.provider(store.DefaultProviderID).Disabled = true
-	tester = ui.NewTester(a.settingsView, 700, 480)
-	if !tester.HasText("Select an enabled provider to generate its configuration.") {
+	tester = ui.NewTester(a.settingsView, 1000, 1500)
+	if len(a.forwardingModels(a.selectedForwardProfile())) != 0 {
 		t.Fatal("disabled provider still selected")
 	}
 }

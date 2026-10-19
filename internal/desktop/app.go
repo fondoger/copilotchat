@@ -19,7 +19,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.5.0"
+const version = "0.5.1"
 
 type toolApproval struct {
 	Server, Name, Arguments string
@@ -74,6 +74,8 @@ type app struct {
 	forwardError, startupError       string
 	openAtLogin, forwardQuitApproved bool
 	confirmForwarding                func(string, string, string) bool
+	forwardCatalogs                  map[string][32]byte
+	forwardCatalogErrors             map[string]string
 }
 
 func Run(dataDir string) error {
