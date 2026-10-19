@@ -11,11 +11,11 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-func attachmentCapabilityError(model copilot.Model, known bool, mime string) error {
+func attachmentCapabilityError(model provider.Model, known bool, mime string) error {
 	name := model.Name
 	if name == "" {
 		name = "The current model"
@@ -84,7 +84,7 @@ func (a *app) reasoningSettings() (string, int) {
 	return a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens
 }
 
-func thinkingBudgetRange(model copilot.Model) (int, int, bool) {
+func thinkingBudgetRange(model provider.Model) (int, int, bool) {
 	minimum, maximum := max(1, model.MinThinkingBudget), model.MaxThinkingBudget
 	switch model.Endpoint {
 	case "/v1/messages":
@@ -104,7 +104,7 @@ func thinkingBudgetRange(model copilot.Model) (int, int, bool) {
 
 type thinkingOption struct{ Value, Label string }
 
-func thinkingOptions(model copilot.Model) []thinkingOption {
+func thinkingOptions(model provider.Model) []thinkingOption {
 	options := []thinkingOption{{Value: "default", Label: "Default"}}
 	if model.Endpoint != "/v1/messages" || model.AdaptiveThinking {
 		for _, value := range model.ThinkingEfforts {
@@ -124,7 +124,7 @@ func thinkingOptions(model copilot.Model) []thinkingOption {
 	return options
 }
 
-func thinkingSettingsError(model copilot.Model, effort string, budget int) error {
+func thinkingSettingsError(model provider.Model, effort string, budget int) error {
 	if effort != "" && budget != 0 {
 		return errors.New("Choose one thinking effort or budget before sending.")
 	}

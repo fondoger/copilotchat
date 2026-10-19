@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -25,7 +25,7 @@ func TestLegacyReasoningCannotCrossProviderOrModel(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			chat := store.Conversation{ProviderID: "work", Model: "model", Messages: []store.Message{{ProviderID: test.provider, Model: test.model, Role: "assistant", ProviderMessages: []json.RawMessage{
-				wire(t, copilot.Message{Role: "assistant", Content: "Answer", ReasoningOpaque: "private", ProviderData: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"private"}`)}}),
+				wire(t, provider.Message{Role: "assistant", Content: "Answer", ReasoningOpaque: "private", ProviderData: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"private"}`)}}),
 			}}}}
 			messages := history(&chat)
 			if len(messages) != 1 || messages[0].Content != "Answer" {
@@ -49,7 +49,7 @@ func TestRetryPreflightPreservesPreviousAnswer(t *testing.T) {
 			}}}
 			switch kind {
 			case "hidden":
-				a.provider("work").ModelFilter = "whitelist"
+				a.provider("work").DisabledModels = []string{"same"}
 			case "unavailable":
 				a.current().Model = "personal-only"
 			case "disconnected":
@@ -83,14 +83,14 @@ func TestSendPreflightPreservesDraftAfterSwitchingToTextModel(t *testing.T) {
 func TestThinkingOptionsStayWithinProtocolBudgets(t *testing.T) {
 	for _, test := range []struct {
 		name  string
-		model copilot.Model
+		model provider.Model
 		want  []string
 	}{
-		{"responses", copilot.Model{Endpoint: "/responses", MaxThinkingBudget: 8192}, []string{"default"}},
-		{"adaptive-without-efforts", copilot.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, MaxThinkingBudget: 8192}, []string{"default"}},
-		{"adaptive", copilot.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, ThinkingEfforts: []string{"medium", "max"}}, []string{"default", "medium", "max"}},
-		{"anthropic-bounds", copilot.Model{Endpoint: "/v1/messages", MinThinkingBudget: 128, MaxThinkingBudget: 4096, MaxOutputTokens: 4096}, []string{"default", "budget:1024", "budget:2048", "budget:4095"}},
-		{"chat-bounds", copilot.Model{Endpoint: "/chat/completions", MinThinkingBudget: 128, MaxThinkingBudget: 512}, []string{"default", "budget:128", "budget:512"}},
+		{"responses", provider.Model{Endpoint: "/responses", MaxThinkingBudget: 8192}, []string{"default"}},
+		{"adaptive-without-efforts", provider.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, MaxThinkingBudget: 8192}, []string{"default"}},
+		{"adaptive", provider.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, ThinkingEfforts: []string{"medium", "max"}}, []string{"default", "medium", "max"}},
+		{"anthropic-bounds", provider.Model{Endpoint: "/v1/messages", MinThinkingBudget: 128, MaxThinkingBudget: 4096, MaxOutputTokens: 4096}, []string{"default", "budget:1024", "budget:2048", "budget:4095"}},
+		{"chat-bounds", provider.Model{Endpoint: "/chat/completions", MinThinkingBudget: 128, MaxThinkingBudget: 512}, []string{"default", "budget:128", "budget:512"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var got []string

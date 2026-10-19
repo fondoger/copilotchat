@@ -11,7 +11,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -50,14 +51,14 @@ func providerTestApp(t *testing.T) *app {
 	}
 	state := store.DefaultState()
 	state.Settings.Providers[0].Name = "Personal"
-	state.Settings.Providers = append(state.Settings.Providers, store.Provider{ID: "work", Name: "Work", Host: "example.ghe.com", Login: "work-user", ModelFilter: "all"})
-	work, err := copilot.NewClientForHost("test-work", "example.ghe.com")
+	state.Settings.Providers = append(state.Settings.Providers, store.Provider{ID: "work", Name: "Work", Host: "example.ghe.com", Login: "work-user"})
+	work, err := github.NewClientForHost("test-work", "example.ghe.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := &app{state: state, storage: disk, providerSecrets: &memoryCredentials{entries: map[string][]byte{}}, providers: map[string]*providerRuntime{
-		store.DefaultProviderID: {client: copilot.NewClient("test-personal"), models: []copilot.Model{{ID: "same", Name: "Shared model", Vision: true}, {ID: "personal-only", Name: "Personal model"}}},
-		"work":                  {client: work, models: []copilot.Model{{ID: "same", Name: "Shared model", Reasoning: true}, {ID: "work-only", Name: "Work model"}}},
+		store.DefaultProviderID: {client: github.NewClient("test-personal"), models: []provider.Model{{ID: "same", Name: "Shared model", Vision: true}, {ID: "personal-only", Name: "Personal model"}}},
+		"work":                  {client: work, models: []provider.Model{{ID: "same", Name: "Shared model", Reasoning: true}, {ID: "work-only", Name: "Work model"}}},
 	}}
 	return a
 }
@@ -106,24 +107,49 @@ func TestProviderDefaultModelBindsAccountAndResetsReasoning(t *testing.T) {
 	}
 }
 
-func TestProviderModelVisibilityTableReflectsFilterAndPersists(t *testing.T) {
+func TestProviderModelVisibilityTableSelectionAndBulkActionsPersist(t *testing.T) {
 	a := providerTestApp(t)
 	a.providerSettingsID = "work"
-	p := a.provider("work")
-	p.ModelFilter, p.ModelIDs = "whitelist", []string{"same"}
 	tt := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.providerSettings(c) }) }, 600, 1000)
-	for _, label := range []string{"Model / ID", "Visibility", "same", "work-only", "Shown", "Hidden"} {
-		if !tt.HasText(label) {
+	for _, label := range []string{"Model / ID", "Enabled", "same", "work-only", "Enable Shared model", "Enable Work model", "Select all", "Deselect all"} {
+		if _, found := tt.Find(label); !found {
 			t.Fatalf("model visibility table lacks %q", label)
 		}
 	}
-	settingsClick(t, tt, "Allow Work model")
-	if len(a.providerModels("work")) != 2 || tt.HasText("Hidden") {
-		t.Fatal("checked whitelist row did not become Shown")
+	for _, label := range []string{"All", "Whitelist", "Blacklist", "Visibility", "Shown", "Hidden"} {
+		if _, found := tt.Find(label); found {
+			t.Fatalf("obsolete model visibility control remains: %q", label)
+		}
+	}
+	if len(a.providerModels("work")) != 2 {
+		t.Fatal("models are not all enabled by default")
+	}
+	settingsClick(t, tt, "Enable Work model")
+	if models := a.providerModels("work"); len(models) != 1 || models[0].ID != "same" {
+		t.Fatalf("unchecking an enabled row did not hide its model: %#v", models)
+	}
+	if _, found := tt.Find("Enable Work model"); !found {
+		t.Fatal("disabled model disappeared from the visibility table")
 	}
 	state := settingsSavedState(t, a)
-	if !reflect.DeepEqual(state.Settings.Providers[1].ModelIDs, []string{"same", "work-only"}) || len(state.Settings.Providers[0].ModelIDs) != 0 {
+	if !reflect.DeepEqual(state.Settings.Providers[1].DisabledModels, []string{"work-only"}) || len(state.Settings.Providers[0].DisabledModels) != 0 {
 		t.Fatal("model visibility edit was not saved to the selected provider")
+	}
+	settingsClick(t, tt, "Deselect all")
+	if len(a.providerModels("work")) != 0 || len(a.providerModels(store.DefaultProviderID)) != 2 {
+		t.Fatal("deselect all did not hide all selected provider models in isolation")
+	}
+	state = settingsSavedState(t, a)
+	if modelAllowed(&state.Settings.Providers[1], "same") || modelAllowed(&state.Settings.Providers[1], "work-only") || len(state.Settings.Providers[0].DisabledModels) != 0 {
+		t.Fatal("deselect all was not persisted to only the selected provider")
+	}
+	settingsClick(t, tt, "Select all")
+	if len(a.providerModels("work")) != 2 || len(a.providerModels(store.DefaultProviderID)) != 2 {
+		t.Fatal("select all did not restore the selected provider's models")
+	}
+	state = settingsSavedState(t, a)
+	if len(state.Settings.Providers[1].DisabledModels) != 0 || len(state.Settings.Providers[0].DisabledModels) != 0 {
+		t.Fatal("select all was not persisted")
 	}
 }
 
@@ -171,23 +197,23 @@ func TestProviderAccountLookupFailureIsVisibleAndCannotLabelANewAccount(t *testi
 	p, r := a.provider("work"), a.providerState("work")
 	r.status = "Connected · 2 models available"
 	lookupError := errors.New("account lookup denied")
-	a.updateProviderAccount("work", copilot.AccountInfo{}, lookupError, false)
+	a.updateProviderAccount("work", provider.AccountInfo{}, lookupError, false)
 	if p.Login != "work-user" || !strings.Contains(r.status, "Could not load GitHub username: account lookup denied") || !strings.Contains(r.status, "2 models available") {
 		t.Fatal("refresh discarded account lookup error or previously confirmed username")
 	}
 	r.status = "Connected."
-	a.updateProviderAccount("work", copilot.AccountInfo{}, lookupError, true)
+	a.updateProviderAccount("work", provider.AccountInfo{}, lookupError, true)
 	if p.Login != "" || !strings.Contains(r.status, "Could not load GitHub username") {
 		t.Fatal("new sign-in retained the previous account's username")
 	}
 	r.status = "Connected · 2 models available"
-	a.updateProviderAccount("work", copilot.AccountInfo{Login: "new-user", Host: "example.ghe.com"}, nil, false)
+	a.updateProviderAccount("work", provider.AccountInfo{Login: "new-user", Host: "example.ghe.com"}, nil, false)
 	if p.Login != "new-user" || strings.Contains(r.status, "Could not load") {
 		t.Fatal("successful account lookup did not replace account identity")
 	}
 }
 
-func TestProviderSelectionAndFiltersKeepIdenticalModelIDsSeparate(t *testing.T) {
+func TestProviderSelectionAndVisibilityKeepIdenticalModelIDsSeparate(t *testing.T) {
 	a := providerTestApp(t)
 	a.state.ActiveID = "chat"
 	a.state.Conversations = []store.Conversation{{ID: "chat", ProviderID: store.DefaultProviderID, Model: "same", ReasoningEffort: "high", ThinkingBudgetTokens: 1000}}
@@ -201,16 +227,17 @@ func TestProviderSelectionAndFiltersKeepIdenticalModelIDsSeparate(t *testing.T) 
 		t.Fatalf("provider binding not persisted: %#v %v", loaded, err)
 	}
 	p := a.provider("work")
-	p.ModelFilter, p.ModelIDs = "whitelist", []string{"work-only"}
+	a.setModelEnabled("work", "same", false)
 	if got := a.providerModels("work"); len(got) != 1 || got[0].ID != "work-only" {
-		t.Fatalf("whitelist: %#v", got)
+		t.Fatalf("disabled shared model remains visible: %#v", got)
 	}
 	if len(a.providerModels(store.DefaultProviderID)) != 2 {
-		t.Fatal("work whitelist leaked into personal provider")
+		t.Fatal("work model visibility leaked into personal provider")
 	}
-	p.ModelFilter = "blacklist"
+	a.setModelEnabled("work", "same", true)
+	a.setModelEnabled("work", "work-only", false)
 	if got := a.providerModels("work"); len(got) != 1 || got[0].ID != "same" {
-		t.Fatalf("blacklist: %#v", got)
+		t.Fatalf("reenabled shared model did not become visible: %#v", got)
 	}
 	a.toggleModelPin("work", "same")
 	if !reflect.DeepEqual(p.PinnedModels, []string{"same"}) || len(a.provider(store.DefaultProviderID).PinnedModels) != 0 {
@@ -351,7 +378,7 @@ func TestSingleEnabledProviderHasNoSubtitleOrPickerGroups(t *testing.T) {
 func TestProviderDailyRefreshEligibility(t *testing.T) {
 	now := time.Now()
 	p := store.Provider{ID: "work", Host: "example.ghe.com", ModelsRefreshedAt: now.Add(-25 * time.Hour)}
-	r := &providerRuntime{client: copilot.NewClient("fake"), modelsLoaded: true, models: []copilot.Model{{ID: "same"}}}
+	r := &providerRuntime{client: github.NewClient("fake"), modelsLoaded: true, models: []provider.Model{{ID: "same"}}}
 	if !providerCatalogRefreshDue(p, r, now) {
 		t.Fatal("catalog was not refreshed after one day")
 	}
@@ -423,6 +450,7 @@ func TestProviderListAddRemoveKeepsHistoryAndLastDeletionPersists(t *testing.T) 
 		t.Fatal("last provider was recreated on reload or history was lost")
 	}
 	settingsClick(t, tt, "Add provider")
+	settingsClick(t, tt, "Add GitHub Copilot")
 	if len(a.state.Settings.Providers) != 1 || a.providerSettingsID == "" || a.state.Settings.ActiveProviderID != a.providerSettingsID {
 		t.Fatal("plus did not create and select a new provider after deleting all providers")
 	}

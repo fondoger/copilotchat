@@ -1,4 +1,4 @@
-package copilot
+package github
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/fondoger/copilotchat/internal/provider"
 )
 
 func (c *Client) BeginLogin(ctx context.Context) (DeviceCode, error) {
@@ -20,7 +22,7 @@ func (c *Client) BeginLogin(ctx context.Context) (DeviceCode, error) {
 		return DeviceCode{}, err
 	}
 	var code DeviceCode
-	if err := readJSON(resp, &code); err != nil {
+	if err := provider.ReadJSON(resp, &code); err != nil {
 		return DeviceCode{}, err
 	}
 	if code.DeviceCode == "" || code.UserCode == "" || code.VerificationURI == "" {
@@ -77,7 +79,7 @@ func (c *Client) PollLogin(ctx context.Context, code DeviceCode) (string, error)
 			Interval    int    `json:"interval"`
 		}
 		if err == nil {
-			err = readJSON(resp, &token)
+			err = provider.ReadJSON(resp, &token)
 		}
 		cancelRequest()
 		if err != nil {
@@ -86,7 +88,7 @@ func (c *Client) PollLogin(ctx context.Context, code DeviceCode) (string, error)
 		if token.AccessToken != "" {
 			c.mu.Lock()
 			c.token, c.accountLoaded = token.AccessToken, false
-			c.baseURL, c.models = fallbackBaseURL(c.host), make(map[string]Model)
+			c.baseURL, c.models = fallbackBaseURL(c.host), make(map[string]provider.Model)
 			c.mu.Unlock()
 			if err := c.loadAccount(ctx); err != nil {
 				return "", err

@@ -4,7 +4,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 )
 
 // Small stroke icons keep a consistent size with the original model picker.
@@ -20,14 +20,14 @@ type modelPickerState struct {
 	Open bool
 }
 
-func modelDisplayName(model copilot.Model) string {
+func modelDisplayName(model provider.Model) string {
 	if model.Name != "" {
 		return model.Name
 	}
 	return model.ID
 }
 
-func modelCapabilityIcons(c *ui.Context, model copilot.Model) {
+func modelCapabilityIcons(c *ui.Context, model provider.Model) {
 	if model.Vision {
 		ui.Icon(c, modelEyeIcon).Size(15, 15).Tooltip("Image input").TextColor(c.Theme().TextMuted)
 	}
@@ -57,8 +57,8 @@ func (a *app) modelPicker(c *ui.Context) {
 		label = "Choose a model"
 	}
 	providerLabel := "GitHub Copilot"
-	if provider := a.provider(a.selectedProviderID()); provider != nil {
-		providerLabel = provider.Name
+	if configured := a.provider(a.selectedProviderID()); configured != nil {
+		providerLabel = configured.Name
 	}
 	trigger := ui.ButtonBase(c.Key("top-model-picker-trigger")).Label("Choose model").Height(42).Padding(4, 8).Gap(7).Radius(6).Background(ui.Transparent).Disabled(a.streaming)
 	if trigger.Hovered() {
@@ -88,16 +88,16 @@ func (a *app) modelPicker(c *ui.Context) {
 		scrollbarGutter := max(t.ScrollbarWidth, float32(6)) + 10
 		ui.Scroll(c.Key("model-picker-list")).Label("Model list").MaxHeight(min(float32(510), height-100)).Padding(0, scrollbarGutter, 0, 0).Gap(6).Children(func() {
 			count := 0
-			for _, provider := range a.state.Settings.Providers {
-				if a.clientForProvider(provider.ID) == nil {
+			for _, configured := range a.state.Settings.Providers {
+				if a.clientForProvider(configured.ID) == nil {
 					continue
 				}
-				models := a.providerModels(provider.ID)
+				models := a.providerModels(configured.ID)
 				if len(models) == 0 {
 					continue
 				}
-				slices.SortStableFunc(models, func(left, right copilot.Model) int {
-					lp, rp := slices.Contains(provider.PinnedModels, left.ID), slices.Contains(provider.PinnedModels, right.ID)
+				slices.SortStableFunc(models, func(left, right provider.Model) int {
+					lp, rp := slices.Contains(configured.PinnedModels, left.ID), slices.Contains(configured.PinnedModels, right.ID)
 					if lp && !rp {
 						return -1
 					}
@@ -107,36 +107,36 @@ func (a *app) modelPicker(c *ui.Context) {
 					return 0
 				})
 				if grouped {
-					ui.Row(c.Key("group-"+provider.ID)).Padding(4, 8).Gap(7).Children(func() {
-						ui.Icon(c, iChat).Size(16, 16).TextColor(t.TextMuted)
-						ui.Text(c, provider.Name).FontSize(12).FontWeight(500).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine().Tooltip(provider.Name)
-						identity := provider.Host
-						if provider.Login != "" {
-							identity += " · " + provider.Login
+					ui.Row(c.Key("group-"+configured.ID)).Padding(4, 8).Gap(7).Children(func() {
+						providerIcon(c, configured.Kind, 16).TextColor(t.TextMuted)
+						ui.Text(c, configured.Name).FontSize(12).FontWeight(500).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine().Tooltip(configured.Name)
+						identity := configured.Host
+						if configured.Login != "" {
+							identity += " · " + configured.Login
 						}
 						ui.Text(c, identity).FontSize(10).TextColor(t.TextMuted).MaxWidth(140).SingleLine().Tooltip(identity)
 					})
 				}
 				for _, model := range models {
 					count++
-					ui.Row(c.Key(provider.ID + "/" + model.ID)).FillWidth().Gap(2).Radius(6).Children(func() {
-						selectButton := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(32).Padding(5, 8).Gap(8).Radius(6).Justify(ui.Start).Label("Choose " + modelDisplayName(model) + " from " + provider.Name)
+					ui.Row(c.Key(configured.ID + "/" + model.ID)).FillWidth().Gap(2).Radius(6).Children(func() {
+						selectButton := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(32).Padding(5, 8).Gap(8).Radius(6).Justify(ui.Start).Label("Choose " + modelDisplayName(model) + " from " + configured.Name)
 						if selectButton.Hovered() {
 							selectButton.Background(t.SurfaceHover)
 						}
 						selectButton.Children(func() {
-							if a.selectedProviderID() == provider.ID && a.selectedModel() == model.ID {
+							if a.selectedProviderID() == configured.ID && a.selectedModel() == model.ID {
 								ui.Icon(c, modelCheckIcon).Size(16, 16).TextColor(t.Success)
 							} else {
 								ui.Box(c).Size(16, 16)
 							}
 							ui.Text(c, modelDisplayName(model)).FontSize(13).Grow(1).MinWidth(0).SingleLine()
 							modelCapabilityIcons(c, model)
-						}).OnClick(func() { a.chooseModel(provider.ID, model.ID); state.Open = false })
-						pinned := slices.Contains(provider.PinnedModels, model.ID)
-						pinLabel := "Pin " + modelDisplayName(model) + " from " + provider.Name
+						}).OnClick(func() { a.chooseModel(configured.ID, model.ID); state.Open = false })
+						pinned := slices.Contains(configured.PinnedModels, model.ID)
+						pinLabel := "Pin " + modelDisplayName(model) + " from " + configured.Name
 						if pinned {
-							pinLabel = "Unpin " + modelDisplayName(model) + " from " + provider.Name
+							pinLabel = "Unpin " + modelDisplayName(model) + " from " + configured.Name
 						}
 						pin := iconButton(c, modelPinIcon, pinLabel).Shrink(0)
 						if pinned {
@@ -144,7 +144,7 @@ func (a *app) modelPicker(c *ui.Context) {
 						} else {
 							pin.TextColor(t.TextMuted)
 						}
-						pin.OnClick(func() { a.toggleModelPin(provider.ID, model.ID) })
+						pin.OnClick(func() { a.toggleModelPin(configured.ID, model.ID) })
 					})
 				}
 			}

@@ -35,7 +35,7 @@ function Get-ReleaseConfig {
     }
     $appSource = Get-ReleaseSource 'internal/desktop/app.go' $sourceCommit
     $appVersion = [regex]::Match($appSource, 'const version = "([^"]+)"').Groups[1].Value
-    $clientSource = Get-ReleaseSource 'internal/copilot/client.go' $sourceCommit
+    $clientSource = Get-ReleaseSource 'internal/provider/http.go' $sourceCommit
     $clientVersion = [regex]::Match($clientSource, 'CopilotChatNative/([^"\s]+)').Groups[1].Value
     if ($appVersion -ne $config.version -or $clientVersion -ne $config.version) {
         throw "Version mismatch: mygo.json=$($config.version), desktop=$appVersion, user agent=$clientVersion."

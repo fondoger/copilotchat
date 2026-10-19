@@ -1,0 +1,10 @@
+{
+  "file": "microsoft-copilot-color.svg",
+  "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons/copilot-color.svg",
+  "sourceCommit": "8a1b2821bb768c484fe8da20c5e1838b6bf551a9",
+  "sha256": "04f15d0556fbac10a4e0f82d1560610db8b33cd04780a4f24ad3b91c4abd278d",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2023 LobeHub",
+  "changes": "None",
+  "purpose": "Identifies the Microsoft 365 Copilot provider."
+}

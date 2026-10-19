@@ -73,8 +73,8 @@ func (a *app) emptyView(c *ui.Context) {
 		ui.Icon(c, iEmptyChat).FontSize(38).TextColor(t.TextMuted).Margin(0, 0, 5, 0)
 		ui.Text(c, "How can I help you today?").FontSize(24).FontWeight(500)
 		if a.selectedClient() == nil {
-			ui.Text(c, "Connect your GitHub Copilot account to start chatting.").FontSize(13).TextColor(t.TextMuted)
-			ui.Button(c, "Connect GitHub Copilot").Margin(8, 0).OnClick(func() { a.openSettings("Providers") })
+			ui.Text(c, "Connect GitHub Copilot or Microsoft 365 Copilot to start chatting.").FontSize(13).TextColor(t.TextMuted)
+			ui.Button(c, "Connect a provider").Margin(8, 0).OnClick(func() { a.openSettings("Providers") })
 		} else {
 			ui.Text(c, "Start a conversation, or attach a file for context.").FontSize(13).TextColor(t.TextMuted)
 		}

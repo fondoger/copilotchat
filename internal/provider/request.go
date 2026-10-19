@@ -1,4 +1,4 @@
-package copilot
+package provider
 
 import (
 	"encoding/base64"
@@ -10,7 +10,8 @@ import (
 	"unicode/utf8"
 )
 
-func requestBody(request Request, model Model) (map[string]any, bool, error) {
+// RequestBody encodes a model request without modifying stored history.
+func RequestBody(request Request, model Model) (map[string]any, bool, error) {
 	if strings.TrimSpace(request.Model) == "" {
 		return nil, false, errors.New("select a Copilot model first")
 	}

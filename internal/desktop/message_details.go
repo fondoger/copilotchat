@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -37,7 +37,7 @@ func replyStatsRows(s *store.MessageStats) [][2]string {
 	return rows
 }
 
-func accumulateReplyStats(s *store.MessageStats, completion copilot.Completion, first bool, offset time.Duration) {
+func accumulateReplyStats(s *store.MessageStats, completion provider.Completion, first bool, offset time.Duration) {
 	u := completion.Usage
 	s.InputTokens += u.InputTokens
 	s.OutputTokens += u.OutputTokens

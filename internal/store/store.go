@@ -14,13 +14,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fondoger/copilotchat/internal/copilot"
 	"github.com/fondoger/copilotchat/internal/mcp"
+	"github.com/fondoger/copilotchat/internal/provider/github"
+	"github.com/fondoger/copilotchat/internal/provider/microsoft"
 )
 
 const (
 	CurrentSchemaVersion               = 2
 	DefaultProviderID                  = "github.com"
+	ProviderKindGitHub                 = "github-copilot"
+	ProviderKindM365                   = "m365-copilot"
+	M365ProviderHost                   = microsoft.Host
 	DefaultUpdateIntervalHours         = 24
 	DefaultSidebarWidth        float32 = 240
 	MinSidebarWidth            float32 = 240
@@ -52,16 +56,16 @@ type Provider struct {
 	Disabled          bool      `json:"disabled,omitempty"`
 	ModelsRefreshedAt time.Time `json:"modelsRefreshedAt,omitempty"`
 	ID                string    `json:"id"`
+	Kind              string    `json:"kind"`
 	Name              string    `json:"name"`
 	Host              string    `json:"host"`
 	Login             string    `json:"login,omitempty"`
-	ModelFilter       string    `json:"modelFilter"`
-	ModelIDs          []string  `json:"modelIds,omitempty"`
+	DisabledModels    []string  `json:"disabledModels,omitempty"`
 	PinnedModels      []string  `json:"pinnedModels,omitempty"`
 }
 
 func DefaultProvider() Provider {
-	return Provider{ID: DefaultProviderID, Name: "GitHub Copilot", Host: "github.com", ModelFilter: "all"}
+	return Provider{ID: DefaultProviderID, Kind: ProviderKindGitHub, Name: "GitHub Copilot", Host: "github.com"}
 }
 
 type MessageStats struct {
@@ -250,6 +254,13 @@ func normalize(state *State) {
 			state.Conversations[i].ProviderID = DefaultProviderID
 		}
 	}
+	for i := range state.Settings.Providers {
+		if state.Settings.Providers[i].Kind == "" {
+			// Existing providers all used GitHub Copilot. Never infer provider
+			// type from a host, so credentials cannot cross auth boundaries.
+			state.Settings.Providers[i].Kind = ProviderKindGitHub
+		}
+	}
 	switch state.Settings.Theme {
 	case "system", "light", "dark":
 	default:
@@ -277,19 +288,27 @@ func validateProviders(state *State) error {
 			return fmt.Errorf("provider IDs must be nonempty and unique")
 		}
 		seen[p.ID] = true
-		host, err := copilot.NormalizeHost(p.Host)
-		if err != nil {
-			return fmt.Errorf("provider %q: %w", p.Name, err)
+		defaultName := "GitHub Copilot"
+		switch p.Kind {
+		case ProviderKindGitHub:
+			host, err := github.NormalizeHost(p.Host)
+			if err != nil {
+				return fmt.Errorf("provider %q: %w", p.Name, err)
+			}
+			p.Host = host
+		case ProviderKindM365:
+			host := strings.ToLower(strings.TrimSpace(p.Host))
+			if host != "" && host != M365ProviderHost {
+				return fmt.Errorf("provider %q: Microsoft 365 Copilot must use %s", p.Name, M365ProviderHost)
+			}
+			p.Host = M365ProviderHost
+			defaultName = "Microsoft 365 Copilot"
+		default:
+			return fmt.Errorf("provider %q: unsupported provider kind %q", p.Name, p.Kind)
 		}
-		p.Host = host
 		p.Name = strings.TrimSpace(p.Name)
 		if p.Name == "" {
-			p.Name = "GitHub Copilot"
-		}
-		switch p.ModelFilter {
-		case "all", "whitelist", "blacklist":
-		default:
-			p.ModelFilter = "all"
+			p.Name = defaultName
 		}
 	}
 	if !seen[state.Settings.ActiveProviderID] {

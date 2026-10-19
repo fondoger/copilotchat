@@ -12,7 +12,8 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -21,8 +22,8 @@ func featureApp() *app {
 	a.state.Settings.Theme = "light"
 	a.state.Settings.Model = "text"
 	r := a.providerState(store.DefaultProviderID)
-	r.client = copilot.NewClient("test-fixture")
-	r.models = []copilot.Model{
+	r.client = github.NewClient("test-fixture")
+	r.models = []provider.Model{
 		{ID: "text", Name: "Text model", VisionKnown: true},
 		{ID: "vision", Name: "Vision model", Vision: true, VisionKnown: true, Reasoning: true, ThinkingEfforts: []string{"low", "high"}},
 	}
@@ -111,16 +112,16 @@ func TestImagePasteChecksCurrentModelAndKeepsDraft(t *testing.T) {
 
 func TestReplyStatsAccumulateAndPreserveUnknownCacheUsage(t *testing.T) {
 	s := &store.MessageStats{}
-	accumulateReplyStats(s, copilot.Completion{
-		Usage:   copilot.Usage{InputTokens: 442, OutputTokens: 4900, CachedInputTokens: 100, InputAvailable: true, OutputAvailable: true, CachedInputAvailable: true},
-		Metrics: copilot.Metrics{TimeToFirstToken: 7300 * time.Millisecond, Duration: 57700 * time.Millisecond},
+	accumulateReplyStats(s, provider.Completion{
+		Usage:   provider.Usage{InputTokens: 442, OutputTokens: 4900, CachedInputTokens: 100, InputAvailable: true, OutputAvailable: true, CachedInputAvailable: true},
+		Metrics: provider.Metrics{TimeToFirstToken: 7300 * time.Millisecond, Duration: 57700 * time.Millisecond},
 	}, true, 0)
 	s.DurationMS = 57700
 	rows := replyStatsRows(s)
 	if rows[0][1] != "442" || rows[1][1] != "100" || rows[3][1] != "7.3s" || rows[5][1] != "84.9 T/s" {
 		t.Fatalf("stats incorrect: %v", rows)
 	}
-	accumulateReplyStats(s, copilot.Completion{Usage: copilot.Usage{InputTokens: 10, OutputTokens: 5, InputAvailable: true, OutputAvailable: true}}, false, time.Minute)
+	accumulateReplyStats(s, provider.Completion{Usage: provider.Usage{InputTokens: 10, OutputTokens: 5, InputAvailable: true, OutputAvailable: true}}, false, time.Minute)
 	rows = replyStatsRows(s)
 	if rows[0][1] != "452" || rows[1][1] != "—" || rows[2][1] != "4905" {
 		t.Fatalf("unknown cache usage was reported as a measured count: %v", rows)
@@ -165,7 +166,7 @@ func TestHTMLCodeBlockOffersInlinePreviewAndSource(t *testing.T) {
 }
 
 func TestProviderSwitchDropsOpaqueReasoningButKeepsText(t *testing.T) {
-	chat := store.Conversation{ProviderID: "second", Model: "other", Messages: []store.Message{{ProviderID: "first", Model: "old", Role: "assistant", ProviderMessages: []json.RawMessage{wire(t, copilot.Message{Role: "assistant", Content: "keep this", ReasoningOpaque: "signature", ProviderData: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"private"}`)}})}}}}
+	chat := store.Conversation{ProviderID: "second", Model: "other", Messages: []store.Message{{ProviderID: "first", Model: "old", Role: "assistant", ProviderMessages: []json.RawMessage{wire(t, provider.Message{Role: "assistant", Content: "keep this", ReasoningOpaque: "signature", ProviderData: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"private"}`)}})}}}}
 	messages := history(&chat)
 	if len(messages) != 1 || messages[0].Content != "keep this" || messages[0].ReasoningOpaque != "" || len(messages[0].ProviderData) != 0 {
 		t.Fatalf("wrong provider replay: %+v", messages)

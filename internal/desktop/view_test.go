@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -110,8 +111,8 @@ func TestMainLayoutAndSnapshots(t *testing.T) {
 	writeViewScreenshot(t, tt, "chat-empty.png")
 	now := time.Now()
 	runtime := a.providerState(store.DefaultProviderID)
-	runtime.client = copilot.NewClient("fixture-not-a-credential")
-	runtime.models = []copilot.Model{{ID: "gpt-4.1", Name: "GPT-4.1"}, {ID: "claude-sonnet", Name: "Claude Sonnet"}}
+	runtime.client = github.NewClient("fixture-not-a-credential")
+	runtime.models = []provider.Model{{ID: "gpt-4.1", Name: "GPT-4.1"}, {ID: "claude-sonnet", Name: "Claude Sonnet"}}
 	a.state.Settings.Model = "gpt-4.1"
 	a.state.ActiveID = "example"
 	a.state.Conversations = []store.Conversation{{ID: "example", Title: "A native space for ideas", Model: "gpt-4.1", CreatedAt: now, UpdatedAt: now, Messages: []store.Message{

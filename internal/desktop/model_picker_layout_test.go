@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -16,9 +16,9 @@ func TestModelPickerLongListKeepsPinsOutsideScrollbar(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			a := providerTestApp(t)
 			a.provider("work").Disabled = true
-			models := make([]copilot.Model, 40)
+			models := make([]provider.Model, 40)
 			for i := range models {
-				models[i] = copilot.Model{ID: fmt.Sprintf("model-%02d", i), Name: fmt.Sprintf("Model %02d with an extended display name", i), Vision: true, Reasoning: true, Tools: true}
+				models[i] = provider.Model{ID: fmt.Sprintf("model-%02d", i), Name: fmt.Sprintf("Model %02d with an extended display name", i), Vision: true, Reasoning: true, Tools: true}
 			}
 			a.providerState(store.DefaultProviderID).models = models
 			a.state.Settings.Model = models[0].ID

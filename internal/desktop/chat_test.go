@@ -11,12 +11,12 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/fondoger/copilotchat/internal/copilot"
 	"github.com/fondoger/copilotchat/internal/mcp"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-func wire(t *testing.T, message copilot.Message) json.RawMessage {
+func wire(t *testing.T, message provider.Message) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(message)
 	if err != nil {
@@ -29,11 +29,11 @@ func TestHistoryPreservesStoppedToolWorkAndPartialText(t *testing.T) {
 	chat := store.Conversation{Messages: []store.Message{
 		{Role: "user", Content: "look up the result"},
 		{Role: "assistant", Error: "Response stopped.", ProviderMessages: []json.RawMessage{
-			wire(t, copilot.Message{Role: "assistant", Content: "Looking", ToolCalls: []copilot.ToolCall{
+			wire(t, provider.Message{Role: "assistant", Content: "Looking", ToolCalls: []provider.ToolCall{
 				{ID: "done", Name: "lookup", Arguments: `{}`},
 				{ID: "pending", Name: "write", Arguments: `{}`},
 			}}),
-			wire(t, copilot.Message{Role: "tool", ToolCallID: "done", Content: "already completed"}),
+			wire(t, provider.Message{Role: "tool", ToolCallID: "done", Content: "already completed"}),
 		}},
 		{Role: "user", Content: "what happened?"},
 		{Role: "assistant", Content: "partial explanation", Error: "network disconnected"},
@@ -74,8 +74,8 @@ func TestRecordReplyPersistsToolResultBeforeNextModelCall(t *testing.T) {
 	a := &app{storage: disk, state: store.DefaultState()}
 	a.state.Conversations = []store.Conversation{{ID: "chat", Messages: []store.Message{{ID: "reply", Role: "assistant"}}}}
 	transcript := []json.RawMessage{
-		wire(t, copilot.Message{Role: "assistant", ToolCalls: []copilot.ToolCall{{ID: "call", Name: "tool", Arguments: `{}`}}}),
-		wire(t, copilot.Message{Role: "tool", ToolCallID: "call", Content: "saved result"}),
+		wire(t, provider.Message{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: `{}`}}}),
+		wire(t, provider.Message{Role: "tool", ToolCallID: "call", Content: "saved result"}),
 	}
 	a.recordReply("chat", "reply", "working", transcript)
 	saved, err := disk.Load()

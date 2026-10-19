@@ -1,4 +1,4 @@
-package copilot
+package provider
 
 // Pointers distinguish an absent usage field from a reported zero. Anthropic
 // sends input counts in message_start and cumulative output counts in deltas.

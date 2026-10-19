@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -20,11 +21,12 @@ type credentialStore interface {
 }
 
 type providerRuntime struct {
-	client                                *copilot.Client
-	models                                []copilot.Model
+	client                                provider.Client
+	m365Auth                              interface{ Revoke() }
+	models                                []provider.Model
 	authBusy, modelsBusy, credentialsBusy bool
 	authEpoch, modelsEpoch                uint64
-	authCode                              copilot.DeviceCode
+	authCode                              github.DeviceCode
 	authCancel, modelsCancel              context.CancelFunc
 	status, credentialNotice              string
 	modelsLoaded                          bool
@@ -67,6 +69,10 @@ func (a *app) providerState(id string) *providerRuntime {
 func (a *app) loadProviders() {
 	for _, p := range a.state.Settings.Providers {
 		r := a.providerState(p.ID)
+		if p.Kind == store.ProviderKindM365 {
+			a.loadM365Provider(p, r)
+			continue
+		}
 		token, err := a.credentials().Get(providerCredentialKey(p.ID))
 		if errors.Is(err, mygo.ErrSecretNotFound) && p.ID == store.DefaultProviderID && p.Host == "github.com" {
 			token, err = a.credentials().Get("github-copilot-token")
@@ -88,8 +94,9 @@ func (a *app) loadProviders() {
 		if len(token) == 0 {
 			continue
 		}
-		r.client, err = copilot.NewClientForHost(string(token), p.Host)
+		r.client, err = github.NewClientForHost(string(token), p.Host)
 		if err != nil {
+			r.client = nil
 			r.status = err.Error()
 		}
 	}
@@ -105,9 +112,9 @@ func (a *app) selectedProviderID() string {
 	return store.DefaultProviderID
 }
 
-func (a *app) selectedClient() *copilot.Client { return a.clientForProvider(a.selectedProviderID()) }
+func (a *app) selectedClient() provider.Client { return a.clientForProvider(a.selectedProviderID()) }
 
-func (a *app) clientForProvider(id string) *copilot.Client {
+func (a *app) clientForProvider(id string) provider.Client {
 	if p := a.provider(id); p == nil || p.Disabled {
 		return nil
 	}
@@ -124,7 +131,7 @@ func (a *app) selectedModel() string {
 	return a.state.Settings.Model
 }
 
-func (a *app) clientStillConnected(client *copilot.Client) bool {
+func (a *app) clientStillConnected(client provider.Client) bool {
 	if client == nil {
 		return false
 	}
@@ -136,7 +143,7 @@ func (a *app) clientStillConnected(client *copilot.Client) bool {
 	return false
 }
 
-func (a *app) titleClient(chat *store.Conversation) (*copilot.Client, string) {
+func (a *app) titleClient(chat *store.Conversation) (provider.Client, string) {
 	if a.state.Settings.TitleModel != "" {
 		providerID := a.state.Settings.TitleProviderID
 		if providerID == "" {
@@ -148,26 +155,63 @@ func (a *app) titleClient(chat *store.Conversation) (*copilot.Client, string) {
 }
 
 func modelAllowed(p *store.Provider, id string) bool {
-	if p.Disabled {
-		return false
+	return p != nil && !p.Disabled && modelEnabled(p, id)
+}
+
+// modelEnabled is a saved model preference, independent of whether its provider
+// is currently enabled. Disabled providers keep editable visibility choices.
+func modelEnabled(p *store.Provider, id string) bool {
+	return p != nil && !slices.Contains(p.DisabledModels, id)
+}
+
+func (a *app) setModelEnabled(providerID, modelID string, enabled bool) {
+	p, r := a.provider(providerID), a.providers[providerID]
+	if p == nil || r == nil || !slices.ContainsFunc(r.models, func(model provider.Model) bool { return model.ID == modelID }) {
+		return
 	}
-	listed := slices.Contains(p.ModelIDs, id)
-	switch p.ModelFilter {
-	case "whitelist":
-		return listed
-	case "blacklist":
-		return !listed
-	default:
-		return true
+	changed := false
+	if enabled {
+		if slices.Contains(p.DisabledModels, modelID) {
+			p.DisabledModels = slices.DeleteFunc(p.DisabledModels, func(id string) bool { return id == modelID })
+			changed = true
+		}
+	} else if !slices.Contains(p.DisabledModels, modelID) {
+		p.DisabledModels = append(p.DisabledModels, modelID)
+		changed = true
+	}
+	if changed {
+		a.saveSettings()
 	}
 }
 
-func (a *app) providerModels(id string) []copilot.Model {
+func (a *app) setAllModelsEnabled(providerID string, enabled bool) {
+	p, r := a.provider(providerID), a.providers[providerID]
+	if p == nil || r == nil || len(r.models) == 0 {
+		return
+	}
+	changed := false
+	for _, model := range r.models {
+		if enabled {
+			if slices.Contains(p.DisabledModels, model.ID) {
+				p.DisabledModels = slices.DeleteFunc(p.DisabledModels, func(id string) bool { return id == model.ID })
+				changed = true
+			}
+		} else if !slices.Contains(p.DisabledModels, model.ID) {
+			p.DisabledModels = append(p.DisabledModels, model.ID)
+			changed = true
+		}
+	}
+	if changed {
+		a.saveSettings()
+	}
+}
+
+func (a *app) providerModels(id string) []provider.Model {
 	p, r := a.provider(id), a.providers[id]
 	if p == nil || r == nil {
 		return nil
 	}
-	var models []copilot.Model
+	var models []provider.Model
 	for _, model := range r.models {
 		if modelAllowed(p, model.ID) {
 			models = append(models, model)
@@ -176,9 +220,9 @@ func (a *app) providerModels(id string) []copilot.Model {
 	return models
 }
 
-func (a *app) modelForProvider(providerID, modelID string) (copilot.Model, bool) {
+func (a *app) modelForProvider(providerID, modelID string) (provider.Model, bool) {
 	if p := a.provider(providerID); p == nil || p.Disabled {
-		return copilot.Model{}, false
+		return provider.Model{}, false
 	}
 	if r := a.providers[providerID]; r != nil {
 		for _, model := range r.models {
@@ -187,7 +231,7 @@ func (a *app) modelForProvider(providerID, modelID string) (copilot.Model, bool)
 			}
 		}
 	}
-	return copilot.Model{}, false
+	return provider.Model{}, false
 }
 
 func (a *app) chooseModel(providerID, modelID string) {
@@ -220,15 +264,30 @@ func (a *app) toggleModelPin(providerID, modelID string) {
 }
 
 func (a *app) addProvider(name, host string) (string, error) {
-	host, err := copilot.NormalizeHost(host)
+	return a.addProviderKind(store.ProviderKindGitHub, name, host)
+}
+
+func (a *app) addProviderKind(kind, name, host string) (string, error) {
+	var err error
+	switch kind {
+	case store.ProviderKindGitHub:
+		host, err = github.NormalizeHost(host)
+	case store.ProviderKindM365:
+		host = store.M365ProviderHost
+	default:
+		return "", errors.New("unknown provider type")
+	}
 	if err != nil {
 		return "", err
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "GitHub Copilot"
+		if kind == store.ProviderKindM365 {
+			name = "Microsoft 365 Copilot"
+		}
 	}
-	p := store.Provider{ID: newID(), Name: name, Host: host, ModelFilter: "all"}
+	p := store.Provider{ID: newID(), Kind: kind, Name: name, Host: host}
 	a.state.Settings.Providers = append(a.state.Settings.Providers, p)
 	if active := a.provider(a.state.Settings.ActiveProviderID); active == nil || active.Disabled {
 		a.state.Settings.ActiveProviderID, a.state.Settings.Model = p.ID, ""
@@ -296,6 +355,15 @@ func (a *app) removeProvider(id string) error {
 	err := a.clearProviderCredentials(id)
 	r.credentialsBusy = false
 	if err != nil {
+		if a.state.Settings.Providers[index].Kind == store.ProviderKindM365 {
+			// Microsoft sources are revoked before deleting their saved binding.
+			// A vault failure must not leave a dead source displayed as connected.
+			a.cancelProviderWork(id)
+			r.client, r.models, r.modelsLoaded = nil, nil, false
+			r.status = "Signed out for this session."
+			a.state.Settings.Providers[index].Login = ""
+			a.saveSettings()
+		}
 		r.credentialNotice = "Could not delete provider: its saved sign-in could not be removed. Try again. " + err.Error()
 		return err
 	}
@@ -366,18 +434,22 @@ func (a *app) beginProviderLogin(id string) {
 	if p == nil || p.Disabled {
 		return
 	}
+	if p.Kind == store.ProviderKindM365 {
+		a.beginM365Login(id)
+		return
+	}
 	r := a.providerState(id)
 	if r.authBusy || r.credentialsBusy || a.quitting {
 		return
 	}
-	client, err := copilot.NewClientForHost("", p.Host)
+	client, err := github.NewClientForHost("", p.Host)
 	if err != nil {
 		r.status = err.Error()
 		return
 	}
 	r.authEpoch++
 	epoch := r.authEpoch
-	r.authBusy, r.authCode, r.status = true, copilot.DeviceCode{}, "Requesting a device code…"
+	r.authBusy, r.authCode, r.status = true, github.DeviceCode{}, "Requesting a device code…"
 	ctx, cancel := context.WithCancel(context.Background())
 	r.authCancel = cancel
 	failed := func(err error) {
@@ -386,7 +458,7 @@ func (a *app) beginProviderLogin(id string) {
 			if !a.currentProviderLogin(id, epoch, ctx) {
 				return
 			}
-			r.authBusy, r.authCancel, r.authCode = false, nil, copilot.DeviceCode{}
+			r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 			r.status = err.Error()
 		})
 	}
@@ -430,7 +502,7 @@ func (a *app) beginProviderLogin(id string) {
 			a.cancelProviderModels(id)
 			r.client, r.models = client, nil
 			r.modelsLoaded = false
-			r.authBusy, r.authCancel, r.authCode = false, nil, copilot.DeviceCode{}
+			r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 			r.status = "Connected."
 			r.credentialNotice = ""
 			a.updateProviderAccount(id, account, accountErr, true)
@@ -456,7 +528,7 @@ func (a *app) cancelProviderLogin(id string) {
 			r.authCancel()
 			r.authCancel = nil
 		}
-		r.authBusy, r.authCode = false, copilot.DeviceCode{}
+		r.authBusy, r.authCode = false, github.DeviceCode{}
 	}
 }
 
@@ -506,6 +578,9 @@ func (a *app) signOutProvider(id string) {
 }
 
 func (a *app) clearProviderCredentials(id string) error {
+	if p := a.provider(id); p != nil && p.Kind == store.ProviderKindM365 {
+		return a.clearM365Credentials(id)
+	}
 	err := a.credentials().Delete(providerCredentialKey(id))
 	if errors.Is(err, mygo.ErrSecretNotFound) {
 		err = nil
@@ -518,7 +593,7 @@ func (a *app) clearProviderCredentials(id string) error {
 	return err
 }
 
-func (a *app) updateProviderAccount(id string, account copilot.AccountInfo, err error, newSignIn bool) {
+func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err error, newSignIn bool) {
 	p := a.provider(id)
 	if p == nil {
 		return
@@ -529,7 +604,11 @@ func (a *app) updateProviderAccount(id string, account copilot.AccountInfo, err 
 	}
 	if err != nil {
 		r := a.providerState(id)
-		r.status = strings.TrimSuffix(r.status, ".") + ". Could not load GitHub username: " + err.Error()
+		label := "GitHub username"
+		if p.Kind == store.ProviderKindM365 {
+			label = "Microsoft account"
+		}
+		r.status = strings.TrimSuffix(r.status, ".") + ". Could not load " + label + ": " + err.Error()
 		return
 	}
 	p.Login = account.Login
@@ -545,12 +624,16 @@ func (a *app) refreshProviderModels(id string) {
 	epoch, client := r.modelsEpoch, r.client
 	r.modelsBusy = true
 	r.modelsAttemptedAt = time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	timeout := 45 * time.Second
+	if p.Kind == store.ProviderKindM365 {
+		timeout = 90 * time.Second // Allow the CLI broker to renew before loading the catalog.
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	r.modelsCancel = cancel
 	go func() {
 		defer cancel()
 		models, err := client.Models(ctx)
-		var account copilot.AccountInfo
+		var account provider.AccountInfo
 		var accountErr error
 		if err == nil {
 			account, accountErr = client.Account(ctx)

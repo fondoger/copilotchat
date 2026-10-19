@@ -47,7 +47,7 @@ try {
     New-Item -ItemType Directory -Path dist -Force | Out-Null
     $notesPath = Join-Path (Get-Location) 'dist/release-notes.md'
     $notes = @"
-Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot, with streamed chat, model selection, attachments, local conversation storage, HTML previews, configurable MCP servers, and optional tray residence.
+Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot and Microsoft 365 Copilot, with streamed chat, model selection, attachments, local conversation storage, HTML previews, configurable MCP servers, and optional tray residence.
 
 | Platform | Architecture | Downloads |
 | --- | --- | --- |

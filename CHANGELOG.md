@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Add Microsoft 365 Copilot providers with Windows WAM sign-in and existing Copilot CLI account reuse. A compatible local Copilot CLI and account access to the model service are required.
+- Bind Microsoft accounts to their selected tenant and identity, with isolated sign-in profiles and credential renewal through the CLI.
+- Support the Microsoft model catalog, streamed responses, images, thinking, tool calls, and cached input token reporting.
+- Restore provider icons in settings and model lists.
+- Replace model visibility modes with an Enabled checkbox for every model, plus Select all and Deselect all. Models default to enabled and changes save automatically for each provider.
+- Organize shared inference code and GitHub/Microsoft integrations under the provider package.
+
 ## 0.3.3
 
 - Focus the chat input with Ctrl+L on Windows or Command+L on macOS.

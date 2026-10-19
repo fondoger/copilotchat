@@ -1,4 +1,4 @@
-package copilot
+package provider
 
 import (
 	"crypto/sha256"

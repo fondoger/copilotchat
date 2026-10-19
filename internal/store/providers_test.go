@@ -36,7 +36,7 @@ func TestProviderPersistenceValidationAndStats(t *testing.T) {
 	}
 	state := DefaultState()
 	refreshedAt := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	state.Settings.Providers = append(state.Settings.Providers, Provider{ID: "work", Name: "Work", Host: "EXAMPLE.GHE.COM", Login: "test-user", Disabled: true, ModelsRefreshedAt: refreshedAt, ModelFilter: "whitelist", ModelIDs: []string{"same"}, PinnedModels: []string{"same"}})
+	state.Settings.Providers = append(state.Settings.Providers, Provider{ID: "work", Name: "Work", Host: "EXAMPLE.GHE.COM", Login: "test-user", Disabled: true, ModelsRefreshedAt: refreshedAt, DisabledModels: []string{"same"}, PinnedModels: []string{"same"}})
 	state.Settings.ActiveProviderID = "work"
 	state.Conversations = []Conversation{{ID: "chat", ProviderID: "work", Model: "same", Messages: []Message{{ID: "reply", ProviderID: "work", Model: "same", Reasoning: "A thought", Stats: &MessageStats{InputTokens: 12, OutputTokens: 5, UsageAvailable: true, InputAvailable: true, OutputAvailable: true, DurationMS: 300}}}}}
 	if err := disk.Save(state); err != nil {
@@ -46,7 +46,7 @@ func TestProviderPersistenceValidationAndStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Settings.Providers[1].Host != "example.ghe.com" || got.Settings.Providers[1].PinnedModels[0] != "same" || got.Conversations[0].Messages[0].Stats.OutputTokens != 5 {
+	if got.Settings.Providers[1].Host != "example.ghe.com" || got.Settings.Providers[1].PinnedModels[0] != "same" || len(got.Settings.Providers[1].DisabledModels) != 1 || got.Settings.Providers[1].DisabledModels[0] != "same" || got.Conversations[0].Messages[0].Stats.OutputTokens != 5 {
 		t.Fatalf("provider data lost: %#v", got)
 	}
 	if !got.Settings.Providers[1].Disabled || !got.Settings.Providers[1].ModelsRefreshedAt.Equal(refreshedAt) {

@@ -11,8 +11,9 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
 	"github.com/fondoger/copilotchat/internal/mcp"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -25,8 +26,8 @@ func newSettingsTestApp(t *testing.T) *app {
 	a := &app{
 		storage: storage, state: store.DefaultState(), settingsPage: "General",
 		providers: map[string]*providerRuntime{store.DefaultProviderID: {
-			client: copilot.NewClient("headless-test-token"),
-			models: []copilot.Model{{ID: "gpt-4o", Name: "GPT-4o"}, {ID: "claude-sonnet-4", Name: "Claude Sonnet 4"}},
+			client: github.NewClient("headless-test-token"),
+			models: []provider.Model{{ID: "gpt-4o", Name: "GPT-4o"}, {ID: "claude-sonnet-4", Name: "Claude Sonnet 4"}},
 			status: "Connected · 2 models available",
 		}},
 	}

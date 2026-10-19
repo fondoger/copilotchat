@@ -25,6 +25,6 @@ The extracted UI assets include these open-source icon sets. Their complete lice
 | Remix Icon | Attachment and send arrow | Apache-2.0; corresponding icons are available in v4.6.0 — https://github.com/Remix-Design/RemixIcon/tree/v4.6.0 |
 | MingCute | Copy, regenerate, rename, response details, search result | Apache-2.0 — https://github.com/Richard9394/MingCute |
 | Bootstrap Icons | Stop and empty-chat illustration | MIT — https://github.com/twbs/icons |
-| Lobe Icons | GitHub Copilot provider symbol (`githubcopilot.svg`) | MIT — https://github.com/lobehub/lobe-icons |
+| Lobe Icons | GitHub Copilot provider symbol (`githubcopilot.svg`), Microsoft Copilot color symbol (`copilot-color.svg`) | MIT — https://github.com/lobehub/lobe-icons |
 
-The GitHub Copilot symbol identifies the configured provider; the associated trademarks remain their owners' property.
+The Microsoft Copilot color symbol was obtained directly from Lobe Icons, separately from the 37 ChatWise assets. `internal/desktop/assets/icons/provider-sources.json` records its pinned source revision and SHA-256. It identifies the Microsoft 365 Copilot provider. The GitHub Copilot and Microsoft Copilot symbols identify the configured providers; the associated trademarks remain their owners' property.

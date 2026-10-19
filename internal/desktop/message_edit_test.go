@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -42,7 +42,7 @@ func TestRegenerationBuildsValidatedHistoryWithoutMutatingChat(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("preflight mutated original conversation")
 	}
-	a.provider(store.DefaultProviderID).ModelFilter = "whitelist"
+	a.provider(store.DefaultProviderID).DisabledModels = []string{"text"}
 	a.editMessageID, a.editText = "u1", edit
 	if a.saveMessageEdit() || a.streaming {
 		t.Fatal("hidden model accepted")
@@ -67,7 +67,7 @@ func TestRegenerationOnlyChecksRetainedAttachments(t *testing.T) {
 func TestEditingAssistantReplacesProviderHistoryWithoutRegenerating(t *testing.T) {
 	a := editingApp()
 	m := &a.current().Messages[1]
-	m.ProviderMessages = []json.RawMessage{wire(t, copilot.Message{Role: "assistant", Content: "stale wire answer", ReasoningOpaque: "signature"})}
+	m.ProviderMessages = []json.RawMessage{wire(t, provider.Message{Role: "assistant", Content: "stale wire answer", ReasoningOpaque: "signature"})}
 	m.Reasoning, m.Error = "old reasoning", "old error"
 	m.Stats = &store.MessageStats{OutputTokens: 10}
 	m.ToolActivity = []string{"previous tool"}

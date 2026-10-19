@@ -484,10 +484,10 @@ func appendHeadlessApplicationMenu(menu *ui.Menu, items []*mygo.MenuItem) {
 
 // Documentation stays available in packaged and offline builds. This project
 // has no published feedback destination; do not send its bugs to ChatWise.
-const applicationHelp = "Connect: Settings > Providers > Add provider, then sign in with GitHub.\n\n" +
+const applicationHelp = "Connect: Settings > Providers > Add provider, then choose GitHub Copilot or Microsoft 365 Copilot and sign in.\n\n" +
 	"Chat: choose a model in the top bar, type a message, and press Enter. Shift+Enter inserts a new line. Attach files with the paperclip; supported formats depend on the model.\n\n" +
 	"Conversations: use New Chat, open Search, or right-click a conversation to rename, favorite, export, or delete it. Click a date group to collapse it.\n\n" +
-	"Settings: configure appearance, GitHub Copilot providers, MCP servers, chat titles, and optional system-tray residence.\n\n" +
+	"Settings: configure appearance, Copilot providers, MCP servers, chat titles, and optional system-tray residence.\n\n" +
 	"Shortcuts: Ctrl+N new chat; Ctrl+, settings; Ctrl+/ model picker; Ctrl+Shift+F search; Ctrl+B sidebar; Ctrl+Tab / Ctrl+Shift+Tab next / previous chat; Escape stops generation."
 
 func (a *app) showDocumentation() {
@@ -499,7 +499,7 @@ func (a *app) showDocumentation() {
 
 func (a *app) showAbout() {
 	parent := a.win
-	detail := fmt.Sprintf("Version %s\n%s/%s\n\nNative Go + MyGo chat client for GitHub Copilot.\nInterface reference: ChatWise, used with the owner's permission.", version, runtime.GOOS, runtime.GOARCH)
+	detail := fmt.Sprintf("Version %s\n%s/%s\n\nNative Go + MyGo chat client for GitHub Copilot and Microsoft 365 Copilot.\nInterface reference: ChatWise, used with the owner's permission.", version, runtime.GOOS, runtime.GOARCH)
 	go func() {
 		_, _ = mygo.Dialog.Message(mygo.MessageOptions{Parent: parent, Type: mygo.MessageInfo, Title: "About Copilot Chat", Message: "Copilot Chat", Detail: detail})
 	}()

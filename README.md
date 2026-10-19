@@ -1,6 +1,6 @@
 # Copilot Chat
 
-基于 [MyGo](https://github.com/egoist/mygo) 的原生 GitHub Copilot 聊天客户端，使用 Go 绘制界面，支持 Windows 和 macOS。布局参考 ChatWise，提供本地会话、多个 Copilot 账号、附件、模型思考设置和 MCP 工具。
+基于 [MyGo](https://github.com/egoist/mygo) 的原生 Copilot 聊天客户端，支持 GitHub Copilot 和 Microsoft 365 Copilot，使用 Go 绘制界面，支持 Windows 和 macOS。布局参考 ChatWise，提供本地会话、多个 Copilot 账号、附件、模型思考设置和 MCP 工具。
 
 [下载最新版](https://github.com/fondoger/copilotchat/releases/latest) · [所有发行版](https://github.com/fondoger/copilotchat/releases) · [问题反馈](https://github.com/fondoger/copilotchat/issues)
 
@@ -12,12 +12,12 @@
 
 在 [Releases](https://github.com/fondoger/copilotchat/releases) 中选择对应架构。每个发行版同时提供 `SHA256SUMS.txt` 校验文件。
 
-| 系统 | 架构 | v0.3.3 发行文件 |
+| 系统 | 架构 | v0.4.0 发行文件 |
 | --- | --- | --- |
-| Windows | x64 / AMD64 | `copilotchat-0.3.3-windows-x64-setup.exe`、`copilotchat-0.3.3-windows-x64.zip` |
-| Windows | ARM64 | `copilotchat-0.3.3-windows-arm64-setup.exe`、`copilotchat-0.3.3-windows-arm64.zip` |
-| macOS | Intel x64 | `copilotchat-0.3.3-macos-x64.dmg`、`copilotchat-0.3.3-macos-x64.zip` |
-| macOS | Apple Silicon ARM64 | `copilotchat-0.3.3-macos-arm64.dmg`、`copilotchat-0.3.3-macos-arm64.zip` |
+| Windows | x64 / AMD64 | `copilotchat-0.4.0-windows-x64-setup.exe`、`copilotchat-0.4.0-windows-x64.zip` |
+| Windows | ARM64 | `copilotchat-0.4.0-windows-arm64-setup.exe`、`copilotchat-0.4.0-windows-arm64.zip` |
+| macOS | Intel x64 | `copilotchat-0.4.0-macos-x64.dmg`、`copilotchat-0.4.0-macos-x64.zip` |
+| macOS | Apple Silicon ARM64 | `copilotchat-0.4.0-macos-arm64.dmg`、`copilotchat-0.4.0-macos-arm64.zip` |
 
 Windows 安装程序用于安装应用，ZIP 可解压后直接运行。macOS 可从 DMG 将应用拖入 Applications，也可以解压 ZIP。Windows 版本未做代码签名；macOS 使用 ad-hoc 签名，尚未做 Apple notarization，首次运行可能需要通过系统的安全设置确认打开。
 
@@ -42,6 +42,10 @@ Windows x64 已做原生窗口、登录聊天和托盘行为检查。Windows ARM
 
 每个账号都需要可用的 GitHub Copilot 权益。认证流程参考 [OpenCode v2](https://opencode.ai/v2/docs/providers/#copilot)。每个账号独立保存凭据、模型目录和设置；OAuth token 保存在系统凭据库中，不写入会话 JSON。Enterprise 域名行为通过协议测试验证，尚未使用真实企业账号完成端到端登录验证。
 
+Microsoft 365：在 **Providers → + → Microsoft 365 Copilot** 中添加工作账号。在 Windows 上，**Sign in with Microsoft** 通过已安装 Copilot CLI 的 Microsoft Entra broker 使用 WAM 登录；也可以点击 **Use Copilot CLI sign-in** 复用 CLI 当前选中的工作账号。M365 不提供设备码或浏览器回调登录。模型目录由服务返回，支持 Claude 的流式回复、图片、thinking、工具调用和 token 统计。
+
+当前 M365 接入使用 Copilot CLI 对应的企业模型网关，需要组织为账号开通该服务权限；普通 Microsoft 365 订阅不自动包含此访问权限。完整说明、续期方式和平台验证范围见 [Microsoft 365 Copilot](docs/m365.md)。
+
 ## 功能
 
 - **会话管理**：分组折叠、标题及正文搜索、重命名、收藏、删除和 Markdown 导出；可拖动并保存侧栏宽度。
@@ -50,7 +54,7 @@ Windows x64 已做原生窗口、登录聊天和托盘行为检查。Windows ARM
 - **附件**：UTF-8 文本/代码、PNG/JPEG/GIF/WebP，以及模型声明支持的 PDF。支持粘贴图片、缩略图和打开原图。每个文件最多 5 MB，每条消息最多 10 个文件、合计 20 MB。
 - **模型能力**：显示图片、推理、工具和 PDF 能力；根据模型返回的能力提供 thinking effort 或 token budget，并折叠展示服务端返回的可见思考内容。
 - **回复详情**：输入、缓存输入和输出 token、首 token 耗时、总耗时及输出速度。缺失的用量显示“—”；缓存命中由服务端决定。
-- **多个 Copilot 账号**：添加、改名、禁用和删除，设置自动保存。禁用保留登录；删除保留历史会话。模型目录启动时读取并每 24 小时异步刷新，支持白名单、黑名单和置顶。
+- **多个 Copilot 账号**：添加、改名、禁用和删除，设置自动保存。禁用保留登录；删除保留历史会话。模型目录启动时读取并每 24 小时异步刷新，模型默认启用，可逐项隐藏、全选、全部取消选择和置顶。
 - **MCP**：stdio 与 Streamable HTTP，提供配置校验、启用开关和连接测试。每次模型工具调用均展示服务器、工具名及参数，由用户选择 **Allow once** 或 **Deny**。
 - **Chat Title**：首轮回复后自动生成标题，可选择模型或关闭。标题生成使用所选模型的正常请求额度。
 - **原生设置**：跟随系统、浅色和深色主题，聊天字号，Enter / Ctrl+Enter 发送，以及可选托盘驻留。
@@ -96,6 +100,7 @@ pwsh ./scripts/package.ps1 -Platform windows/amd64
 ## 文档与来源
 
 - [Copilot 认证、模型与推理协议](docs/copilot.md)
+- [Microsoft 365 登录、CLI 账号复用与模型网关](docs/m365.md)
 - [MCP 配置与限制](docs/mcp.md)
 - [构建与发布](docs/building.md)
 - [UI 设计参考](docs/ui-reference.md)

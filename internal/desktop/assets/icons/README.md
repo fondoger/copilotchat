@@ -6,6 +6,8 @@ These SVGs were extracted from the user's ChatWise 26.9.1 installation with thei
 - Sidebar toggles: `nodes/3.CraAOkMI.js`, compiled `Gj`/`Kj` component. The two files instantiate its left-sidebar open/closed states. The dynamic `line` coordinates are resolved, and `1em` dimensions become 24; the view box and geometry are unchanged.
 - Copilot provider icon: `chunks/CDQJJyzO.js`, compiled `be`/`xe` component (`copilot-mono.svg`). Its path is the Lobe Icons `githubcopilot.svg` design. The component's `fill-rule="evenodd"` and 24×24 view box are retained.
 
+The additional `microsoft-copilot-color.svg` is the Microsoft Copilot symbol from Lobe Icons (MIT), used for Microsoft 365 Copilot providers. It was downloaded directly from the upstream project, without modifications; `provider-sources.json` records its pinned source URL and SHA-256. Its original colors are preserved with MyGo's image renderer.
+
 CSS mask `fill="black"` / `stroke="black"` becomes `currentColor`, so MyGo can apply the same UI colors. No path coordinates were redrawn. All SVGs are embedded in the executable; the extracted ChatWise bundle is not a runtime dependency.
 
 Upstream attribution and license locations are in the repository's `THIRD_PARTY_NOTICES.md`. The custom edit and sidebar icons are copied under the owner's permission; they are not represented as newly authored or independently licensed artwork. Launcher and tray branding remain Copilot Chat's own.

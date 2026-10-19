@@ -13,7 +13,7 @@ function git {
         'rev-parse HEAD' { return $global:copilotChatReleaseTest.WorkflowCommit }
         "show $($global:copilotChatReleaseTest.TagCommit):mygo.json" { return $global:copilotChatReleaseTest.Config | ConvertTo-Json -Depth 5 -Compress }
         "show $($global:copilotChatReleaseTest.TagCommit):internal/desktop/app.go" { return 'const version = "0.3.0"' }
-        "show $($global:copilotChatReleaseTest.TagCommit):internal/copilot/client.go" { return 'const userAgent = "CopilotChatNative/0.3.0"' }
+        "show $($global:copilotChatReleaseTest.TagCommit):internal/provider/http.go" { return 'const UserAgent = "CopilotChatNative/0.3.0"' }
         default { throw "Unexpected mocked git command: $($arguments -join ' ')" }
     }
 }
@@ -133,7 +133,7 @@ $savedRepository = $env:GITHUB_REPOSITORY
 $savedSHA = $env:GITHUB_SHA
 $savedExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
 try {
-    New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'scripts'), (Join-Path $fixtureRoot 'release'), (Join-Path $fixtureRoot 'internal/desktop'), (Join-Path $fixtureRoot 'internal/copilot') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'scripts'), (Join-Path $fixtureRoot 'release'), (Join-Path $fixtureRoot 'internal/desktop'), (Join-Path $fixtureRoot 'internal/provider') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-common.ps1'), (Join-Path $PSScriptRoot 'publish-release.ps1') -Destination (Join-Path $fixtureRoot 'scripts')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-update') -Destination (Join-Path $fixtureRoot 'scripts/verify-update') -Recurse
     . (Join-Path $fixtureRoot 'scripts/release-common.ps1')
@@ -141,7 +141,7 @@ try {
     # Current workflow metadata deliberately differs from the release tag.
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'mygo.json') -Value '{"version":"9.9.9"}'
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'internal/desktop/app.go') -Value 'const version = "9.9.9"'
-    Set-Content -LiteralPath (Join-Path $fixtureRoot 'internal/copilot/client.go') -Value 'const userAgent = "CopilotChatNative/9.9.9"'
+    Set-Content -LiteralPath (Join-Path $fixtureRoot 'internal/provider/http.go') -Value 'const UserAgent = "CopilotChatNative/9.9.9"'
     foreach ($name in Get-ReleaseAssetNames '0.3.0') {
         Set-Content -LiteralPath (Join-Path $fixtureRoot "release/$name") -Value "fixture for $name"
     }
@@ -240,7 +240,7 @@ try {
         Assert-True ((Get-ReleaseConfig -ExpectedTag v0.3.0 -FromTag).version -ceq '0.3.0') 'Publisher must read the tagged version.'
         Set-Content -LiteralPath mygo.json -Value '{"version":"0.3.0"}'
         Set-Content -LiteralPath internal/desktop/app.go -Value 'const version = "0.3.0"'
-        Set-Content -LiteralPath internal/copilot/client.go -Value 'const userAgent = "CopilotChatNative/0.3.0"'
+        Set-Content -LiteralPath internal/provider/http.go -Value 'const UserAgent = "CopilotChatNative/0.3.0"'
         Assert-Throws { Get-ReleaseConfig -ExpectedTag v0.3.0 } '*does not point at the checked-out commit*'
     } finally { Pop-Location }
     Write-Host 'PASS: tagged metadata is separate from strict build checkout validation'

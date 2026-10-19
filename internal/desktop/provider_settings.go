@@ -2,13 +2,14 @@ package desktop
 
 import (
 	"fmt"
-	"slices"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/fondoger/copilotchat/internal/copilot"
+	"github.com/fondoger/copilotchat/internal/provider/github"
+	"github.com/fondoger/copilotchat/internal/store"
 )
 
 type providerForm struct{ Name, Host, Error string }
@@ -22,10 +23,14 @@ func (a *app) autosaveProviderForm(id string, form *providerForm) {
 	if p == nil || r.authBusy || r.credentialsBusy {
 		return
 	}
-	host, err := copilot.NormalizeHost(form.Host)
-	if err != nil {
-		form.Error = err.Error()
-		return
+	host := store.M365ProviderHost
+	if p.Kind != store.ProviderKindM365 {
+		var err error
+		host, err = github.NormalizeHost(form.Host)
+		if err != nil {
+			form.Error = err.Error()
+			return
+		}
 	}
 	name := strings.TrimSpace(form.Name)
 	if name == "" {
@@ -67,7 +72,7 @@ func (a *app) providersPage(c *ui.Context) {
 		ui.Column(c).Width(200).Shrink(0).Padding(8).Gap(6).Background(fill).BorderWidth(0, 1, 0, 0).BorderColor(t.Border).Children(func() {
 			ui.Scroll(c).Grow(1).MinHeight(0).Gap(4).Children(func() {
 				for _, provider := range a.state.Settings.Providers {
-					row := ui.ButtonBase(c.Key(provider.ID)).FillWidth().Height(28).Padding(4, 8).Radius(6).Justify(ui.Start).Label("Provider " + provider.Name)
+					row := ui.ButtonBase(c.Key(provider.ID)).FillWidth().Height(28).Padding(4, 8).Gap(7).Radius(6).Justify(ui.Start).Label("Provider " + provider.Name)
 					if provider.ID == a.providerSettingsID {
 						row.Background(t.SurfaceHover).TextColor(t.Accent)
 					}
@@ -75,14 +80,16 @@ func (a *app) providersPage(c *ui.Context) {
 						row.TextColor(t.TextMuted)
 					}
 					row.Children(func() {
+						icon := providerIcon(c, provider.Kind, 16)
+						if provider.Disabled {
+							icon.Opacity(.5)
+						}
 						ui.Text(c, provider.Name).SingleLine().FontWeight(500).Grow(1).MinWidth(0)
 					}).OnClick(func() { a.providerSettingsID = provider.ID })
 				}
 			})
 			ui.Row(c).FillWidth().Gap(2).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Padding(6, 0, 0, 0).Children(func() {
-				iconButton(c, providerAddIcon, "Add provider").OnClick(func() {
-					_, _ = a.addProvider(fmt.Sprintf("GitHub Copilot %d", len(a.state.Settings.Providers)+1), "github.com")
-				})
+				a.addProviderButton(c)
 				selected := a.provider(a.providerSettingsID)
 				canRemove := selected != nil
 				if canRemove {
@@ -99,6 +106,42 @@ func (a *app) providersPage(c *ui.Context) {
 	})
 }
 
+func (a *app) addProviderButton(c *ui.Context) {
+	open := ui.Local(c.Root(), "add-provider-menu", func() bool { return false })
+	trigger := iconButton(c, providerAddIcon, "Add provider").OnClick(func() { *open = !*open })
+	t := c.Theme()
+	ui.PopoverBase(c.Key("add-provider-popup"), trigger, open, func(panel ui.Element) {
+		panel.Width(244).Margin(4, 0, 0, 0).Padding(4).Gap(2).Radius(8).Border(1, t.Border).Background(t.Background).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .18))
+		for _, kind := range []string{store.ProviderKindGitHub, store.ProviderKindM365} {
+			name := providerKindName(kind)
+			item := ui.ButtonBase(c.Key(kind)).FillWidth().Height(34).Padding(6, 8).Gap(8).Radius(5).Justify(ui.Start).Label("Add " + name)
+			if item.Hovered() {
+				item.Background(t.SurfaceHover)
+			}
+			item.Children(func() {
+				providerIcon(c, kind, 18)
+				ui.Text(c, name).FontSize(12).SingleLine()
+			}).OnClick(func() {
+				count := 0
+				for _, p := range a.state.Settings.Providers {
+					if p.Kind == kind || (p.Kind == "" && kind == store.ProviderKindGitHub) {
+						count++
+					}
+				}
+				if count > 0 {
+					name = fmt.Sprintf("%s %d", name, count+1)
+				}
+				host := "github.com"
+				if kind == store.ProviderKindM365 {
+					host = store.M365ProviderHost
+				}
+				_, _ = a.addProviderKind(kind, name, host)
+				*open = false
+			})
+		}
+	})
+}
+
 func (a *app) providerSettings(c *ui.Context) {
 	p := a.provider(a.providerSettingsID)
 	if p == nil {
@@ -106,19 +149,28 @@ func (a *app) providerSettings(c *ui.Context) {
 		return
 	}
 	id, r, t := p.ID, a.providerState(p.ID), c.Theme()
+	microsoft := p.Kind == store.ProviderKindM365
+	providerName := providerKindName(p.Kind)
 	form := ui.Local(c.Root(), "provider-form-"+id, func() providerForm { return providerForm{Name: p.Name, Host: p.Host} })
 	ui.Row(c).FillWidth().Gap(12).Children(func() {
-		ui.Text(c, "GitHub Copilot").FontSize(16).FontWeight(600).Grow(1)
+		providerIcon(c, p.Kind, 20)
+		ui.Text(c, providerName).FontSize(16).FontWeight(600).Grow(1).MinWidth(0)
 		enabled := !p.Disabled
 		ui.Switch(c, &enabled).Label("Enable provider").OnChange(func() { a.setProviderEnabled(id, enabled) })
 	})
-	ui.Text(c, "Use the models included with this GitHub Copilot account.").FontSize(12).TextColor(t.TextMuted)
+	description := "Use the models included with this GitHub Copilot account."
+	if microsoft {
+		description = "Use your Microsoft Entra work account to access the Microsoft 365 Copilot models enabled by your organization."
+	}
+	ui.Text(c, description).FontSize(12).TextColor(t.TextMuted)
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Text(c, "Provider name").FontWeight(500)
 		ui.TextInput(c.Key("provider-name-"+id), &form.Name).FillWidth().Label("Provider name input").ReadOnly(r.authBusy || r.credentialsBusy).OnChange(func() { a.autosaveProviderForm(id, form) })
-		ui.Text(c, "GitHub domain").FontWeight(500)
-		ui.TextInput(c.Key("provider-host-"+id), &form.Host).FillWidth().Label("GitHub domain input").Placeholder("github.com or your-company.ghe.com").ReadOnly(r.client != nil || r.authBusy || r.credentialsBusy).OnChange(func() { a.autosaveProviderForm(id, form) })
-		ui.Text(c, "github.com or a GitHub Enterprise Cloud domain ending in .ghe.com").FontSize(11).TextColor(t.TextMuted)
+		if !microsoft {
+			ui.Text(c, "GitHub domain").FontWeight(500)
+			ui.TextInput(c.Key("provider-host-"+id), &form.Host).FillWidth().Label("GitHub domain input").Placeholder("github.com or your-company.ghe.com").ReadOnly(r.client != nil || r.authBusy || r.credentialsBusy).OnChange(func() { a.autosaveProviderForm(id, form) })
+			ui.Text(c, "github.com or a GitHub Enterprise Cloud domain ending in .ghe.com").FontSize(11).TextColor(t.TextMuted)
+		}
 		if form.Error != "" {
 			ui.Text(c, form.Error).FontSize(12).TextColor(t.Danger)
 		}
@@ -138,34 +190,56 @@ func (a *app) providerSettings(c *ui.Context) {
 			ui.Button(c, "Sign out").Disabled(r.credentialsBusy).OnClick(func() { a.signOutProvider(id) })
 		})
 	} else if !r.authBusy {
-		ui.Row(c).Children(func() {
-			ui.PrimaryButton(c, "Sign in with GitHub").Disabled(p.Disabled || form.Error != "" || r.credentialsBusy).OnClick(func() { a.beginProviderLogin(id) })
+		ui.Row(c).Gap(8).Wrap().Children(func() {
+			label := "Sign in with GitHub"
+			if microsoft {
+				label = "Sign in with Microsoft"
+			}
+			ui.PrimaryButton(c, label).Disabled(p.Disabled || form.Error != "" || r.credentialsBusy || (microsoft && runtime.GOOS != "windows")).OnClick(func() { a.beginProviderLogin(id) })
+			if microsoft {
+				ui.Button(c, "Use Copilot CLI sign-in").Disabled(p.Disabled || form.Error != "" || r.credentialsBusy).OnClick(func() { a.connectM365CLI(id) })
+			}
 		})
+		if microsoft {
+			help := "Windows WAM is available on Windows. Use a work account already signed in to Copilot CLI on this platform."
+			if runtime.GOOS == "windows" {
+				help = "Microsoft sign-in opens Windows WAM through Copilot CLI. Or use the work account already selected in Copilot CLI."
+			}
+			ui.Text(c, help).FontSize(11).TextColor(t.TextMuted)
+		}
 	}
 	if r.authBusy {
-		if r.authCode.UserCode != "" {
-			ui.Text(c, "Enter this code on "+p.Host+":").FontWeight(500)
+		if !microsoft && r.authCode.UserCode != "" {
+			codeSite, codeLabel, openLabel := p.Host, "GitHub device code", "Open GitHub"
+			ui.Text(c, "Enter this code on "+codeSite+":").FontWeight(500)
 			ui.Row(c).Gap(8).Wrap().Children(func() {
 				code := r.authCode.UserCode
-				ui.TextInput(c.Key("device-code-"+id), &code).ReadOnly(true).Width(150).Font("Consolas").FontSize(18).Label("GitHub device code")
+				ui.TextInput(c.Key("device-code-"+id), &code).ReadOnly(true).Width(150).Font("Consolas").FontSize(18).Label(codeLabel)
 				ui.Button(c, "Copy code").OnClick(func() { mygo.Clipboard.WriteText(r.authCode.UserCode) })
 			})
 			ui.Row(c).Gap(8).Wrap().Children(func() {
-				ui.PrimaryButton(c, "Open GitHub").OnClick(func() {
+				ui.PrimaryButton(c, openLabel).OnClick(func() {
 					if err := mygo.Shell.OpenExternal(r.authCode.VerificationURI); err != nil {
-						r.status = "Could not open GitHub: " + err.Error()
+						r.status = "Could not open the sign-in page: " + err.Error()
 					}
 				})
 				ui.Button(c, "Cancel").OnClick(func() { a.cancelProviderLogin(id); r.status = "Sign-in cancelled." })
 			})
 		} else {
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, "Requesting a sign-in code…").Grow(1)
+				waiting := r.status
+				if waiting == "" {
+					waiting = "Requesting a sign-in code…"
+					if microsoft {
+						waiting = "Waiting for Microsoft sign-in…"
+					}
+				}
+				ui.Text(c, waiting).Grow(1).MinWidth(0)
 				ui.Button(c, "Cancel").OnClick(func() { a.cancelProviderLogin(id); r.status = "Sign-in cancelled." })
 			})
 		}
 	}
-	if r.status != "" {
+	if r.status != "" && (!r.authBusy || r.authCode.UserCode != "") {
 		ui.Text(c, r.status).FontSize(12).TextColor(t.TextMuted).Selectable()
 	}
 	if r.credentialNotice != "" {
@@ -183,58 +257,39 @@ func (a *app) providerSettings(c *ui.Context) {
 	})
 	ui.Divider(c)
 	ui.Text(c, "Model visibility").FontWeight(500)
-	filter := map[string]string{"all": "All", "whitelist": "Whitelist", "blacklist": "Blacklist"}[p.ModelFilter]
-	ui.Select(c.Key("model-filter-"+id), &filter, []string{"All", "Whitelist", "Blacklist"}).Label("Model visibility").OnChange(func() { p.ModelFilter = strings.ToLower(filter); a.saveSettings() })
-	explanation := "All models appear in the model picker."
-	if p.ModelFilter == "whitelist" {
-		explanation = "Only checked models appear in the model picker."
-	}
-	if p.ModelFilter == "blacklist" {
-		explanation = "Checked models are hidden from the model picker."
-	}
-	ui.Text(c, explanation).FontSize(12).TextColor(t.TextMuted)
+	ui.Text(c, "Checked models appear in the model picker.").FontSize(12).TextColor(t.TextMuted)
+	ui.Row(c).FillWidth().Gap(8).Wrap().Children(func() {
+		ui.Button(c, "Select all").Disabled(len(r.models) == 0).OnClick(func() { a.setAllModelsEnabled(id, true) })
+		ui.Button(c, "Deselect all").Disabled(len(r.models) == 0).OnClick(func() { a.setAllModelsEnabled(id, false) })
+	})
 	ui.Column(c).FillWidth().Border(1, t.Border).Radius(6).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).Padding(8).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Box(c).Width(18).Shrink(0)
 			ui.Text(c, "Model / ID").FontSize(11).FontWeight(500).TextColor(t.TextMuted).Grow(1).MinWidth(0)
-			ui.Text(c, "Visibility").FontSize(11).FontWeight(500).TextColor(t.TextMuted).Width(54).Shrink(0)
+			ui.Row(c).Width(60).Shrink(0).Justify(ui.Center).Children(func() {
+				ui.Text(c, "Enabled").FontSize(11).FontWeight(500).TextColor(t.TextMuted)
+			})
 		})
 		for index, model := range r.models {
 			row := ui.Row(c.Key("model-filter-row-" + id + "-" + model.ID)).FillWidth().Gap(8).Padding(8)
-			if !modelAllowed(p, model.ID) {
-				row.Opacity(.48)
-			}
 			if index > 0 {
 				row.BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
 			}
 			row.Children(func() {
-				selected := slices.Contains(p.ModelIDs, model.ID)
-				label := "Allow " + modelDisplayName(model)
-				if p.ModelFilter == "blacklist" {
-					label = "Hide " + modelDisplayName(model)
+				selected := modelEnabled(p, model.ID)
+				details := ui.Column(c).Grow(1).MinWidth(0).Gap(2)
+				if !selected {
+					details.Opacity(.48)
 				}
-				if p.ModelFilter == "all" {
-					selected = true
-				}
-				ui.Checkbox(c, &selected, "").Width(18).Shrink(0).Label(label).Disabled(p.ModelFilter == "all").OnChange(func() {
-					if selected && !slices.Contains(p.ModelIDs, model.ID) {
-						p.ModelIDs = append(p.ModelIDs, model.ID)
-					}
-					if !selected {
-						p.ModelIDs = slices.DeleteFunc(p.ModelIDs, func(value string) bool { return value == model.ID })
-					}
-					a.saveSettings()
-				})
-				ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+				details.Children(func() {
 					ui.Text(c, modelDisplayName(model)).SingleLine().FontSize(12).FontWeight(500)
 					ui.Text(c, model.ID).SingleLine().FontSize(10).TextColor(t.TextMuted)
 					ui.Row(c).Gap(4).Children(func() { modelCapabilityIcons(c, model) })
 				})
-				visibility, color := "Hidden", t.TextMuted
-				if modelAllowed(p, model.ID) {
-					visibility, color = "Shown", t.Success
-				}
-				ui.Text(c, visibility).FontSize(11).TextColor(color).Width(54).Shrink(0)
+				ui.Row(c).Width(60).Shrink(0).Justify(ui.Center).Children(func() {
+					ui.Checkbox(c, &selected, "").Width(18).Shrink(0).Label("Enable " + modelDisplayName(model)).OnChange(func() {
+						a.setModelEnabled(id, model.ID, selected)
+					})
+				})
 			})
 		}
 		if len(r.models) == 0 {
@@ -287,7 +342,10 @@ func (a *app) settingsModelSelect(c *ui.Context, key string, value *string, inhe
 					continue
 				}
 				if inherit && a.enabledProviderCount() > 1 {
-					ui.Text(c, p.Name).FontSize(11).TextColor(t.TextMuted).Padding(6, 10)
+					ui.Row(c).Gap(7).Padding(6, 10).TextColor(t.TextMuted).Children(func() {
+						providerIcon(c, p.Kind, 14)
+						ui.Text(c, p.Name).FontSize(11).SingleLine()
+					})
 				}
 				for _, model := range a.providerModels(p.ID) {
 					item := sel.Item(modelChoice{p.ID, model.ID}).Padding(6, 10).Radius(6).Label("Select " + modelDisplayName(model) + " from " + p.Name)

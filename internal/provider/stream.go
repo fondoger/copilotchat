@@ -1,14 +1,12 @@
-package copilot
+package provider
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -16,12 +14,12 @@ import (
 
 // Stream calls onDelta for each visible text fragment. Use StreamWithTools when
 // tools are enabled so that the caller can execute calls and append their results.
-func (c *Client) Stream(ctx context.Context, request Request, onDelta func(string)) error {
+func (c *Engine) Stream(ctx context.Context, request Request, onDelta func(string)) error {
 	_, err := c.StreamWithTools(ctx, request, onDelta)
 	return err
 }
 
-func (c *Client) StreamWithTools(ctx context.Context, request Request, onDelta func(string)) (Completion, error) {
+func (c *Engine) StreamWithTools(ctx context.Context, request Request, onDelta func(string)) (Completion, error) {
 	return c.StreamWithEvents(ctx, request, func(event StreamEvent) {
 		if event.Kind == EventText && onDelta != nil {
 			onDelta(event.Delta)
@@ -31,25 +29,12 @@ func (c *Client) StreamWithTools(ctx context.Context, request Request, onDelta f
 
 // StreamWithEvents reports only provider-returned visible text and reasoning.
 // Opaque signatures and encrypted reasoning stay in ProviderData, never events.
-func (c *Client) StreamWithEvents(ctx context.Context, request Request, onEvent func(StreamEvent)) (completion Completion, streamErr error) {
-	if err := c.loadAccount(ctx); err != nil {
+func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent func(StreamEvent)) (completion Completion, streamErr error) {
+	model, err := c.backend.LookupModel(ctx, request.Model)
+	if err != nil {
 		return Completion{}, err
 	}
-	c.mu.Lock()
-	model, found := c.models[request.Model]
-	c.mu.Unlock()
-	if !found {
-		if _, err := c.Models(ctx); err != nil {
-			return Completion{}, err
-		}
-		c.mu.Lock()
-		model, found = c.models[request.Model]
-		c.mu.Unlock()
-		if !found {
-			return Completion{}, fmt.Errorf("Copilot model %q is unavailable for this account; refresh the model list", request.Model)
-		}
-	}
-	body, vision, err := requestBody(request, model)
+	body, vision, err := RequestBody(request, model)
 	if err != nil {
 		return Completion{}, err
 	}
@@ -57,47 +42,19 @@ func (c *Client) StreamWithEvents(ctx context.Context, request Request, onEvent 
 	if err != nil {
 		return Completion{}, err
 	}
-	token, base := c.credentials()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+model.Endpoint, bytes.NewReader(encoded))
+	req, err := c.backend.PrepareInference(ctx, request, model, encoded, vision)
 	if err != nil {
 		return Completion{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("X-GitHub-Api-Version", apiVersion)
-	req.Header.Set("Openai-Intent", "conversation-edits")
-	req.Header.Set("X-Interaction-Type", "conversation-agent")
-	if request.Background {
-		req.Header.Set("X-Interaction-Type", "conversation-background")
-	}
-	if request.ConversationID != "" {
-		req.Header.Set("X-Interaction-Id", request.ConversationID)
-		req.Header.Set("X-Session-Id", request.ConversationID)
-		req.Header.Set("x-session-affinity", request.ConversationID)
-	}
-	initiator := "user"
-	if request.Background || (len(request.Messages) > 0 && request.Messages[len(request.Messages)-1].Role != "user") {
-		initiator = "agent"
-	}
-	req.Header.Set("x-initiator", initiator)
-	if vision {
-		req.Header.Set("Copilot-Vision-Request", "true")
-	}
-	if model.Endpoint == "/v1/messages" {
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
-	}
 	started := time.Now()
 	defer func() { completion.Metrics.Duration = time.Since(started) }()
-	resp, err := c.http.Do(req)
+	resp, err := c.backend.Do(req)
 	if err != nil {
 		return Completion{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Completion{}, responseError(resp)
+		return Completion{}, ResponseError(resp)
 	}
 	parser := streamParser{onEvent: onEvent, started: started, calls: make(map[int]*ToolCall), blocks: make(map[int]map[string]any)}
 	if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
