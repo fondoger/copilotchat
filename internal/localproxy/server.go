@@ -235,7 +235,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if endpoint == "/v1/responses" || endpoint == "/v1/chat/completions" {
+	if endpoint == "/v1/responses" || endpoint == "/v1/responses/compact" || endpoint == "/v1/chat/completions" {
 		endpoint = strings.TrimPrefix(endpoint, "/v1")
 	}
 	if !provider.InferencePath(endpoint) {
@@ -268,6 +268,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	protocol := strings.TrimSuffix(endpoint, "/count_tokens")
+	if endpoint == "/responses/compact" {
+		protocol = "/responses"
+	}
 	s.mu.RLock()
 	var model Model
 	var target Target
@@ -324,6 +327,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal(envelope.Input, &input) == nil && len(input) > 0 {
 		last := input[len(input)-1]
 		agent = last.Type == "function_call_output" || last.Role == "assistant" || last.Role == "tool"
+	}
+	if endpoint == "/responses/compact" {
+		agent = true
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

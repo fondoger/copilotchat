@@ -39,6 +39,9 @@ func (c *Client) Forward(ctx context.Context, raw provider.RawRequest) (*http.Re
 		return nil, err
 	}
 	provider.CopyProtocolHeaders(req.Header, raw.Header)
+	if raw.Endpoint == "/responses/compact" {
+		req.Header.Set("Accept", "application/json")
+	}
 	req.URL.RawQuery = raw.RawQuery
 	return c.Do(req)
 }

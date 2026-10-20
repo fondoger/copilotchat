@@ -23,7 +23,7 @@ type RawRequest struct {
 }
 
 func InferencePath(path string) bool {
-	return path == "/v1/messages" || path == "/v1/messages/count_tokens" || path == "/responses" || path == "/chat/completions"
+	return path == "/v1/messages" || path == "/v1/messages/count_tokens" || path == "/responses" || path == "/responses/compact" || path == "/chat/completions"
 }
 
 // CopyProtocolHeaders carries protocol extensions, never agent credentials,

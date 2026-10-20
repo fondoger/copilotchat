@@ -15,6 +15,13 @@ import (
 
 func (a *app) syncForwardingProviders() {
 	a.reconcileForwardModels()
+	profiles := map[string]localproxy.Profile{}
+	for i := range a.state.Settings.ForwardProfiles {
+		profile := &a.state.Settings.ForwardProfiles[i]
+		models := a.forwardingModels(profile)
+		profiles[profile.Name] = localproxy.Profile{ID: profile.ID, Models: models}
+		a.syncForwardCatalog(profile.ID, models)
+	}
 	if a.forwarder == nil {
 		return
 	}
@@ -24,13 +31,6 @@ func (a *app) syncForwardingProviders() {
 		if ok {
 			targets[p.ID] = localproxy.Target{Client: client}
 		}
-	}
-	profiles := map[string]localproxy.Profile{}
-	for i := range a.state.Settings.ForwardProfiles {
-		profile := &a.state.Settings.ForwardProfiles[i]
-		models := a.forwardingModels(profile)
-		profiles[profile.Name] = localproxy.Profile{ID: profile.ID, Models: models}
-		a.syncForwardCatalog(profile.ID, models)
 	}
 	a.forwarder.Update(targets, profiles)
 }
@@ -147,13 +147,19 @@ func (a *app) startupControl(c *ui.Context) {
 }
 
 func (a *app) forwardingSettings(c *ui.Context) {
-	s := &a.state.Settings
-	if !a.agentSetup.portInitialized {
-		a.agentSetup.portText = strconv.Itoa(s.LocalPort)
-		a.agentSetup.portInitialized = true
+	s, page, t := &a.state.Settings, &a.agentSetup, c.Theme()
+	if !page.portInitialized {
+		page.portText = strconv.Itoa(s.LocalPort)
+		page.portInitialized = true
 	}
-	settingsCard(c, func() {
-		settingsRow(c, "Local forwarding", "Use your signed-in providers from coding agents on this computer.", func() {
+	ui.Column(c).FillWidth().Gap(4).Children(func() {
+		ui.Row(c).FillWidth().Gap(10).Children(func() {
+			ui.Text(c, "Local forwarding").FontSize(13).FontWeight(500).Grow(1)
+			status := "Off"
+			if a.forwarder != nil && a.forwarder.Err() == nil {
+				status = fmt.Sprintf("127.0.0.1:%d", s.LocalPort)
+			}
+			ui.Text(c, status).FontSize(11).TextColor(t.TextMuted)
 			ui.Switch(c.Key("forwarding"), &s.LocalForwarding).Label("Enable local forwarding").OnChange(func() {
 				a.forwardError = ""
 				if s.LocalForwarding {
@@ -164,42 +170,59 @@ func (a *app) forwardingSettings(c *ui.Context) {
 				a.saveSettings()
 			})
 		})
-		settingsRow(c, "Local port", "Change while forwarding is off.", func() {
-			ui.TextInput(c.Key("forward-port"), &a.agentSetup.portText).Width(100).Disabled(s.LocalForwarding).Label("Local forwarding port").OnChange(func() {
-				port, err := strconv.Atoi(a.agentSetup.portText)
-				if err == nil && port >= 1024 && port <= 65535 {
-					s.LocalPort = port
-					a.saveSettings()
+		tray, startup := "Tray: recommended", "Open at login: recommended"
+		if s.StayInTray {
+			tray = "Tray: enabled"
+		}
+		if a.openAtLogin {
+			startup = "Open at login: enabled"
+		}
+		ui.Text(c, tray+" · "+startup).FontSize(11).TextColor(t.TextMuted)
+		d := setupDisclosure(c, "forward-options", "Options", &page.optionsOpen)
+		d.Panel(func() {
+			ui.Column(c).FillWidth().Gap(6).Children(func() {
+				ui.Row(c).FillWidth().Gap(12).Children(func() {
+					ui.Text(c, "Local port").FontSize(12).Grow(1)
+					ui.TextInput(c.Key("forward-port"), &page.portText).Width(100).Height(28).Background(t.Surface).Disabled(s.LocalForwarding).Label("Local forwarding port").OnChange(func() {
+						port, err := strconv.Atoi(page.portText)
+						if err == nil && port >= 1024 && port <= 65535 {
+							s.LocalPort = port
+							a.saveSettings()
+						}
+					})
+				})
+				key := s.LocalKey
+				if key == "" || (strings.HasPrefix(key, "cc-local-") && len(key) == 73) {
+					key = localproxy.DefaultKey
 				}
+				ui.Row(c).FillWidth().Children(func() {
+					ui.Text(c, "Local API key").FontSize(12).Grow(1)
+					ui.Text(c, key).FontSize(12).Selectable()
+				})
+				ui.Row(c).FillWidth().Children(func() {
+					ui.Text(c, "Keep running in the tray").FontSize(12).Grow(1)
+					ui.Switch(c.Key("forward-tray"), &s.StayInTray).Label("Keep running in the tray").OnChange(a.changeStayInTray)
+				})
+				ui.Row(c).FillWidth().Children(func() {
+					ui.Text(c, "Open at login").FontSize(12).Grow(1)
+					a.startupControl(c)
+				})
+				if a.startupError != "" {
+					ui.Text(c, a.startupError).FontSize(11).TextColor(t.TextMuted)
+				}
+				ui.Text(c, "Keep Copilot Chat running to serve agents. Change the port while forwarding is off.").FontSize(11).TextColor(t.TextMuted)
 			})
 		})
-	})
-	key := s.LocalKey
-	if key == "" || (strings.HasPrefix(key, "cc-local-") && len(key) == 73) {
-		key = localproxy.DefaultKey
-	}
-	ui.Text(c, "Local API key: "+key).FontSize(12).Selectable()
-	tray := "Recommended: enable Keep running in the tray in General settings."
-	if s.StayInTray {
-		tray = "Keep running in the tray is enabled."
-	}
-	startup := "Recommended: enable Open at login in General settings."
-	if a.openAtLogin {
-		startup = "Open at login is enabled."
-	}
-	ui.Text(c, tray).FontSize(12).TextColor(c.Theme().TextMuted)
-	ui.Text(c, startup).FontSize(12).TextColor(c.Theme().TextMuted)
-	ui.Button(c, "Open General settings").OnClick(func() { a.settingsPage = "General" })
-	if a.forwardError != "" {
-		ui.Text(c, a.forwardError).TextColor(c.Theme().TextMuted)
-	}
-	if a.forwarder != nil {
-		if err := a.forwarder.Err(); err != nil {
-			ui.Text(c, "Forwarding stopped: "+err.Error())
-		} else {
-			ui.Text(c, fmt.Sprintf("Listening on 127.0.0.1:%d", s.LocalPort)).FontSize(12)
+		if a.forwardError != "" {
+			ui.Text(c, a.forwardError).FontSize(11).TextColor(t.TextMuted)
 		}
-	} else if s.LocalForwarding {
-		ui.Button(c, "Retry forwarding").OnClick(a.startForwarding)
-	}
+		if a.forwarder != nil {
+			if err := a.forwarder.Err(); err != nil {
+				ui.Text(c, "Forwarding stopped: "+err.Error()).FontSize(11)
+				ui.Button(c, "Retry forwarding").OnClick(func() { a.stopForwarding(); a.startForwarding() })
+			}
+		} else if s.LocalForwarding {
+			ui.Button(c, "Retry forwarding").OnClick(a.startForwarding)
+		}
+	})
 }

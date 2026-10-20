@@ -16,10 +16,20 @@ import (
 const ClaudeCode = "Claude Code"
 const Codex = "Codex / ChatGPT Desktop"
 
+var ClaudeModelVariables = []string{
+	"ANTHROPIC_DEFAULT_FABLE_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"CLAUDE_CODE_SUBAGENT_MODEL",
+}
+
 type Options struct {
 	Model               provider.Model
 	Agent, BaseURL, Key string
 	CatalogPath         string
+	ClaudeDefaults      map[string]provider.Model
+	RemoteCompaction    bool
 }
 
 func Compatible(model provider.Model, agent string) bool {
@@ -42,7 +52,7 @@ func Generate(o Options) (string, error) {
 	if o.Agent != ClaudeCode && o.Agent != Codex {
 		return "", errors.New("select a supported agent")
 	}
-	if (o.Agent != ClaudeCode || o.Model.ID != "") && !Compatible(o.Model, o.Agent) {
+	if o.Agent == Codex && (o.Model.ID == "" || !Compatible(o.Model, o.Agent)) {
 		return "", errors.New("model does not support this agent's protocol")
 	}
 	u, err := url.Parse(o.BaseURL)
@@ -54,8 +64,15 @@ func Generate(o Options) (string, error) {
 	}
 	if o.Agent == ClaudeCode {
 		env := map[string]string{"ANTHROPIC_BASE_URL": o.BaseURL, "ANTHROPIC_AUTH_TOKEN": o.Key, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}
-		if o.Model.ID != "" {
-			env["ANTHROPIC_MODEL"] = o.Model.ID
+		for _, key := range ClaudeModelVariables {
+			model := o.ClaudeDefaults[key]
+			if model.ID == "" {
+				continue
+			}
+			if !Compatible(model, ClaudeCode) {
+				return "", fmt.Errorf("%s does not support the Messages protocol", key)
+			}
+			env[key] = model.ID
 		}
 		data, err := json.MarshalIndent(map[string]any{"env": env}, "", "  ")
 		return string(data) + "\n", err
@@ -64,7 +81,11 @@ func Generate(o Options) (string, error) {
 		return "", errors.New("local Codex model catalog is unavailable")
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "model_provider = \"copilot_chat\"\nmodel = %s\nmodel_catalog_json = %s\n\n[model_providers.copilot_chat]\nname = \"Copilot Chat\"\nbase_url = %s\nwire_api = \"responses\"\nexperimental_bearer_token = %s\n", quote(o.Model.ID), quote(o.CatalogPath), quote(o.BaseURL), quote(o.Key))
+	name := "Copilot Chat Proxy"
+	if o.RemoteCompaction {
+		name = "OpenAI"
+	}
+	fmt.Fprintf(&out, "model_provider = \"copilot_chat\"\nmodel = %s\nmodel_catalog_json = %s\n\n[model_providers.copilot_chat]\nname = %s\nbase_url = %s\nwire_api = \"responses\"\nexperimental_bearer_token = %s\n", quote(o.Model.ID), quote(o.CatalogPath), quote(name), quote(o.BaseURL), quote(o.Key))
 	return out.String(), nil
 }
 func quote(value string) string { data, _ := json.Marshal(value); return string(data) }

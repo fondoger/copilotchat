@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+- Redesign Agent setup with compact profile tabs, context menus for rename/duplicate/delete, and a fully expanded model table below configuration.
+- Add five optional Claude Code model defaults in a collapsed section. Keep selections attached to their provider and model when aliases change.
+- Renumber automatic aliases among enabled models while preserving manually edited aliases. Keep each profile's choices and configuration independent.
+- Add a Codex remote compaction toggle: use provider name `OpenAI` when enabled and `Copilot Chat Proxy` otherwise. Forward `/responses/compact` with the same conversation ID; availability depends on the upstream service.
+- Collapse configuration previews while keeping Copy available. Maintain the local Codex model catalog automatically, including while forwarding is off.
+
 ## 0.5.1
 
 - Add named forwarding profiles with separate base URLs, independent model selections and aliases, plus create, duplicate, rename and delete controls.

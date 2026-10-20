@@ -57,20 +57,31 @@ type Settings struct {
 	MCPServers           []mcp.Config     `json:"mcpServers,omitempty"`
 }
 
-// ForwardModel keeps a stable public alias even while its account or catalog is
-// temporarily unavailable. Enabled is independent of the native chat picker.
+// Enabled is independent of the native chat picker. Automatic aliases are
+// allocated among enabled models; manual aliases survive selection changes.
 type ForwardModel struct {
 	ProviderID string `json:"providerId"`
 	ModelID    string `json:"modelId"`
 	Alias      string `json:"alias"`
+	AliasMode  string `json:"aliasMode,omitempty"` // "auto" or "manual"
 	Enabled    bool   `json:"enabled"`
+}
+
+// Agent choices refer to the model, so renaming an alias cannot break them.
+type ForwardModelRef struct {
+	ProviderID string `json:"providerId"`
+	ModelID    string `json:"modelId"`
 }
 
 // ID remains stable across renames; Name is the profile's public URL segment.
 type ForwardProfile struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Models []ForwardModel `json:"models"`
+	ID                    string                     `json:"id"`
+	Name                  string                     `json:"name"`
+	Models                []ForwardModel             `json:"models"`
+	Agent                 string                     `json:"agent,omitempty"`
+	ClaudeDefaults        map[string]ForwardModelRef `json:"claudeDefaults,omitempty"`
+	CodexModel            ForwardModelRef            `json:"codexModel,omitempty"`
+	CodexRemoteCompaction bool                       `json:"codexRemoteCompaction,omitempty"`
 }
 
 type Provider struct {

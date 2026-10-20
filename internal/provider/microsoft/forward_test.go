@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/fondoger/copilotchat/internal/provider"
@@ -45,5 +46,35 @@ func TestRawForwardingOwnsCredentialsAndPreservesPayload(t *testing.T) {
 	}
 	if _, err := client.Forward(context.Background(), provider.RawRequest{Endpoint: "https://example.com"}); err == nil {
 		t.Fatal("arbitrary destination allowed")
+	}
+}
+
+func TestRawCompactionUsesServiceCredentialsAndReturnsErrors(t *testing.T) {
+	client := NewClient(func(context.Context) (string, error) { return "fixture-upstream", nil }, provider.AccountInfo{})
+	body := []byte("{\"model\":\"upstream-model\",\"input\":[{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}]}")
+	for _, status := range []int{200, 422} {
+		calls := 0
+		client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			data, _ := io.ReadAll(r.Body)
+			if r.URL.String() != BaseURL+"/responses/compact" || string(data) != string(body) {
+				t.Fatal("compaction path or body changed")
+			}
+			for key, want := range map[string]string{"Authorization": "Bearer fixture-upstream", "X-ConversationId": "thread", "X-Initiator": "agent", "Accept": "application/json"} {
+				if r.Header.Get(key) != want {
+					t.Fatal(key, r.Header.Get(key))
+				}
+			}
+			return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader("upstream-body"))}, nil
+		})}
+		res, err := client.Forward(context.Background(), provider.RawRequest{Endpoint: "/responses/compact", Body: body, ConversationID: "thread", AgentInitiated: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != status || string(data) != "upstream-body" || calls != 1 {
+			t.Fatal("compaction response altered or retried")
+		}
 	}
 }

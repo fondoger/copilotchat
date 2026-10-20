@@ -157,6 +157,53 @@ func TestResponsesAndImageHints(t *testing.T) {
 	}
 }
 
+func TestRemoteCompactionRoutesAliasesAndPreservesProtocol(t *testing.T) {
+	calls := make(chan provider.RawRequest, 4)
+	reply := "{\"id\":\"cmp_test\",\"object\":\"response.compaction\",\"output\":[{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}],\"usage\":{\"input_tokens_details\":{\"cached_tokens\":321}}}"
+	client := &rawClient{fn: func(_ context.Context, r provider.RawRequest) (*http.Response, error) {
+		calls <- r
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(reply))}, nil
+	}}
+	s, base := fixture(t, client)
+	s.Update(map[string]Target{"p1": {Client: client}}, map[string]Profile{"fixture": {ID: "fixture-id", Models: []Model{
+		{ProviderID: "p1", Alias: "my-codex", Model: provider.Model{ID: "upstream-model", Endpoint: "/responses"}},
+		{ProviderID: "p1", Alias: "claude-only", Model: provider.Model{ID: "claude-only", Endpoint: "/v1/messages"}},
+	}}})
+	body := "{\"model\":\"my-codex\",\"input\":[{\"type\":\"compaction\",\"encrypted_content\":\"keep-me\"}],\"instructions\":\"preserve\",\"unknown\":9007199254740993}"
+	headers := map[string]string{"Authorization": "Bearer fixture-key", "thread-id": "compacted-thread"}
+	var conversation string
+	for _, path := range []string{"/responses", "/responses/compact", "/v1/responses/compact"} {
+		res := send(t, "POST", base+path, body, headers)
+		data, _ := io.ReadAll(res.Body)
+		if res.StatusCode != 200 || string(data) != reply || res.Header.Get("Content-Type") != "application/json" {
+			t.Fatal("response was changed", res.Status, string(data))
+		}
+		got := <-calls
+		if got.Endpoint != strings.TrimPrefix(path, "/v1") {
+			t.Fatal("wrong upstream path", got.Endpoint)
+		}
+		if strings.HasSuffix(path, "/compact") && !got.AgentInitiated {
+			t.Fatal("compaction was not marked as agent initiated")
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(got.Body, &fields) != nil || string(fields["model"]) != "\"upstream-model\"" ||
+			string(fields["input"]) != "[{\"type\":\"compaction\",\"encrypted_content\":\"keep-me\"}]" ||
+			string(fields["unknown"]) != "9007199254740993" || string(fields["instructions"]) != "\"preserve\"" {
+			t.Fatal("alias mapping altered compaction payload", string(got.Body))
+		}
+		if conversation != "" && got.ConversationID != conversation {
+			t.Fatal("compaction broke conversation continuity")
+		}
+		conversation = got.ConversationID
+	}
+	for _, model := range []string{"claude-only", "not-enabled"} {
+		res := send(t, "POST", base+"/responses/compact", "{\"model\":\""+model+"\"}", headers)
+		if res.StatusCode != 400 {
+			t.Fatal("incompatible or disabled alias accepted for compaction")
+		}
+	}
+}
+
 func TestStreamFlushAndProviderRevocation(t *testing.T) {
 	cancelled := make(chan struct{})
 	var once sync.Once

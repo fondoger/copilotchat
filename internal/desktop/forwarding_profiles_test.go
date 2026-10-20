@@ -156,9 +156,16 @@ func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
 		})
 	}
 	tt := ui.NewTester(view, 760, 1000)
+	if err := tt.RightClick("Profile default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Rename"); err != nil {
+		t.Fatal(err)
+	}
 	settingsClick(t, tt, "Profile name")
 	tt.Command("selectAll")
 	tt.Type("my-claude-code-profile")
+	settingsClick(t, tt, "Save profile name")
 	if a.selectedForwardProfile().Name != "my-claude-code-profile" || !tt.HasText("http://127.0.0.1:39321/my-claude-code-profile") {
 		t.Fatal("URL did not follow name")
 	}
@@ -178,7 +185,10 @@ func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
 	if a.selectedForwardProfile().Models[0].Enabled {
 		t.Fatal("selection not saved")
 	}
-	settingsClick(t, tt, "Duplicate profile")
+	settingsClick(t, tt, "Profile actions my-claude-code-profile")
+	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("my-claude-code-profile-copy") || a.selectedForwardProfile().Models[1].Alias != "claude-work" {
 		t.Fatal("duplicate UI failed")
 	}
@@ -191,7 +201,12 @@ func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
 		t.Fatal("select failed")
 	}
 	a.confirmForwarding = func(string, string, string) bool { return true }
-	settingsClick(t, tt, "Delete profile")
+	if err := tt.RightClick("Profile my-claude-code-profile-copy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Delete"); err != nil {
+		t.Fatal(err)
+	}
 	if a.selectedForwardProfile().Name != "my-claude-code-profile" {
 		t.Fatal("delete UI failed")
 	}
