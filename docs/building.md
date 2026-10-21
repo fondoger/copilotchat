@@ -36,7 +36,7 @@ Run the corresponding command on a matching host:
 
 The script runs tests and `go vet`, then invokes `go tool mygo build`. MyGo's intermediate packages are under `dist/`; the normalized release files are under `release/`. Windows produces a portable ZIP and a `-setup.exe` installer. macOS produces an application ZIP and a DMG. Packages include third-party notices and license texts.
 
-The application hosts its local forwarding service in-process; no separate credential executable is built or bundled. For a plain Windows development build, use `scripts/build.ps1`; see [agent setup](agents.md).
+The application hosts its local forwarding service in-process; no separate credential executable is built or bundled. For a plain Windows development build, use `scripts/build.ps1`; see [LLM Gateway](agents.md).
 
 Windows packages are unsigned. macOS packages use ad-hoc signing and are not notarized by Apple. No signing certificate or Apple account is required for this workflow. These packages may require an explicit first-open confirmation in the operating system.
 

@@ -32,7 +32,6 @@ func (a *app) chooseForwardProfile(id string) {
 	}
 	s.profileID, s.profileError, s.notice, s.modelError = id, "", "", ""
 	s.defaultsOpen, s.configOpen = false, false
-	s.aliases = nil
 	for _, p := range a.state.Settings.ForwardProfiles {
 		if p.ID == id {
 			s.profileName = p.Name

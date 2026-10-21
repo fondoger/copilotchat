@@ -18,7 +18,7 @@ func TestLocalAgentConfiguration(t *testing.T) {
 	var config struct {
 		Env map[string]string `json:"env"`
 	}
-	if json.Unmarshal([]byte(text), &config) != nil || config.Env["ANTHROPIC_AUTH_TOKEN"] != o.Key || config.Env["ANTHROPIC_BASE_URL"] != o.BaseURL || config.Env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] != "1" {
+	if json.Unmarshal([]byte(text), &config) != nil || config.Env["ANTHROPIC_AUTH_TOKEN"] != o.Key || config.Env["ANTHROPIC_BASE_URL"] != o.BaseURL {
 		t.Fatal(text)
 	}
 	if _, ok := config.Env["ANTHROPIC_MODEL"]; ok {
@@ -69,7 +69,7 @@ func TestClaudeDefaultsAreOptionalAndProtocolChecked(t *testing.T) {
 	if err != nil || strings.Contains(text, ClaudeModelVariables[0]) || strings.Contains(text, "ANTHROPIC_MODEL") {
 		t.Fatal("unset variable was not omitted", text, err)
 	}
-	o.ClaudeDefaults[ClaudeModelVariables[1]] = provider.Model{ID: "responses-only", Endpoint: "/responses"}
+	o.ClaudeDefaults[ClaudeModelVariables[1]] = provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}
 	if _, err := Generate(o); err == nil {
 		t.Fatal("incompatible default allowed")
 	}

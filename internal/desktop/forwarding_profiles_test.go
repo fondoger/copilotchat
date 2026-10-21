@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -37,13 +36,12 @@ func TestProfileCodexCatalogTracksEditsAndDeletion(t *testing.T) {
 		}
 		return aliases
 	}
-	if !slices.Equal(readAliases(), []string{"gpt-5.5", "gpt-5.5 (2)"}) {
+	if !slices.Equal(readAliases(), []string{"github-copilot/gpt-5.5", "m365-copilot/gpt-5.5"}) {
 		t.Fatal("initial export differs")
 	}
-	a.setForwardAlias(p, 1, "work-model")
 	p.Models[0].Enabled = false
 	a.saveSettings()
-	if !slices.Equal(readAliases(), []string{"work-model"}) {
+	if !slices.Equal(readAliases(), []string{"m365-copilot/gpt-5.5"}) {
 		t.Fatal("catalog did not track edits")
 	}
 	a.renameForwardProfile(p, "codex-profile")
@@ -67,85 +65,49 @@ func profileTestApp(t *testing.T) *app {
 	return a
 }
 
-func TestForwardProfilesKeepIndependentAliasesAndSelections(t *testing.T) {
+func TestForwardProfilesKeepIndependentSelections(t *testing.T) {
 	a := profileTestApp(t)
 	p := a.selectedForwardProfile()
-	if len(p.Models) != 2 || p.Models[0].Alias != "gpt-5.5" || p.Models[1].Alias != "gpt-5.5 (2)" {
-		t.Fatal("default collisions not resolved", p.Models)
-	}
-	if err := a.renameForwardProfile(p, "my-claude-code-profile"); err != "" {
-		t.Fatal(err)
-	}
-	if err := a.setForwardAlias(p, 1, "claude-work"); err != "" {
-		t.Fatal(err)
-	}
-	p.Models[0].Enabled = false
 	original := p.ID
+	a.setForwardEnabled(p, 0, false)
 	a.addForwardProfile(true)
-	p = a.selectedForwardProfile()
-	if p.ID == original || p.Name != "my-claude-code-profile-copy" || p.Models[0].Enabled || p.Models[1].Alias != "claude-work" {
-		t.Fatal("duplicate did not copy choices independently", p)
+	copy := a.selectedForwardProfile()
+	if copy.ID == original || copy.Models[0].Enabled {
+		t.Fatal("profile choices not duplicated")
 	}
-	if err := a.renameForwardProfile(p, "my-codex-profile"); err != "" {
-		t.Fatal(err)
-	}
-	if err := a.setForwardAlias(p, 1, "gpt-5.5 (2)"); err != "" {
-		t.Fatal(err)
-	}
-	p.Models[0].Enabled = true
-	if err := a.setForwardAlias(p, 1, "gpt-5.5"); err == "" {
-		t.Fatal("duplicate alias accepted")
-	}
-	for _, invalid := range []string{"", " leading", "line\nbreak"} {
-		if err := a.setForwardAlias(p, 1, invalid); err == "" {
-			t.Fatal("invalid alias accepted")
-		}
-	}
-	if err := a.renameForwardProfile(p, "my-claude-code-profile"); err == "" {
-		t.Fatal("duplicate URL accepted")
-	}
-	for _, invalid := range []string{"../escape", "a/b", "name?query", "with spaces"} {
-		if err := a.renameForwardProfile(p, invalid); err == "" {
-			t.Fatal("invalid URL accepted")
-		}
-	}
-	a.saveSettings()
-	saved := settingsSavedState(t, a)
-	a.state = saved
-	p = a.selectedForwardProfile()
-	if p.Models[1].Alias != "gpt-5.5 (2)" || !p.Models[0].Enabled {
-		t.Fatal("profile not persisted")
-	}
+	a.setForwardEnabled(copy, 0, true)
+	a.state = settingsSavedState(t, a)
 	a.chooseForwardProfile(original)
 	p = a.selectedForwardProfile()
-	if p.Models[1].Alias != "claude-work" || p.Models[0].Enabled {
-		t.Fatal("profile edit leaked to original")
+	if p.Models[0].Enabled {
+		t.Fatal("duplicate choices leaked into original")
 	}
-	// Temporarily missing/disabled providers reserve their previous aliases.
+	for _, invalid := range []string{"../escape", "a/b", "name?query", "with spaces"} {
+		if a.renameForwardProfile(p, invalid) == "" {
+			t.Fatal("invalid URL accepted", invalid)
+		}
+	}
 	a.provider("work").Disabled = true
 	a.providers["work"].models = nil
 	a.syncForwardingProviders()
-	if p.Models[1].Alias != "claude-work" || len(a.forwardingModels(p)) != 0 {
-		t.Fatal("unavailable model lost alias or stayed routable")
+	if len(a.forwardingModels(p)) != 0 {
+		t.Fatal("disabled model still routable")
 	}
 	a.provider("work").Disabled = false
 	a.providers["work"].models = []provider.Model{{ID: "gpt-5.5", Endpoint: "/responses"}, {ID: "new-model", Endpoint: "/responses"}}
 	a.saveSettings()
-	if p.Models[1].Alias != "claude-work" || len(p.Models) != 3 || !p.Models[2].Enabled {
-		t.Fatal("refresh reset preferences")
+	if len(p.Models) != 3 || p.Models[0].Enabled || !p.Models[2].Enabled {
+		t.Fatal("catalog refresh reset preferences")
 	}
 	a.deleteForwardProfile(original)
-	if slices.ContainsFunc(a.state.Settings.ForwardProfiles, func(p store.ForwardProfile) bool { return p.ID == original }) {
-		t.Fatal("delete failed")
-	}
 	a.deleteForwardProfile(a.selectedForwardProfile().ID)
 	a.state = settingsSavedState(t, a)
 	if a.selectedForwardProfile() != nil {
-		t.Fatal("last deleted profile reappeared")
+		t.Fatal("deleted last profile reappeared")
 	}
 }
 
-func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
+func TestForwardProfileControls(t *testing.T) {
 	a := profileTestApp(t)
 	view := func(c *ui.Context) {
 		ui.Column(c).Fill().Gap(10).Children(func() {
@@ -169,18 +131,6 @@ func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
 	if a.selectedForwardProfile().Name != "my-claude-code-profile" || !tt.HasText("http://127.0.0.1:39321/my-claude-code-profile") {
 		t.Fatal("URL did not follow name")
 	}
-	settingsClick(t, tt, "Alias work gpt-5.5")
-	tt.Command("selectAll")
-	tt.Type("gpt-5.5")
-	if a.selectedForwardProfile().Models[1].Alias != "gpt-5.5 (2)" || !strings.Contains(a.agentSetup.aliases[forwardModelKey{"work", "gpt-5.5"}].error, "already used") {
-		t.Fatal("invalid alias overwrote persisted route")
-	}
-	settingsClick(t, tt, "Alias work gpt-5.5")
-	tt.Command("selectAll")
-	tt.Type("claude-work")
-	if a.selectedForwardProfile().Models[1].Alias != "claude-work" {
-		t.Fatal("alias edit not saved")
-	}
 	settingsClick(t, tt, "Share github.com gpt-5.5")
 	if a.selectedForwardProfile().Models[0].Enabled {
 		t.Fatal("selection not saved")
@@ -189,7 +139,7 @@ func TestForwardProfileControlsAndAliasValidation(t *testing.T) {
 	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.HasText("my-claude-code-profile-copy") || a.selectedForwardProfile().Models[1].Alias != "claude-work" {
+	if !tt.HasText("my-claude-code-profile-copy") || a.selectedForwardProfile().Models[0].Enabled {
 		t.Fatal("duplicate UI failed")
 	}
 	settingsClick(t, tt, "Deselect all")

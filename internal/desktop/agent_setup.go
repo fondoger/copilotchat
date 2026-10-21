@@ -15,12 +15,12 @@ import (
 type agentSetupState struct {
 	portText                              string
 	portInitialized                       bool
-	aliases                               map[forwardModelKey]*aliasDraft
 	profileID, profileName, profileError  string
 	renameID                              string
 	renameOpen                            bool
 	defaultsOpen, configOpen, optionsOpen bool
 	notice, modelError                    string
+	applying                              bool
 }
 
 type setupOption struct{ id, label string }
@@ -34,7 +34,7 @@ func setupSelect(c *ui.Context, key, label string, value *string, options []setu
 	}
 	t := c.Theme()
 	sel := ui.SelectBase(c.Key(key), value)
-	sel.Trigger.FillWidth().Height(30).Padding(4, 8).Gap(6).Radius(5).Border(1, t.Border).Background(t.Surface).Label(label).Children(func() {
+	sel.Trigger.FillWidth().Height(30).Padding(4, 8).Gap(6).Radius(5).Border(1, t.Border).Background(t.Surface).Label(label).Tooltip(text).Children(func() {
 		ui.Text(c, text).FontSize(12).Grow(1).MinWidth(0).SingleLine()
 		ui.Icon(c, settingsChevron).Size(12, 12).Shrink(0)
 	})
@@ -87,7 +87,7 @@ func agentModelByRef(models []localproxy.Model, ref store.ForwardModelRef) (prov
 	for _, m := range models {
 		if sharedModelRef(m) == ref {
 			model := m.Model
-			model.ID, model.Name = m.Alias, m.Alias
+			model.ID, model.Name = m.ID, m.ID
 			return model, true
 		}
 	}
@@ -103,17 +103,11 @@ func (a *app) agentModelSelect(c *ui.Context, p *store.ForwardProfile, label str
 	found := ref.ModelID == ""
 	for _, m := range models {
 		id := forwardRefID(sharedModelRef(m))
-		options = append(options, setupOption{id, m.Alias})
+		options = append(options, setupOption{id, m.ID})
 		found = found || id == value
 	}
 	if !found {
-		alias := ref.ModelID
-		for _, m := range p.Models {
-			if m.ProviderID == ref.ProviderID && m.ModelID == ref.ModelID {
-				alias = m.Alias
-			}
-		}
-		options = append(options, setupOption{value, alias + " (unavailable)"})
+		options = append(options, setupOption{value, ref.ModelID + " (unavailable)"})
 	}
 	setupSelect(c, p.ID+"-"+label, label, &value, options, func() {
 		selected := ref
@@ -131,12 +125,10 @@ func (a *app) agentModelSelect(c *ui.Context, p *store.ForwardProfile, label str
 	})
 }
 
-// Generate from stable model references, never a previously displayed alias.
-// An unavailable explicit choice is an error rather than silently routing it
-// to another provider that has since inherited the same automatic alias.
+// Resolve account-bound choices before generating public model IDs.
 func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string, error) {
 	models := a.agentModels(p, agent)
-	o := agentconfig.Options{Agent: agent, BaseURL: localproxy.BaseURL(a.state.Settings.LocalPort, p.Name), Key: a.state.Settings.LocalKey, RemoteCompaction: p.CodexRemoteCompaction}
+	o := agentconfig.Options{Models: models, Agent: agent, BaseURL: localproxy.BaseURL(a.state.Settings.LocalPort, p.Name), Key: a.state.Settings.LocalKey, RemoteCompaction: p.CodexRemoteCompaction}
 	if a.storage != nil {
 		o.CatalogPath = a.storage.AgentCatalogPath(p.ID)
 	}
@@ -153,7 +145,7 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 			}
 			o.ClaudeDefaults[key] = model
 		}
-	} else {
+	} else if agent == agentconfig.Codex {
 		if err := a.forwardCatalogErrors[p.ID]; err != "" {
 			return "", fmt.Errorf("%s", err)
 		}
@@ -170,7 +162,35 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 	return agentconfig.Generate(o)
 }
 
-func (a *app) agentSetupSettings(c *ui.Context) {
+func (a *app) applyAgentConfiguration(agent, config string) {
+	if a.agentSetup.applying {
+		return
+	}
+	a.agentSetup.applying = true
+	a.agentSetup.notice = "Applying configuration…"
+	go func() {
+		result, err := agentconfig.Apply(agent, config)
+		a.update(func() {
+			a.agentSetup.applying = false
+			if err != nil {
+				a.agentSetup.notice = "Apply failed: " + err.Error()
+				return
+			}
+			restart := "Restart Claude Code CLI to use this configuration."
+			if agent == agentconfig.ClaudeDesktop {
+				restart = "Restart Claude Desktop to use this configuration."
+			} else if agent == agentconfig.Codex {
+				restart = "Restart Codex CLI or ChatGPT Desktop to use this configuration."
+			}
+			a.agentSetup.notice = "Applied to " + result.Path + ". " + restart
+			if result.BackupPath != "" {
+				a.agentSetup.notice += " Backup: " + result.BackupPath
+			}
+		})
+	}()
+}
+
+func (a *app) llmGatewaySettings(c *ui.Context) {
 	// The enclosing settings pane owns scrolling. Models remain fully expanded.
 	ui.Column(c).FillWidth().Gap(14).Children(func() {
 		a.forwardingSettings(c)
@@ -190,7 +210,7 @@ func (a *app) agentSetupSettings(c *ui.Context) {
 func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile) {
 	s, t := &a.agentSetup, c.Theme()
 	agent := p.Agent
-	if agent != agentconfig.Codex {
+	if agent != agentconfig.Codex && agent != agentconfig.ClaudeDesktop {
 		agent = agentconfig.ClaudeCode
 	}
 	models := a.agentModels(p, agent)
@@ -198,7 +218,7 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 		ui.Row(c).FillWidth().Gap(10).Children(func() {
 			ui.Text(c, "Agent").FontSize(12).FontWeight(500).Grow(1)
 			ui.Row(c).Padding(2).Gap(2).Radius(6).Border(1, t.Border).Children(func() {
-				for _, item := range []setupOption{{agentconfig.ClaudeCode, "Claude Code"}, {agentconfig.Codex, "Codex"}} {
+				for _, item := range []setupOption{{agentconfig.ClaudeCode, "Claude Code"}, {agentconfig.ClaudeDesktop, "Claude Desktop"}, {agentconfig.Codex, "Codex"}} {
 					b := ui.ButtonBase(c.Key("agent-"+item.id)).Padding(5, 12).Radius(4).Label(item.id).OnClick(func() { p.Agent = item.id; s.notice = ""; a.saveSettings() })
 					if item.id == agent {
 						b.Background(t.Surface).Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, .1))
@@ -220,7 +240,7 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 							keyword := strings.TrimSuffix(strings.TrimPrefix(key, prefix), "_MODEL")
 							ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 								ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).Grow(1).MinWidth(0)
-								ui.Column(c).Width(174).Shrink(0).Children(func() {
+								ui.Column(c).Width(250).Shrink(0).Children(func() {
 									a.agentModelSelect(c, p, "Choose "+key, p.ClaudeDefaults[key], models, true, func(ref store.ForwardModelRef) {
 										if p.ClaudeDefaults == nil {
 											p.ClaudeDefaults = map[string]store.ForwardModelRef{}
@@ -238,7 +258,7 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 					})
 				})
 			})
-		} else {
+		} else if agent == agentconfig.Codex {
 			ref := p.CodexModel
 			if ref.ModelID == "" && len(models) > 0 {
 				ref = sharedModelRef(models[0])
@@ -257,8 +277,11 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 		}
 		config, err := a.agentConfiguration(p, agent)
 		file := "~/.claude/settings.json"
-		instructions := "Merge the env fields, then restart Claude Code. Choose a model with /model."
-		if agent == agentconfig.Codex {
+		instructions := "Merge env, modelPicker and modelSettings into settings.json, then restart Claude Code. Choose a model with /model."
+		if agent == agentconfig.ClaudeDesktop {
+			file = "Claude Desktop gateway configuration (JSON)"
+			instructions = "Apply this JSON to Claude Desktop's gateway configuration, then restart Claude Desktop. Models are discovered from this profile's API."
+		} else if agent == agentconfig.Codex {
 			file = "~/.codex/config.toml"
 			instructions = "Merge into config.toml. The model catalog is maintained automatically; restart Codex after model changes."
 		}
@@ -268,6 +291,11 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 				disclosure = setupDisclosure(c, "config-preview", "Configuration", &s.configOpen)
 				disclosure.Trigger.Grow(1)
 				ui.Button(c, "Copy configuration").Height(28).FontSize(12).Disabled(err != nil).OnClick(func() { mygo.Clipboard.WriteText(config); s.notice = "Configuration copied." })
+				applyLabel := "Apply"
+				if s.applying {
+					applyLabel = "Applying…"
+				}
+				ui.Button(c, applyLabel).Height(28).FontSize(12).Label("Apply configuration").Disabled(err != nil || s.applying).OnClick(func() { a.applyAgentConfiguration(agent, config) })
 			})
 			ui.Text(c, file).FontSize(11).Selectable().TextColor(t.TextMuted)
 			if err != nil {

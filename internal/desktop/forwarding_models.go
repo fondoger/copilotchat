@@ -3,9 +3,6 @@ package desktop
 import (
 	"fmt"
 	"slices"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/localproxy"
@@ -13,10 +10,8 @@ import (
 )
 
 type forwardModelKey struct{ provider, model string }
-type aliasDraft struct{ text, error string }
 
-// Keep catalog order stable. Only profile selection changes automatic aliases;
-// a temporary sign-out or missing catalog must not change public routes.
+// Preserve per-profile choices across catalog refreshes and sign-in changes.
 func (a *app) reconcileForwardModels() {
 	s := &a.state.Settings
 	for i := range s.ForwardProfiles {
@@ -40,73 +35,14 @@ func (a *app) reconcileProfileModels(profile *store.ForwardProfile) {
 			if m.ID == "" || seen[key] {
 				continue
 			}
-			profile.Models = append(profile.Models, store.ForwardModel{ProviderID: p.ID, ModelID: m.ID, AliasMode: "auto", Enabled: true})
+			profile.Models = append(profile.Models, store.ForwardModel{ProviderID: p.ID, ModelID: m.ID, Enabled: true})
 			seen[key] = true
 		}
 	}
-	a.reconcileForwardAliases(profile)
 }
 
-func nextForwardAlias(base string, used map[string]bool) string {
-	alias := base
-	for n := 2; used[alias]; n++ {
-		alias = fmt.Sprintf("%s (%d)", base, n)
-	}
-	return alias
-}
-
-func (a *app) reconcileForwardAliases(profile *store.ForwardProfile) {
-	legacy, used := map[string]bool{}, map[string]bool{}
-	for i := range profile.Models {
-		m := &profile.Models[i]
-		// Older profiles did not record edits. Recognize their original default
-		// allocation and preserve any different saved name as a manual alias.
-		if m.AliasMode == "" {
-			m.AliasMode = "manual"
-			if m.Alias == "" || m.Alias == nextForwardAlias(m.ModelID, legacy) {
-				m.AliasMode = "auto"
-			}
-		}
-		legacy[m.Alias] = true
-		if m.Enabled && m.AliasMode == "manual" {
-			used[m.Alias] = true
-		}
-	}
-	for i := range profile.Models {
-		m := &profile.Models[i]
-		if m.AliasMode == "manual" {
-			continue
-		}
-		alias := m.ModelID
-		if m.Enabled {
-			alias = nextForwardAlias(alias, used)
-			used[alias] = true
-		}
-		m.Alias = alias
-		if profile.ID == a.agentSetup.profileID {
-			if draft := a.agentSetup.aliases[forwardModelKey{m.ProviderID, m.ModelID}]; draft != nil && draft.error == "" {
-				draft.text = alias
-			}
-		}
-	}
-}
-
-// index -1 toggles all models. Validate manual collisions atomically so a
-// select-all action never silently renames an alias the user chose.
+// index -1 toggles all models; IDs are independent of selection.
 func (a *app) setForwardEnabled(profile *store.ForwardProfile, index int, enabled bool) string {
-	used := map[string]bool{}
-	for i, m := range profile.Models {
-		selected := m.Enabled
-		if index == -1 || i == index {
-			selected = enabled
-		}
-		if selected && m.AliasMode == "manual" {
-			if used[m.Alias] {
-				return fmt.Sprintf("Alias %q is already used. Rename one of these models before enabling both.", m.Alias)
-			}
-			used[m.Alias] = true
-		}
-	}
 	for i := range profile.Models {
 		if index == -1 || i == index {
 			profile.Models[i].Enabled = enabled
@@ -143,24 +79,17 @@ func (a *app) forwardingModels(profile *store.ForwardProfile) []localproxy.Model
 			continue
 		}
 		model, _ := a.modelForProvider(m.ProviderID, m.ModelID)
-		models = append(models, localproxy.Model{ProviderID: m.ProviderID, Alias: m.Alias, Model: model})
+		models = append(models, localproxy.Model{ProviderID: m.ProviderID, Model: model})
 	}
-	return models
-}
-
-func (a *app) setForwardAlias(profile *store.ForwardProfile, index int, alias string) string {
-	if alias == "" || alias != strings.TrimSpace(alias) || utf8.RuneCountInString(alias) > 120 || strings.ContainsFunc(alias, unicode.IsControl) {
-		return "Use 1–120 characters, without control characters or spaces at either end."
-	}
-	for i, m := range profile.Models {
-		if i != index && m.Enabled && profile.Models[index].Enabled && m.Alias == alias {
-			return "This alias is already used by another model."
+	identities := []localproxy.ProviderIdentity{}
+	for _, p := range a.state.Settings.Providers {
+		kind := p.Kind
+		if kind == "" {
+			kind = store.ProviderKindGitHub
 		}
+		identities = append(identities, localproxy.ProviderIdentity{ID: p.ID, Kind: kind, Name: p.Name, Login: p.Login})
 	}
-	profile.Models[index].Alias = alias
-	profile.Models[index].AliasMode = "manual"
-	a.saveSettings()
-	return ""
+	return localproxy.NameModels(models, identities)
 }
 
 func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfile) {
@@ -190,7 +119,6 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 		ui.Column(c).FillWidth().Border(1, t.Border).Radius(6).Children(func() {
 			ui.Row(c).FillWidth().Gap(10).Padding(6, 8).Children(func() {
 				ui.Text(c, "Model").Width(0).Grow(1).MinWidth(0).FontSize(11).TextColor(t.TextMuted)
-				ui.Text(c, "Alias").Width(0).Grow(1).MinWidth(0).FontSize(11).TextColor(t.TextMuted)
 				ui.Text(c, "Enabled").Width(48).FontSize(11).TextColor(t.TextMuted)
 			})
 			// One table in the page scroll; no nested Scroll or height limit.
@@ -203,15 +131,6 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 					if m.ProviderID != p.ID {
 						continue
 					}
-					key := forwardModelKey{m.ProviderID, m.ModelID}
-					if s.aliases == nil {
-						s.aliases = map[forwardModelKey]*aliasDraft{}
-					}
-					draft := s.aliases[key]
-					if draft == nil {
-						draft = &aliasDraft{text: m.Alias}
-						s.aliases[key] = draft
-					}
 					ui.Row(c.Key("forward-model-"+profile.ID+"-"+m.ProviderID+"-"+m.ModelID)).FillWidth().Gap(10).Padding(5, 8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 						details := ui.Column(c).Width(0).Grow(1).MinWidth(0).Gap(2)
 						status := a.forwardingModelStatus(m)
@@ -222,15 +141,6 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 							ui.Text(c, m.ModelID).FontSize(12).SingleLine().Tooltip(m.ModelID)
 							if status != "" {
 								ui.Text(c, status).FontSize(10).TextColor(t.TextMuted)
-							}
-						})
-						ui.Column(c).Width(0).Grow(1).MinWidth(0).Gap(3).Children(func() {
-							ui.TextInput(c.Key("alias-"+profile.ID+"-"+m.ProviderID+"-"+m.ModelID), &draft.text).FillWidth().Height(28).FontSize(12).Background(t.Surface).Label("Alias " + m.ProviderID + " " + m.ModelID).OnChange(func() {
-								draft.error = a.setForwardAlias(profile, i, draft.text)
-								s.modelError, s.notice = "", ""
-							})
-							if draft.error != "" {
-								ui.Text(c, "Not saved: "+draft.error).FontSize(10).TextColor(t.TextMuted)
 							}
 						})
 						enabled := m.Enabled
@@ -247,7 +157,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 				ui.Text(c, "Sign in and load models in Providers first.").Padding(8).FontSize(12)
 			}
 		})
-		ui.Text(c, "Automatic aliases renumber when models are unchecked. Edited aliases stay unchanged.").FontSize(11).TextColor(t.TextMuted)
-		ui.Text(c, "Claude Code discovers aliases containing ‘claude’ or ‘anthropic’. Codex lists Responses models.").FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, "Model IDs include their provider. Multiple accounts also include the account name.").FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, "Claude Code lists Messages and Responses models. Codex lists Responses models.").FontSize(11).TextColor(t.TextMuted)
 	})
 }

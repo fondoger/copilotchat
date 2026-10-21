@@ -2,7 +2,6 @@
 package localproxy
 
 import (
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -25,17 +24,11 @@ import (
 
 const DefaultPort = 39321
 const DefaultKey = "copilotchat"
+const ClaudeDesktopKey = "copilotchat-claude-desktop"
 const MaxBody = 32 << 20
 
 type Target struct {
 	Client provider.RawClient
-}
-
-// Model is a public alias bound to exactly one account and upstream model.
-type Model struct {
-	ProviderID string
-	Alias      string
-	Model      provider.Model
 }
 
 type Profile struct {
@@ -110,20 +103,17 @@ func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) 
 		if !ValidProfileName(name) || profile.ID == "" {
 			continue
 		}
-		// Ambiguous aliases fail closed, never pick an account by map order.
-		counts := map[string]int{}
-		for _, model := range profile.Models {
-			counts[model.Alias]++
-		}
 		models := []Model{}
 		for _, model := range profile.Models {
-			if model.Alias != "" && model.Model.ID != "" && counts[model.Alias] == 1 && s.targets[model.ProviderID] != nil {
+			if model.ID != "" && model.Model.ID != "" && s.targets[model.ProviderID] != nil {
 				model.Model.Endpoints = slices.Clone(model.Model.Endpoints)
 				model.Model.ThinkingEfforts = slices.Clone(model.Model.ThinkingEfforts)
+				model.Model.Capabilities = slices.Clone(model.Model.Capabilities)
+				model.Routes = slices.Clone(model.Routes)
 				models = append(models, model)
 			}
 		}
-		slices.SortFunc(models, func(a, b Model) int { return cmp.Compare(a.Alias, b.Alias) })
+		// Keep caller's persisted provider order for ambiguous short IDs.
 		profile.Models = models
 		if old := s.profiles[name]; old != nil {
 			old.Profile = profile
@@ -200,13 +190,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		key = strings.TrimPrefix(auth, "Bearer ")
 	}
 	hash := sha256.Sum256([]byte(key))
-	if key == "" || subtle.ConstantTimeCompare(hash[:], s.key[:]) != 1 {
+	desktopHash := sha256.Sum256([]byte(ClaudeDesktopKey))
+	desktop := subtle.ConstantTimeCompare(hash[:], desktopHash[:]) == 1
+	if key == "" || (!desktop && subtle.ConstantTimeCompare(hash[:], s.key[:]) != 1) {
 		apiError(w, http.StatusUnauthorized, "Invalid local API key.")
 		return
 	}
 	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
 	if len(parts) != 2 || !ValidProfileName(parts[0]) {
-		apiError(w, 404, "Use the profile base URL from Agent setup.")
+		apiError(w, 404, "Use the profile base URL from LLM Gateway.")
 		return
 	}
 	profileName, endpoint := parts[0], "/"+parts[1]
@@ -220,7 +212,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 	if profile == nil {
-		apiError(w, 404, "Profile does not exist. Check Agent setup in Copilot Chat.")
+		apiError(w, 404, "Profile does not exist. Check LLM Gateway in Copilot Chat.")
 		return
 	}
 	if endpoint == "/models" || endpoint == "/v1/models" || endpoint == "/codex/models" {
@@ -229,9 +221,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if endpoint == "/codex/models" {
-			writeCodexModels(w, models)
+			writeCodexModels(w, clientModelIDs(models, desktop))
+		} else if endpoint == "/v1/models" {
+			writeAnthropicModels(w, r, models, desktop)
 		} else {
-			writeModels(w, models, endpoint == "/v1/models")
+			writeModels(w, clientModelIDs(models, desktop))
 		}
 		return
 	}
@@ -271,6 +265,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if endpoint == "/responses/compact" {
 		protocol = "/responses"
 	}
+	// Claude client hints and Desktop's discovery prefix are never upstream IDs.
+	routeModelID := strings.TrimSuffix(envelope.Model, "[1m]")
+	routeModelID = strings.TrimPrefix(routeModelID, "claude-desktop/")
 	s.mu.RLock()
 	var model Model
 	var target Target
@@ -282,7 +279,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		models = current.Models
 	}
 	for _, candidate := range models {
-		if candidate.Alias == envelope.Model && supports(candidate.Model, protocol) {
+		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
+		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID)) && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx
 			}
@@ -291,10 +289,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 	if providerCtx == nil {
-		apiError(w, 400, "Model alias is disabled, unavailable, or does not support this API. Check Agent setup in Copilot Chat.")
+		apiError(w, 400, "Model ID is disabled, unavailable, or does not support this API. Check LLM Gateway in Copilot Chat.")
 		return
 	}
-	if model.Alias != model.Model.ID {
+	if envelope.Model != model.Model.ID {
 		// Only the routing field changes. RawMessage retains unknown fields,
 		// numeric precision, cache markers, tool arguments and thinking signatures.
 		var fields map[string]json.RawMessage
@@ -302,13 +300,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fields["model"], _ = json.Marshal(model.Model.ID)
 		body, _ = json.Marshal(fields)
 	}
+	converted := protocol == "/v1/messages" && !supports(model.Model, "/v1/messages")
+	stream := false
+	if converted {
+		if endpoint == "/v1/messages/count_tokens" {
+			apiError(w, http.StatusNotImplemented, "This Responses model does not offer an Anthropic token-counting endpoint.")
+			return
+		}
+		body, stream, err = messagesToResponses(body, model.Model)
+		if err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		endpoint = "/responses"
+	}
 	agent := false
 	vision := hasImages(envelope.Input)
 	for _, message := range envelope.Messages {
 		vision = vision || hasImages(message.Content)
 	}
-	if len(envelope.Messages) > 0 {
-		last := envelope.Messages[len(envelope.Messages)-1]
+	for i := len(envelope.Messages) - 1; i >= 0; i-- {
+		last := envelope.Messages[i]
+		// Claude Code appends system messages for environment updates and
+		// per-turn effort. These don't start a new turn or tool continuation.
+		if last.Role == "system" || last.Role == "developer" {
+			continue
+		}
 		agent = last.Role != "user"
 		var blocks []struct {
 			Type string `json:"type"`
@@ -319,6 +336,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				agent = true
 			}
 		}
+		break
 	}
 	var input []struct {
 		Type string `json:"type"`
@@ -340,10 +358,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Remove the upload deadline before waiting on a long-running model stream.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 	query := url.Values{}
-	if beta := r.URL.Query().Get("beta"); beta == "true" {
+	header := r.Header
+	if converted {
+		header = r.Header.Clone()
+		header.Del("Anthropic-Version")
+		header.Del("Anthropic-Beta")
+	}
+	if beta := r.URL.Query().Get("beta"); beta == "true" && !converted {
 		query.Set("beta", beta)
 	}
-	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: r.Header, ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
+	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: header, ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
 	if err != nil {
 		apiError(w, 502, "Upstream request failed. Check the selected provider's sign-in and connection in Copilot Chat.")
 		return
@@ -358,6 +382,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if lower == "content-type" || lower == "retry-after" || lower == "request-id" || lower == "x-request-id" || strings.HasPrefix(lower, "anthropic-ratelimit-") || strings.HasPrefix(lower, "x-ratelimit-") {
 			w.Header()[key] = slices.Clone(values)
 		}
+	}
+	if converted {
+		writeMessagesResponse(w, response, envelope.Model, stream)
+		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(response.StatusCode)
@@ -416,13 +444,10 @@ func conversationID(id string, h http.Header) string {
 	return provider.RequestID()
 }
 
-func writeModels(w http.ResponseWriter, models []Model, messages bool) {
+func writeModels(w http.ResponseWriter, models []Model) {
 	data := []map[string]any{}
 	for _, model := range models {
-		if messages && !supports(model.Model, "/v1/messages") {
-			continue
-		}
-		data = append(data, map[string]any{"id": model.Alias, "type": "model", "object": "model", "display_name": model.Alias, "name": model.Alias, "owned_by": "copilot-chat"})
+		data = append(data, map[string]any{"id": model.ID, "type": "model", "object": "model", "display_name": model.ID, "name": model.ID, "owned_by": "copilot-chat"})
 	}
 	result := map[string]any{"data": data, "object": "list", "has_more": false, "first_id": nil, "last_id": nil}
 	if len(data) > 0 {

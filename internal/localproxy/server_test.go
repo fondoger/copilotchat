@@ -27,8 +27,8 @@ func fixture(t *testing.T, client *rawClient) (*Server, string) {
 	t.Helper()
 	s := New("fixture-key")
 	s.Update(map[string]Target{"p1": {Client: client}}, map[string]Profile{"fixture": {ID: "fixture-id", Models: []Model{
-		{ProviderID: "p1", Alias: "claude-fixture", Model: provider.Model{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"}},
-		{ProviderID: "p1", Alias: "gpt-fixture", Model: provider.Model{ID: "gpt-fixture", Endpoint: "/responses"}},
+		{ProviderID: "p1", ID: "claude-fixture", Model: provider.Model{ID: "claude-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages"}},
+		{ProviderID: "p1", ID: "gpt-fixture", Model: provider.Model{ID: "gpt-fixture", Endpoint: "/responses"}},
 	}}})
 	if err := s.Start(0); err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestRoutingAuthenticationAndRawProtocol(t *testing.T) {
 		Data    []provider.Model `json:"data"`
 		HasMore bool             `json:"has_more"`
 	}
-	if json.NewDecoder(res.Body).Decode(&models) != nil || len(models.Data) != 1 || models.Data[0].ID != "claude-fixture" || models.HasMore {
+	if json.NewDecoder(res.Body).Decode(&models) != nil || len(models.Data) != 2 || models.Data[0].ID != "claude-fixture" || models.HasMore {
 		t.Fatal(models)
 	}
 	headers["Origin"] = "https://example.com"
@@ -166,8 +166,8 @@ func TestRemoteCompactionRoutesAliasesAndPreservesProtocol(t *testing.T) {
 	}}
 	s, base := fixture(t, client)
 	s.Update(map[string]Target{"p1": {Client: client}}, map[string]Profile{"fixture": {ID: "fixture-id", Models: []Model{
-		{ProviderID: "p1", Alias: "my-codex", Model: provider.Model{ID: "upstream-model", Endpoint: "/responses"}},
-		{ProviderID: "p1", Alias: "claude-only", Model: provider.Model{ID: "claude-only", Endpoint: "/v1/messages"}},
+		{ProviderID: "p1", ID: "my-codex", Model: provider.Model{ID: "upstream-model", Endpoint: "/responses"}},
+		{ProviderID: "p1", ID: "claude-only", Model: provider.Model{ID: "claude-only", Endpoint: "/v1/messages"}},
 	}}})
 	body := "{\"model\":\"my-codex\",\"input\":[{\"type\":\"compaction\",\"encrypted_content\":\"keep-me\"}],\"instructions\":\"preserve\",\"unknown\":9007199254740993}"
 	headers := map[string]string{"Authorization": "Bearer fixture-key", "thread-id": "compacted-thread"}

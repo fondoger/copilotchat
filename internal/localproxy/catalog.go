@@ -15,7 +15,7 @@ import (
 var codexPrompt string
 
 // Codex uses a native catalog rather than the OpenAI data[] envelope. Keep its
-// slug and display name identical to the public alias and advertise only the
+// slug and display name identical to the public ID and advertise only the
 // Responses models that this endpoint can actually route.
 func CodexCatalog(models []Model) []byte {
 	data := []map[string]any{}
@@ -35,7 +35,7 @@ func CodexCatalog(models []Model) []byte {
 			modalities = append(modalities, "image")
 		}
 		row := map[string]any{
-			"id": model.Alias, "name": model.Alias, "slug": model.Alias, "display_name": model.Alias,
+			"id": model.ID, "name": model.ID, "slug": model.ID, "display_name": model.ID,
 			"description": "", "supported_reasoning_levels": efforts,
 			"shell_type": "shell_command", "visibility": "list", "supported_in_api": true,
 			"priority": len(data), "support_verbosity": false,

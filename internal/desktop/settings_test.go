@@ -61,6 +61,7 @@ func TestSettingsNavigation(t *testing.T) {
 		{"General", "Send message with"},
 		{"Appearance", "Chat font size"},
 		{"Providers", "Default model"},
+		{"LLM Gateway", "Local forwarding"},
 		{"MCP", "Server configuration"},
 		{"Extensions", "Model for chat title generation"},
 	} {
@@ -84,7 +85,7 @@ func TestSettingsNavigationAlignment(t *testing.T) {
 			a := newSettingsTestApp(t)
 			tester := ui.NewTester(a.settingsView, width, 620)
 			var previousY float32
-			for i, page := range []string{"General", "Appearance", "Providers", "MCP", "Extensions"} {
+			for i, page := range []string{"General", "Appearance", "Providers", "LLM Gateway", "MCP", "Extensions"} {
 				row, ok := tester.Find(page + " settings")
 				if !ok {
 					t.Fatalf("missing navigation button %q", page)
@@ -266,7 +267,7 @@ func TestSettingsScreenshots(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, page := range []string{"General", "Appearance", "Providers", "MCP", "Extensions"} {
+	for _, page := range []string{"General", "Appearance", "Providers", "LLM Gateway", "MCP", "Extensions"} {
 		t.Run(page, func(t *testing.T) {
 			a := newSettingsTestApp(t)
 			a.settingsPage = page

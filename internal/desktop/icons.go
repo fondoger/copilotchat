@@ -13,9 +13,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// These SVGs are extracted from the owner's ChatWise installation. Geometry
-// stays unchanged; CSS-mask black paint is currentColor for native tinting.
-// Source hashes and the upstream licenses are recorded beside the assets.
+// Most SVGs come from the owner's ChatWise installation; additional icons are
+// obtained from their upstream projects. Geometry stays unchanged; CSS-mask
+// black paint becomes currentColor for native tinting. Sources and licenses
+// are recorded beside the assets.
 //
 //go:embed assets/icons/*.svg
 var iconAssets embed.FS

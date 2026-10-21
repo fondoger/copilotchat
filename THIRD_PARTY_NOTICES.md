@@ -1,12 +1,13 @@
 # Third-party notices
 
-The application depends on MyGo and its Go text/rendering dependencies. Their full license texts are distributed under `resources/licenses/` and copied alongside the MyGo packaged application.
+The application depends on MyGo, its Go text/rendering dependencies, and go-toml for updating client configuration files. Their full license texts are distributed under `resources/licenses/` and copied alongside the MyGo packaged application.
 
 | Dependency | Version | License |
 | --- | --- | --- |
 | github.com/egoist/mygo | v0.5.5 | MIT |
 | github.com/ebitengine/purego | v0.11.1 | Apache-2.0 |
 | github.com/go-text/typesetting | v0.3.5 | BSD-3-Clause |
+| github.com/pelletier/go-toml/v2 | v2.4.3 | MIT |
 | golang.org/x/image | v0.46.0 | BSD-3-Clause |
 | golang.org/x/text | v0.43.0 | BSD-3-Clause |
 
@@ -20,7 +21,7 @@ The extracted UI assets include these open-source icon sets. Their complete lice
 
 | Icon set | Used assets | License / source |
 | --- | --- | --- |
-| Tabler Icons | Menu, Settings, More, Close, chevrons, star, filled star, sun, trash, check, search, plus, minus, inline pin | MIT — https://github.com/tabler/tabler-icons |
+| Tabler Icons | Menu, Settings, More, Close, chevrons, star, filled star, sun, trash, check, search, plus, minus, inline pin, LLM Gateway route | MIT — https://github.com/tabler/tabler-icons |
 | Ionicons | Appearance, Providers, Extensions, code expand/collapse | MIT — https://github.com/ionic-team/ionicons |
 | Framework7 Icons | MCP hammer, preview play variants, search clear | MIT — https://github.com/framework7io/framework7-icons |
 | Feathericon | Sidebar search | MIT — https://github.com/feathericon/feathericon |

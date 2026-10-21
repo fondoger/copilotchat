@@ -17,7 +17,7 @@ import (
 
 func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	a := newSettingsTestApp(t)
-	a.settingsPage, a.extensionPage = "Extensions", "Agent setup"
+	a.settingsPage = "LLM Gateway"
 	a.state.Settings.LocalForwarding = true
 	a.state.Settings.LocalKey = "fixture-local-key"
 	a.state.Settings.ForwardProfiles[0].Models = nil
@@ -49,20 +49,28 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		}
 		lastY = label.Y
 		settingsClick(t, tester, "Choose "+key)
-		if tester.HasText("Select Choose " + key + " gpt-fixture") {
-			t.Fatal("Responses-only model offered for Claude")
+		if _, ok := tester.Find("Select Choose " + key + " github-copilot/gpt-fixture"); !ok {
+			t.Fatal("Responses model missing from Claude defaults")
 		}
-		settingsClick(t, tester, "Select Choose "+key+" claude-fixture")
+		settingsClick(t, tester, "Select Choose "+key+" github-copilot/claude-fixture")
 		if a.selectedForwardProfile().ClaudeDefaults[key].ModelID != "claude-fixture" {
 			t.Fatal("default choice not saved", key)
 		}
 	}
 	settingsClick(t, tester, "Configuration")
 	configText, configErr := a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeCode)
-	if !tester.HasText("Generated agent configuration") || configErr != nil || !strings.Contains(configText, "\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"claude-fixture\"") || strings.Contains(configText, "\"ANTHROPIC_MODEL\"") {
+	if !tester.HasText("Generated agent configuration") || configErr != nil || !strings.Contains(configText, "\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"github-copilot/claude-fixture\"") || strings.Contains(configText, "\"ANTHROPIC_MODEL\"") {
 		t.Fatal("Claude config does not match defaults", tester.Texts())
 	}
 	agentSetupScreenshot(t, tester, "agent-setup-defaults")
+	settingsClick(t, tester, agentconfig.ClaudeDesktop)
+	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeDesktop)
+	if configErr != nil || !strings.Contains(configText, `"inferenceGatewayApiKey": "copilotchat-claude-desktop"`) || !tester.HasText("Claude Desktop gateway configuration (JSON)") {
+		t.Fatal("Claude Desktop configuration missing", configText, configErr)
+	}
+	if _, ok := tester.Find("Model defaults"); ok {
+		t.Fatal("CLI defaults shown in Desktop setup")
+	}
 	settingsClick(t, tester, agentconfig.Codex)
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.Codex)
 	if !tester.HasText("gpt-fixture") || configErr != nil || !strings.Contains(configText, "name = \"Copilot Chat Proxy\"") {
@@ -102,14 +110,9 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	a.setForwardEnabled(p, 0, false)
 	for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.Codex} {
 		config, err := a.agentConfiguration(p, agent)
-		if err != nil || strings.Contains(config, "gpt-5.5 (2)") || !strings.Contains(config, "\"gpt-5.5\"") {
-			t.Fatal("model selection did not follow automatic alias", agent, config, err)
+		if err != nil || strings.Contains(config, "gpt-5.5 (2)") || !strings.Contains(config, "\"m365-copilot/gpt-5.5\"") {
+			t.Fatal("model selection did not preserve provider prefix", agent, config, err)
 		}
-	}
-	a.setForwardAlias(p, 1, "claude-work")
-	config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)
-	if err != nil || !strings.Contains(config, "\"ANTHROPIC_DEFAULT_SONNET_MODEL\": \"claude-work\"") {
-		t.Fatal("model selection did not follow manual rename", config, err)
 	}
 	original := p.ID
 	a.addForwardProfile(true)
@@ -133,7 +136,7 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 
 func TestAgentModelTableUsesPageScroll(t *testing.T) {
 	a := newSettingsTestApp(t)
-	a.settingsPage, a.extensionPage = "Extensions", "Agent setup"
+	a.settingsPage = "LLM Gateway"
 	a.state.Settings.ForwardProfiles[0].Models = nil
 	for i := 0; i < 30; i++ {
 		id := strings.Repeat("a", i+1)
@@ -144,15 +147,15 @@ func TestAgentModelTableUsesPageScroll(t *testing.T) {
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	first, ok := tester.Find("Share github.com gpt-4o")
 	last, lastOK := tester.Find("Share github.com " + strings.Repeat("a", 30))
-	if !ok || !lastOK || last.Y-first.Y < 900 {
+	if !ok || !lastOK || last.Y-first.Y < 700 {
 		t.Fatal("model table is not fully expanded", first, last)
 	}
 	config, _ := tester.Find("Configuration")
 	if first.Y < config.Y {
 		t.Fatal("model table precedes configuration")
 	}
-	alias, _ := tester.Find("Alias github.com gpt-4o")
-	if first.X < alias.X+alias.W {
+	label, _ := tester.Find("gpt-4o")
+	if first.X < label.X+label.W {
 		t.Fatal("Enabled is not on the right")
 	}
 	// Scrolling with the cursor over models moves the entire page, including

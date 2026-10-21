@@ -57,17 +57,15 @@ type Settings struct {
 	MCPServers           []mcp.Config     `json:"mcpServers,omitempty"`
 }
 
-// Enabled is independent of the native chat picker. Automatic aliases are
-// allocated among enabled models; manual aliases survive selection changes.
+// Enabled is independent of the native chat picker. Public gateway IDs are
+// generated from the provider and upstream ID; old JSON alias fields are ignored.
 type ForwardModel struct {
 	ProviderID string `json:"providerId"`
 	ModelID    string `json:"modelId"`
-	Alias      string `json:"alias"`
-	AliasMode  string `json:"aliasMode,omitempty"` // "auto" or "manual"
 	Enabled    bool   `json:"enabled"`
 }
 
-// Agent choices refer to the model, so renaming an alias cannot break them.
+// Agent choices refer to the original model and account, not its public ID.
 type ForwardModelRef struct {
 	ProviderID string `json:"providerId"`
 	ModelID    string `json:"modelId"`

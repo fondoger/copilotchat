@@ -60,7 +60,7 @@ func TestM365CatalogUsesRenewableTokenAndPinnedService(t *testing.T) {
 			t.Fatalf("incorrect M365 catalog: %#v, %v", models, err)
 		}
 		opus := models[0]
-		if !opus.AdaptiveThinking || !opus.Reasoning || !opus.Vision || !opus.Tools || opus.PDF || opus.MaxOutputTokens != 0 || !reflect.DeepEqual(opus.ThinkingEfforts, []string{"low", "medium", "high", "xhigh", "max"}) {
+		if !opus.AdaptiveThinking || !opus.Reasoning || !opus.Vision || !opus.Tools || opus.PDF || opus.MaxOutputTokens != 0 || opus.ContextWindow != 1000000 || !reflect.DeepEqual(opus.ThinkingEfforts, []string{"low", "medium", "high", "xhigh", "max"}) {
 			t.Fatalf("sparse Claude catalog lost supported capabilities: %#v", opus)
 		}
 		haiku := models[1]

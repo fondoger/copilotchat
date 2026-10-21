@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/egoist/mygo v0.5.5
+	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/image v0.46.0
 )
 

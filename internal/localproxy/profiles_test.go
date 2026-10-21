@@ -28,8 +28,8 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 	targets := map[string]Target{"github": {Client: client("github")}, "m365": {Client: client("m365")}}
 	m := provider.Model{ID: "gpt-5.5", Name: "Upstream title", Endpoints: []string{"/responses", "/v1/messages", "/chat/completions"}, ThinkingEfforts: []string{"low", "medium", "high"}}
 	profiles := map[string]Profile{
-		"my-claude-code-profile": {ID: "claude-profile-id", Models: []Model{{"github", "claude-work", m}, {"m365", "claude-work (2)", m}}},
-		"my-codex-profile":       {ID: "codex-profile-id", Models: []Model{{"github", "gpt-5.5", m}, {"m365", "gpt-5.5 (2)", m}}},
+		"my-claude-code-profile": {ID: "claude-profile-id", Models: []Model{{ProviderID: "github", ID: "claude-work", Model: m}, {ProviderID: "m365", ID: "claude-work (2)", Model: m}}},
+		"my-codex-profile":       {ID: "codex-profile-id", Models: []Model{{ProviderID: "github", ID: "gpt-5.5", Model: m}, {ProviderID: "m365", ID: "gpt-5.5 (2)", Model: m}}},
 	}
 	s := New(DefaultKey)
 	s.Update(targets, profiles)
@@ -57,7 +57,11 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 			t.Fatal(catalog)
 		}
 		for i, model := range catalog.Data {
-			if model.ID != aliases[i] || model.Name != aliases[i] || model.DisplayName != aliases[i] {
+			name, display := aliases[i], aliases[i]
+			if strings.HasSuffix(path, "/v1/models") {
+				name, display = "", m.Name
+			}
+			if model.ID != aliases[i] || model.Name != name || model.DisplayName != display {
 				t.Fatal("catalog leaked upstream identity", model)
 			}
 		}
@@ -108,7 +112,7 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 		}
 	}
 	// Identical aliases in different profiles remain independent.
-	profiles["another"] = Profile{ID: "another-id", Models: []Model{{"github", "claude-work (2)", m}}}
+	profiles["another"] = Profile{ID: "another-id", Models: []Model{{ProviderID: "github", ID: "claude-work (2)", Model: m}}}
 	s.Update(targets, profiles)
 	res = send(t, "POST", base+"/another/v1/messages", body, h)
 	io.Copy(io.Discard, res.Body)
@@ -138,7 +142,7 @@ func TestProfileDeletionCancelsOnlyItsStreams(t *testing.T) {
 	}}
 	s, base := fixture(t, client)
 	targets := map[string]Target{"p1": {Client: client}}
-	m := Model{"p1", "shared", provider.Model{ID: "real", Endpoint: "/responses"}}
+	m := Model{ProviderID: "p1", ID: "shared", Model: provider.Model{ID: "real", Endpoint: "/responses"}}
 	profiles := map[string]Profile{"a": {ID: "id-a", Models: []Model{m}}, "b": {ID: "id-b", Models: []Model{m}}}
 	s.Update(targets, profiles)
 	base = strings.TrimSuffix(base, "/fixture")
