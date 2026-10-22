@@ -1,7 +1,9 @@
 package localproxy
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
@@ -15,24 +17,17 @@ func TestClaudeDesktopModelNames(t *testing.T) {
 		model        provider.Model
 		prefix, line string
 	}{
-		{provider.Model{ID: "claude-opus-4.6"}, "claude-opus-4.6-", "opus"},
-		{provider.Model{ID: "claude-sonnet-4.7"}, "claude-sonnet-4.7-", "sonnet"},
-		{provider.Model{ID: "gpt-5.5", ThinkingEfforts: []string{"low", "medium", "high", "xhigh"}, ContextWindow: 400000}, "opus-", "opus"},
-		{provider.Model{ID: "grok-4.7", ThinkingEfforts: []string{"low", "high"}, ContextWindow: 256000}, "opus-4-5-", "opus"},
-		{provider.Model{ID: "deepseek-reasoner", ThinkingEfforts: []string{"high"}, ContextWindow: 1000000}, "opus-4-5-", "opus"},
-		{provider.Model{ID: "gemini-thinking", ThinkingEfforts: []string{"xhigh", "max"}, ContextWindow: 1000000}, "fable-", "fable"},
-		{provider.Model{ID: "qwen-fast"}, "sonnet-4-5-", "sonnet"},
-		{provider.Model{ID: "glm-fast", ThinkingEfforts: []string{"none"}}, "sonnet-4-5-", "sonnet"},
-		{provider.Model{ID: "grok-4.7", ThinkingEfforts: []string{"low", "medium", "high", "xhigh"}, ContextWindow: 500000}, "opus-", "opus"},
-		{provider.Model{ID: "long-context", ContextWindow: 1000000}, "opus-4-5-", "opus"},
-		{provider.Model{ID: "short-context", ContextWindow: 999999}, "sonnet-4-5-", "sonnet"},
-		{provider.Model{ID: "budget-reasoner", MaxThinkingBudget: 4096, ContextWindow: 128000}, "opus-4-5-", "opus"},
-		{provider.Model{ID: "max-small-window", ThinkingEfforts: []string{"max"}, ContextWindow: 128000}, "fable-", "fable"},
+		{provider.Model{ID: "claude-opus-4.6"}, "claude-opus-4-6", "opus"},
+		{provider.Model{ID: "claude-sonnet-4.7"}, "claude-sonnet-4-7", "sonnet"},
+		{provider.Model{ID: "gpt-6-astra", ThinkingEfforts: []string{"xhigh", "max"}, ContextWindow: 1050000}, "mythos-", "mythos"},
+		{provider.Model{ID: "grok-4.7", ThinkingEfforts: []string{"xhigh"}, ContextWindow: 500000}, "mythos-", "mythos"},
+		{provider.Model{ID: "fast-no-thinking", ContextWindow: 128000}, "mythos-", "mythos"},
 	} {
 		t.Run(test.model.ID, func(t *testing.T) {
 			model := Model{ProviderID: "account-a", ID: "github-copilot/" + test.model.ID, Model: test.model}
 			id := claudeDesktopModelID(model)
-			if !strings.HasPrefix(id, test.prefix) || !regexp.MustCompile(`^[0-9]+$`).MatchString(strings.TrimPrefix(id, test.prefix)) || claudeDesktopModelLine(test.model) != test.line {
+			opaque := !strings.Contains(test.model.ID, "claude")
+			if !strings.HasPrefix(id, test.prefix) || (opaque && !regexp.MustCompile(`^[0-9]+$`).MatchString(strings.TrimPrefix(id, test.prefix))) || (!opaque && id != test.prefix) || claudeDesktopModelLine(test.model) != test.line {
 				t.Fatal("invalid Desktop model name", id)
 			}
 			// Public names and account counts may change; the provider binding must not.
@@ -42,7 +37,7 @@ func TestClaudeDesktopModelNames(t *testing.T) {
 				t.Fatal("public route changed Desktop ID")
 			}
 			model.ProviderID = "account-b"
-			if claudeDesktopModelID(model) == id {
+			if opaque && claudeDesktopModelID(model) == id {
 				t.Fatal("accounts share a Desktop ID")
 			}
 		})
@@ -61,7 +56,7 @@ func TestClaudeDesktopCatalogPreservesCapabilities(t *testing.T) {
 		t.Fatal(w.Body.String(), err)
 	}
 	row := page.Data[0]
-	if row["id"] != claudeDesktopModelID(models[0]) || row["line"] != "opus" || row["display_name"] != "GPT Fixture (Work)" || row["max_input_tokens"] != float64(400000) {
+	if row["id"] != claudeDesktopModelID(models[0]) || row["line"] != "mythos" || row["display_name"] != "GPT Fixture (Work)" || row["max_input_tokens"] != float64(400000) {
 		t.Fatal("incorrect Desktop metadata", row)
 	}
 	effort := obj(obj(row["capabilities"])["effort"])
@@ -70,5 +65,55 @@ func TestClaudeDesktopCatalogPreservesCapabilities(t *testing.T) {
 	}
 	if clientModelIDs(models, false)[0].ID != models[0].ID || models[0].ID != "github-copilot/gpt-fixture" {
 		t.Fatal("Desktop names leaked into other clients")
+	}
+}
+
+func TestClaudeDesktopDuplicateClaudeIDsAndRouting(t *testing.T) {
+	models := []Model{
+		{ProviderID: "first", ID: "github-copilot/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2025-01-01T00:00:00Z"}},
+		{ProviderID: "second", ID: "m365-copilot/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2026-01-01T00:00:00Z"}},
+		{ProviderID: "third", ID: "github-copilot/claude-opus-4-6", Model: provider.Model{ID: "claude-opus-4-6", Endpoint: "/v1/messages"}},
+	}
+	ids := clientModelIDs(models, true)
+	if ids[0].ID != "claude-opus-4-6" || ids[1].ID != claudeDesktopOpaqueID(models[1]) || ids[2].ID != claudeDesktopOpaqueID(models[2]) || ids[1].ID == ids[2].ID {
+		t.Fatal("duplicate or normalized Claude IDs are not unique", ids)
+	}
+	var routed string
+	clients := map[string]Target{}
+	for _, model := range models {
+		account := model.ProviderID
+		clients[account] = Target{Client: &rawClient{fn: func(_ context.Context, raw provider.RawRequest) (*http.Response, error) {
+			routed = account
+			var fields struct{ Model string }
+			if json.Unmarshal(raw.Body, &fields) != nil || fields.Model != models[map[string]int{"first": 0, "second": 1, "third": 2}[account]].Model.ID {
+				t.Fatal("upstream model ID changed", string(raw.Body))
+			}
+			return response(`{"input_tokens":1}`), nil
+		}}}
+	}
+	s := New("key")
+	t.Cleanup(s.Close)
+	s.Update(clients, map[string]Profile{"test": {ID: "test", Models: models}})
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Host = "127.0.0.1:39321"
+		r.Header.Set("X-Api-Key", ClaudeDesktopKey)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+	catalog := call("GET", "/test/v1/models?limit=1000", "")
+	var page struct{ Data []object }
+	if catalog.Code != 200 || json.Unmarshal(catalog.Body.Bytes(), &page) != nil || len(page.Data) != 3 || page.Data[0]["id"] != ids[1].ID || page.Data[0]["line"] != "mythos" || page.Data[1]["id"] != "claude-opus-4-6" || page.Data[1]["line"] != "opus" {
+		t.Fatal("catalog sorting changed first-account naming", catalog.Body.String())
+	}
+	for i, model := range ids {
+		w := call("POST", "/test/v1/messages/count_tokens", `{"model":"`+model.ID+`","messages":[{"role":"user","content":"foo"}]}`)
+		if w.Code != 200 || routed != models[i].ProviderID {
+			t.Fatal("Desktop ID routed to wrong account", model.ID, routed, w.Code, w.Body.String())
+		}
+	}
+	if models[0].ID != "github-copilot/claude-opus-4.6" || clientModelIDs(models, false)[1].ID != models[1].ID {
+		t.Fatal("Desktop naming changed other clients")
 	}
 }

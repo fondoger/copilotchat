@@ -351,7 +351,11 @@ func responseEffort(src object, m provider.Model) string {
 			return ""
 		}
 	}
-	if slices.Contains(m.ThinkingEfforts, effort) {
+	return supportedEffort(effort, m.ThinkingEfforts)
+}
+
+func supportedEffort(effort string, supported []string) string {
+	if slices.Contains(supported, effort) {
 		return effort
 	}
 	levels := []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
@@ -359,7 +363,7 @@ func responseEffort(src object, m provider.Model) string {
 	// advertised level rather than silently promoting to a more expensive one.
 	index := slices.Index(levels, effort)
 	for i := index; i >= 0; i-- {
-		if slices.Contains(m.ThinkingEfforts, levels[i]) {
+		if slices.Contains(supported, levels[i]) {
 			return levels[i]
 		}
 	}

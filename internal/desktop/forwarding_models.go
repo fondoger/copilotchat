@@ -97,7 +97,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 		ui.Row(c).FillWidth().Gap(8).Wrap().Children(func() {
 			enabled := 0
 			for _, m := range profile.Models {
-				if p := a.provider(m.ProviderID); p != nil && !p.Disabled && m.Enabled {
+				if _, exists := a.modelForProvider(m.ProviderID, m.ModelID); exists && m.Enabled {
 					enabled++
 				}
 			}
@@ -123,13 +123,19 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 			// One table in the page scroll; no nested Scroll or height limit.
 			hasModels := false
 			for _, p := range a.state.Settings.Providers {
-				if p.Disabled || !slices.ContainsFunc(profile.Models, func(m store.ForwardModel) bool { return m.ProviderID == p.ID }) {
+				if p.Disabled || !slices.ContainsFunc(profile.Models, func(m store.ForwardModel) bool {
+					_, exists := a.modelForProvider(m.ProviderID, m.ModelID)
+					return m.ProviderID == p.ID && exists
+				}) {
 					continue
 				}
 				hasModels = true
 				ui.Text(c, p.Name).FillWidth().Padding(5, 8).FontSize(11).FontWeight(500).BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
 				for i, m := range profile.Models {
 					if m.ProviderID != p.ID {
+						continue
+					}
+					if _, exists := a.modelForProvider(m.ProviderID, m.ModelID); !exists {
 						continue
 					}
 					ui.Row(c.Key("forward-model-"+profile.ID+"-"+m.ProviderID+"-"+m.ModelID)).FillWidth().Gap(10).Padding(5, 8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {

@@ -14,8 +14,16 @@ func clientModelIDs(models []Model, desktop bool) []Model {
 		return models
 	}
 	models = slices.Clone(models)
+	// Profile order is persisted. Assign the plain Claude ID before any catalog
+	// date sorting or pagination, and use this same mapping to resolve requests.
+	seen := map[string]bool{}
 	for i := range models {
-		models[i].ID = claudeDesktopModelID(models[i])
+		id := claudeDesktopModelID(models[i])
+		if seen[id] {
+			id = claudeDesktopOpaqueID(models[i])
+		}
+		seen[id] = true
+		models[i].ID = id
 	}
 	return models
 }
@@ -209,6 +217,9 @@ func writeAnthropicModels(w http.ResponseWriter, r *http.Request, models []Model
 		row := anthropicModel(model)
 		if desktop {
 			row["line"] = claudeDesktopModelLine(model.Model)
+			if strings.HasPrefix(model.ID, "mythos-") {
+				row["line"] = "mythos"
+			}
 		}
 		data = append(data, row)
 	}

@@ -9,10 +9,8 @@ import (
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
-// Desktop checks the ID against its own model families before showing effort
-// controls, and rejects IDs containing other vendors' names. Keep the real name
-// in display_name only. This is a client compatibility name, not a claim that
-// another provider's model has Claude's capabilities.
+// Desktop rejects other vendors' model IDs and uses Claude family names for UI
+// defaults. The actual name and capabilities remain in the model metadata.
 func claudeDesktopModelLine(m provider.Model) string {
 	if strings.Contains(strings.ToLower(m.ID), "claude") {
 		for _, line := range []string{"haiku", "sonnet", "opus", "fable", "mythos"} {
@@ -22,31 +20,20 @@ func claudeDesktopModelLine(m provider.Model) string {
 		}
 		return "sonnet"
 	}
-	if slices.Contains(m.ThinkingEfforts, "max") {
-		return "fable"
-	}
-	if slices.Contains(m.ThinkingEfforts, "xhigh") {
-		return "opus"
-	}
-	hasEffort := slices.ContainsFunc(m.ThinkingEfforts, func(level string) bool { return level != "" && level != "none" })
-	if m.Reasoning || m.AdaptiveThinking || m.MaxThinkingBudget > 0 || hasEffort || m.ContextWindow >= 1000000 {
-		return "opus"
-	}
-	return "sonnet"
+	return "mythos"
 }
 
 func claudeDesktopModelID(m Model) string {
-	name := claudeDesktopModelLine(m.Model)
 	if strings.Contains(strings.ToLower(m.Model.ID), "claude") {
-		name = m.Model.ID
-	} else if !slices.Contains(m.Model.ThinkingEfforts, "max") && !slices.Contains(m.Model.ThinkingEfforts, "xhigh") {
-		name += "-4-5"
+		return strings.ReplaceAll(m.Model.ID, ".", "-")
 	}
-	// Resolve the 128-bit decimal fingerprint against the active profile rather
-	// than keeping a separate alias database. Provider identity prevents account
-	// collisions; omitting catalog order, public routes and capabilities keeps
-	// the numeric code stable across restarts and capability refreshes.
+	return claudeDesktopOpaqueID(m)
+}
+
+// Bind the decimal fingerprint to the original model and provider, independent
+// of capabilities, account display names, and catalog sorting.
+func claudeDesktopOpaqueID(m Model) string {
 	digest := sha256.Sum256([]byte(m.ProviderID + "\x00" + m.Model.ID))
 	code := new(big.Int).SetBytes(digest[:16]).String()
-	return name + "-" + code
+	return "mythos-" + code
 }

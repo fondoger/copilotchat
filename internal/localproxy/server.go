@@ -311,9 +311,10 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	if current := s.profiles[profileName]; current != nil && current.ID == profileID {
 		models = current.Models
 	}
-	for _, candidate := range models {
+	desktopModels := clientModelIDs(models, desktop)
+	for i, candidate := range models {
 		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
-		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || (desktop && claudeDesktopModelID(candidate) == routeModelID)) && compatible {
+		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || (desktop && desktopModels[i].ID == routeModelID)) && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx
 			}
@@ -335,6 +336,9 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	converted := protocol == "/v1/messages" && !supports(model.Model, "/v1/messages")
 	countTokens := endpoint == "/v1/messages/count_tokens"
+	if desktop && !countTokens {
+		body = normalizeDesktopEffort(body, model.Model)
+	}
 	stream := false
 	if converted && !countTokens {
 		body, stream, err = messagesToResponses(body, model.Model)
