@@ -80,7 +80,7 @@ func (c *Client) requestToken(ctx context.Context) (string, error) {
 
 func allowedEndpoint(endpoint string) bool {
 	switch endpoint {
-	case BaseURL + "/models", BaseURL + "/v1/messages", BaseURL + "/v1/messages/count_tokens", BaseURL + "/chat/completions", BaseURL + "/responses", BaseURL + "/responses/compact":
+	case BaseURL + "/models", BaseURL + "/v1/messages", BaseURL + "/v1/messages/count_tokens", BaseURL + "/chat/completions", BaseURL + "/responses", BaseURL + "/responses/compact", BaseURL + "/responses/input_tokens":
 		return true
 	default:
 		return false

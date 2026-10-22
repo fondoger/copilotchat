@@ -20,7 +20,7 @@ func (c *Client) Forward(ctx context.Context, raw provider.RawRequest) (*http.Re
 		return nil, err
 	}
 	provider.CopyProtocolHeaders(req.Header, raw.Header)
-	if raw.Endpoint == "/responses/compact" {
+	if raw.Endpoint == "/responses/compact" || raw.Endpoint == "/responses/input_tokens" || raw.Endpoint == "/v1/messages/count_tokens" {
 		req.Header.Set("Accept", "application/json")
 	}
 	req.URL.RawQuery = raw.RawQuery

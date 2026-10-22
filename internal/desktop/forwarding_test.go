@@ -2,12 +2,40 @@ package desktop
 
 import (
 	"net"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 )
+
+func TestGatewayInspectionTogglePersistsWithoutRestart(t *testing.T) {
+	a := newSettingsTestApp(t)
+	if a.state.Settings.GatewayInspection {
+		t.Fatal("inspection enabled by default")
+	}
+	a.forwarder = localproxy.New(localproxy.DefaultKey)
+	t.Cleanup(a.stopForwarding)
+	server := a.forwarder
+	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.forwardingSettings(c) }) }, 800, 800)
+	code := func() int {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/__viz/", nil)
+		r.Host, r.RemoteAddr = "127.0.0.1:39321", "127.0.0.1:12345"
+		a.forwarder.ServeHTTP(w, r)
+		return w.Code
+	}
+	settingsClick(t, tester, "Enable HTTP request inspection")
+	if !settingsSavedState(t, a).Settings.GatewayInspection || code() != 200 || a.forwarder != server {
+		t.Fatal("enabling inspection was not persisted or restarted forwarding")
+	}
+	settingsClick(t, tester, "Enable HTTP request inspection")
+	if settingsSavedState(t, a).Settings.GatewayInspection || code() != 404 || a.forwarder != server {
+		t.Fatal("disabling inspection left dashboard active or restarted forwarding")
+	}
+}
 
 func TestForwardingQuitAndTrayConfirmation(t *testing.T) {
 	a := newSettingsTestApp(t)

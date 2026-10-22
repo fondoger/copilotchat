@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fondoger/copilotchat/internal/provider"
@@ -49,14 +50,15 @@ type entry struct {
 }
 
 type Server struct {
-	mu       sync.RWMutex
-	targets  map[string]*entry
-	profiles map[string]*profileEntry
-	key      [32]byte
-	http     *http.Server
-	address  string
-	err      error
-	closed   bool
+	mu         sync.RWMutex
+	targets    map[string]*entry
+	profiles   map[string]*profileEntry
+	key        [32]byte
+	http       *http.Server
+	address    string
+	err        error
+	closed     bool
+	inspection atomic.Pointer[requestInspection]
 }
 
 func New(key string) *Server {
@@ -157,6 +159,9 @@ func (s *Server) Err() error      { s.mu.RLock(); defer s.mu.RUnlock(); return s
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if inspection := s.inspection.Swap(nil); inspection != nil {
+		inspection.cancel()
+	}
 	for _, entry := range s.targets {
 		entry.cancel()
 	}
@@ -181,10 +186,38 @@ func apiError(w http.ResponseWriter, status int, message string) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, _, err := net.SplitHostPort(r.Host)
-	if err != nil || host != "127.0.0.1" || r.URL.IsAbs() || r.Header.Get("Origin") != "" {
+	if err != nil || host != "127.0.0.1" || r.URL.IsAbs() {
 		apiError(w, http.StatusForbidden, "This endpoint accepts local agent requests only.")
 		return
 	}
+	inspection := s.inspection.Load()
+	if isInspectionPath(r.URL.Path) {
+		if inspection == nil {
+			apiError(w, http.StatusNotFound, "HTTP request inspection is disabled.")
+			return
+		}
+		// GoVisual enforces loopback access and same-origin browser requests.
+		// Cancel dashboard event streams when inspection is turned off, without
+		// interrupting any inference requests that are already in flight.
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		stop := context.AfterFunc(inspection.ctx, cancel)
+		defer stop()
+		inspection.handler.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	if r.Header.Get("Origin") != "" {
+		apiError(w, http.StatusForbidden, "This endpoint accepts local agent requests only.")
+		return
+	}
+	if inspection != nil {
+		inspection.handler.ServeHTTP(w, r)
+		return
+	}
+	s.serveAPI(w, r)
+}
+
+func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("X-Api-Key")
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		key = strings.TrimPrefix(auth, "Bearer ")
@@ -229,7 +262,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if endpoint == "/v1/responses" || endpoint == "/v1/responses/compact" || endpoint == "/v1/chat/completions" {
+	if endpoint == "/v1/responses" || endpoint == "/v1/responses/compact" || endpoint == "/v1/responses/input_tokens" || endpoint == "/v1/chat/completions" {
 		endpoint = strings.TrimPrefix(endpoint, "/v1")
 	}
 	if !provider.InferencePath(endpoint) {
@@ -262,10 +295,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	protocol := strings.TrimSuffix(endpoint, "/count_tokens")
-	if endpoint == "/responses/compact" {
+	if endpoint == "/responses/compact" || endpoint == "/responses/input_tokens" {
 		protocol = "/responses"
 	}
-	// Claude client hints and Desktop's discovery prefix are never upstream IDs.
+	// Claude client hints and the legacy Desktop discovery prefix are never upstream IDs.
 	routeModelID := strings.TrimSuffix(envelope.Model, "[1m]")
 	routeModelID = strings.TrimPrefix(routeModelID, "claude-desktop/")
 	s.mu.RLock()
@@ -280,7 +313,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, candidate := range models {
 		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
-		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID)) && compatible {
+		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || (desktop && claudeDesktopModelID(candidate) == routeModelID)) && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx
 			}
@@ -301,12 +334,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, _ = json.Marshal(fields)
 	}
 	converted := protocol == "/v1/messages" && !supports(model.Model, "/v1/messages")
+	countTokens := endpoint == "/v1/messages/count_tokens"
 	stream := false
-	if converted {
-		if endpoint == "/v1/messages/count_tokens" {
-			apiError(w, http.StatusNotImplemented, "This Responses model does not offer an Anthropic token-counting endpoint.")
-			return
-		}
+	if converted && !countTokens {
 		body, stream, err = messagesToResponses(body, model.Model)
 		if err != nil {
 			apiError(w, 400, err.Error())
@@ -357,6 +387,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer stopProfile()
 	// Remove the upload deadline before waiting on a long-running model stream.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
+	if countTokens {
+		writeCountTokens(w, r, ctx, target.Client, model.Model, provider.RawRequest{Body: body, Header: r.Header,
+			ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
+		return
+	}
 	query := url.Values{}
 	header := r.Header
 	if converted {

@@ -1,6 +1,6 @@
 # UI design reference
 
-Copilot Chat's layout follows ChatWise 26.9.1, inspected with its author's permission. The reference was the packaged application CSS and Svelte components. Extracted application code is not distributed with this project. Reused SVG assets, their source hashes, and third-party licenses are documented in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+Copilot Chat's layout follows ChatWise 26.9.1, inspected with its author's permission. The reference was the packaged application CSS and Svelte components. Extracted application code is not distributed with this project. Third-party license texts are included in the packaged resources/licenses directory.
 
 Measurements below are logical pixels, applied as device-independent pixels in MyGo before operating-system display scaling.
 

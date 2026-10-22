@@ -153,10 +153,24 @@ func TestClaudeDesktopModelsAndRouting(t *testing.T) {
 		calls <- r
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"resp_fixture","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}`))}, nil
 	}}
-	s, base := fixture(t, client)
+	s := New("fixture-key")
+	t.Cleanup(s.Close)
+	base := "http://127.0.0.1:39321/fixture"
+	// Exercise the complete handler without depending on loopback firewall rules.
+	send := func(t *testing.T, method, url, body string, headers map[string]string) *http.Response {
+		t.Helper()
+		r := httptest.NewRequest(method, url, strings.NewReader(body))
+		r.URL.Scheme, r.URL.Host = "", "" // Incoming server requests use origin-form URLs.
+		for key, value := range headers {
+			r.Header.Set(key, value)
+		}
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w.Result()
+	}
 	models := []Model{
 		{ProviderID: "p1", ID: "github-copilot/claude-fixture", Model: provider.Model{ID: "claude-fixture", Endpoint: "/v1/messages"}},
-		{ProviderID: "p1", ID: "github-copilot/grok-fixture", Routes: []string{"github-copilot/user/grok-fixture"}, Model: provider.Model{ID: "grok-fixture", Endpoint: "/responses", ContextWindow: 256000}},
+		{ProviderID: "p1", ID: "github-copilot/grok-fixture", Routes: []string{"github-copilot/user/grok-fixture"}, Model: provider.Model{ID: "grok-fixture", Endpoint: "/responses", ContextWindow: 256000, Reasoning: true, ThinkingEfforts: []string{"low", "high"}}},
 	}
 	s.Update(map[string]Target{"p1": {Client: client}}, map[string]Profile{"fixture": {ID: "fixture-id", Models: models}})
 	for _, key := range []string{ClaudeDesktopKey, "fixture-key"} {
@@ -167,24 +181,27 @@ func TestClaudeDesktopModelsAndRouting(t *testing.T) {
 			if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&catalog) != nil || len(catalog.Data) != 2 {
 				t.Fatal(res.Status, catalog)
 			}
-			want := models[1].ID
+			wantClaude, want := models[0].ID, models[1].ID
 			if key == ClaudeDesktopKey {
-				want = "claude-desktop/" + want
+				wantClaude, want = claudeDesktopModelID(models[0]), claudeDesktopModelID(models[1])
 			}
-			if catalog.Data[0].ID != models[0].ID || catalog.Data[1].ID != want || strings.Contains(catalog.Data[1].ID, "[1m]") {
+			if catalog.Data[0].ID != wantClaude || catalog.Data[1].ID != want || strings.Contains(catalog.Data[1].ID, "[1m]") {
 				t.Fatal("incorrect client-specific IDs", catalog)
 			}
 		}
 	}
 	var conversation string
 	for _, test := range []struct{ id, endpoint, upstream string }{
+		{claudeDesktopModelID(models[0]), "/v1/messages", "claude-fixture"},
+		{claudeDesktopModelID(models[1]), "/v1/messages", "grok-fixture"},
+		{claudeDesktopModelID(models[1]), "/v1/responses", "grok-fixture"},
 		{"claude-desktop/github-copilot/grok-fixture", "/v1/messages", "grok-fixture"},
 		{"claude-desktop/github-copilot/user/grok-fixture", "/v1/messages", "grok-fixture"},
 		{"github-copilot/grok-fixture[1m]", "/v1/messages", "grok-fixture"},
 		{"github-copilot/claude-fixture", "/v1/messages", "claude-fixture"},
 		{"claude-desktop/github-copilot/grok-fixture", "/v1/responses", "grok-fixture"},
 	} {
-		res := send(t, "POST", base+test.endpoint, `{"model":"`+test.id+`","max_tokens":200,"messages":[{"role":"user","content":"hello"}]}`, map[string]string{"Authorization": "Bearer " + ClaudeDesktopKey, "X-ConversationId": "desktop-session"})
+		res := send(t, "POST", base+test.endpoint, `{"model":"`+test.id+`","max_tokens":200,"output_config":{"effort":"high"},"messages":[{"role":"user","content":"hello"}]}`, map[string]string{"Authorization": "Bearer " + ClaudeDesktopKey, "X-ConversationId": "desktop-session"})
 		body, _ := io.ReadAll(res.Body)
 		if res.StatusCode != 200 {
 			t.Fatal(test.id, res.Status, string(body))
@@ -200,6 +217,12 @@ func TestClaudeDesktopModelsAndRouting(t *testing.T) {
 		conversation = got.ConversationID
 		if test.upstream == "grok-fixture" && got.Endpoint != "/responses" {
 			t.Fatal("missing protocol conversion", got.Endpoint)
+		}
+		if test.upstream == "grok-fixture" && test.endpoint == "/v1/messages" {
+			fields, err := decodeObject(got.Body)
+			if err != nil || text(obj(fields["reasoning"])["effort"]) != "high" {
+				t.Fatal("Desktop effort was not forwarded", string(got.Body))
+			}
 		}
 	}
 	if models[1].ID != "github-copilot/grok-fixture" {

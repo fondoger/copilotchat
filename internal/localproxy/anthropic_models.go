@@ -15,9 +15,7 @@ func clientModelIDs(models []Model, desktop bool) []Model {
 	}
 	models = slices.Clone(models)
 	for i := range models {
-		if !strings.Contains(strings.ToLower(models[i].Model.ID), "claude") {
-			models[i].ID = "claude-desktop/" + models[i].ID
-		}
+		models[i].ID = claudeDesktopModelID(models[i])
 	}
 	return models
 }
@@ -208,7 +206,11 @@ func writeAnthropicModels(w http.ResponseWriter, r *http.Request, models []Model
 	data := []object{}
 	var firstID, lastID any
 	for _, model := range filtered[start:end] {
-		data = append(data, anthropicModel(model))
+		row := anthropicModel(model)
+		if desktop {
+			row["line"] = claudeDesktopModelLine(model.Model)
+		}
+		data = append(data, row)
 	}
 	if len(data) > 0 {
 		firstID, lastID = data[0]["id"], data[len(data)-1]["id"]

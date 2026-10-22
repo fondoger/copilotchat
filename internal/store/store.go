@@ -39,6 +39,7 @@ type Settings struct {
 	SendWithEnter        bool             `json:"sendWithEnter"`
 	StayInTray           bool             `json:"stayInTray"`
 	LocalForwarding      bool             `json:"localForwarding"`
+	GatewayInspection    bool             `json:"gatewayInspection"`
 	LocalPort            int              `json:"localPort"`
 	LocalKey             string           `json:"localKey,omitempty"` // Local gateway key only; never an upstream credential.
 	ForwardProfiles      []ForwardProfile `json:"forwardProfiles"`

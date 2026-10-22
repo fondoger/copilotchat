@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/doganarif/govisual/v2"
 )
 
-const Version = "0.5.2"
-const UserAgent = "CopilotChatNative/0.5.2"
+const Version = "0.5.3"
+const UserAgent = "CopilotChatNative/0.5.3"
 
 // NewHTTPClient never follows redirects carrying account credentials.
 func NewHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 30 * time.Second
-	return &http.Client{Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+	return &http.Client{Transport: govisual.WrapTransport(transport), CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		// Never forward a credential-bearing request to a redirect destination.
 		return http.ErrUseLastResponse
 	}}

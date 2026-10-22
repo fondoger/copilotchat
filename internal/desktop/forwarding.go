@@ -25,6 +25,7 @@ func (a *app) syncForwardingProviders() {
 	if a.forwarder == nil {
 		return
 	}
+	a.forwarder.SetInspection(a.state.Settings.GatewayInspection)
 	targets := map[string]localproxy.Target{}
 	for _, p := range a.state.Settings.Providers {
 		client, ok := a.clientForProvider(p.ID).(provider.RawClient)
@@ -84,6 +85,7 @@ func (a *app) startForwarding() {
 		}
 	}
 	server := localproxy.New(s.LocalKey)
+	server.SetInspection(s.GatewayInspection)
 	if err := server.Start(s.LocalPort); err != nil {
 		server.Close()
 		a.forwardError = err.Error()
@@ -178,6 +180,23 @@ func (a *app) forwardingSettings(c *ui.Context) {
 			startup = "Open at login: enabled"
 		}
 		ui.Text(c, tray+" · "+startup).FontSize(11).TextColor(t.TextMuted)
+		ui.Row(c).FillWidth().Gap(10).Children(func() {
+			ui.Text(c, "HTTP request inspection (GoVisual)").FontSize(12).Grow(1)
+			if a.forwarder != nil {
+				if url := a.forwarder.InspectionURL(); url != "" {
+					ui.Button(c, "Open dashboard").Height(26).FontSize(11).OnClick(func() {
+						if err := mygo.Shell.OpenExternal(url); err != nil {
+							a.forwardError = "Could not open GoVisual: " + err.Error()
+						}
+					})
+				}
+			}
+			ui.Switch(c.Key("gateway-inspection"), &s.GatewayInspection).Label("Enable HTTP request inspection").OnChange(a.saveSettings)
+		})
+		ui.Text(c, "Optional request and response capture; may slightly reduce performance. Keeps up to 100 requests in memory, capped at 1 MiB per body.").FontSize(11).TextColor(t.TextMuted)
+		if s.GatewayInspection && a.forwarder == nil {
+			ui.Text(c, "Enable local forwarding to open the dashboard.").FontSize(11).TextColor(t.TextMuted)
+		}
 		d := setupDisclosure(c, "forward-options", "Options", &page.optionsOpen)
 		d.Panel(func() {
 			ui.Column(c).FillWidth().Gap(6).Children(func() {

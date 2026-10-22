@@ -33,4 +33,3 @@ go run .
 - [MCP 配置](docs/mcp.md)
 - [LLM Gateway / Agent 配置](docs/agents.md)
 - [构建与发布](docs/building.md)
-- [第三方依赖与许可证](THIRD_PARTY_NOTICES.md)

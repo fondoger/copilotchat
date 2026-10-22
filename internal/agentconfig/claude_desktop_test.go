@@ -19,6 +19,7 @@ func TestClaudeDesktopConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{
+		"modelPrefer1mContext":    true,
 		"inferenceGatewayBaseUrl": o.BaseURL, "inferenceGatewayApiKey": "copilotchat-claude-desktop",
 		"inferenceProvider": "gateway", "inferenceCredentialKind": "static",
 		"inferenceModelPricingEnabled": true, "inferenceModelPricingMultiplier": float64(1),

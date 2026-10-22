@@ -386,8 +386,8 @@ func TestMessagesBridgeRoutesAndRetainsConversation(t *testing.T) {
 		t.Fatal(a, b)
 	}
 	res := send(t, "POST", base+"/v1/messages/count_tokens", `{"model":"gpt-fixture"}`, h)
-	if res.StatusCode != 501 {
-		t.Fatal("invented token counting", res.Status)
+	if res.StatusCode != 400 {
+		t.Fatal("token counting accepted a request without messages", res.Status)
 	}
 }
 

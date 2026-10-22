@@ -34,7 +34,7 @@ Run the corresponding command on a matching host:
 | macOS Intel | `pwsh ./scripts/package.ps1 -Platform darwin/amd64` | `copilotchat-<version>-macos-x64` |
 | macOS Apple Silicon | `pwsh ./scripts/package.ps1 -Platform darwin/arm64` | `copilotchat-<version>-macos-arm64` |
 
-The script runs tests and `go vet`, then invokes `go tool mygo build`. MyGo's intermediate packages are under `dist/`; the normalized release files are under `release/`. Windows produces a portable ZIP and a `-setup.exe` installer. macOS produces an application ZIP and a DMG. Packages include third-party notices and license texts.
+The script runs tests and `go vet`, then invokes `go tool mygo build`. MyGo's intermediate packages are under `dist/`; the normalized release files are under `release/`. Windows produces a portable ZIP and a `-setup.exe` installer. macOS produces an application ZIP and a DMG. Packages include third-party license texts.
 
 The application hosts its local forwarding service in-process; no separate credential executable is built or bundled. For a plain Windows development build, use `scripts/build.ps1`; see [LLM Gateway](agents.md).
 

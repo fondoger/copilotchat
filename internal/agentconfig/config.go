@@ -67,6 +67,7 @@ func Generate(o Options) (string, error) {
 	}
 	if o.Agent == ClaudeDesktop {
 		data, err := json.MarshalIndent(map[string]any{
+			"modelPrefer1mContext":            true,
 			"inferenceGatewayBaseUrl":         o.BaseURL,
 			"inferenceGatewayApiKey":          localproxy.ClaudeDesktopKey,
 			"inferenceProvider":               "gateway",

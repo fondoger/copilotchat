@@ -12,4 +12,4 @@ The additional `microsoft-copilot-color.svg` is the Microsoft Copilot symbol fro
 
 CSS mask `fill="black"` / `stroke="black"` becomes `currentColor`, so MyGo can apply the same UI colors. No path coordinates were redrawn. All SVGs are embedded in the executable; the extracted ChatWise bundle is not a runtime dependency.
 
-Upstream attribution and license locations are in the repository's `THIRD_PARTY_NOTICES.md`. The custom edit and sidebar icons are copied under the owner's permission; they are not represented as newly authored or independently licensed artwork. Launcher and tray branding remain Copilot Chat's own.
+Third-party license texts are included in the packaged resources/licenses directory. The custom edit and sidebar icons are copied under the owner's permission; they are not represented as newly authored or independently licensed artwork. Launcher and tray branding remain Copilot Chat's own.

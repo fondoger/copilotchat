@@ -32,7 +32,7 @@ try {
 
     # MyGo includes resources/licenses automatically and the explicit resources
     # in mygo.json before making either installer. Do not add files after signing.
-    foreach ($notice in @('README.md', 'THIRD_PARTY_NOTICES.md')) {
+    foreach ($notice in @('README.md')) {
         if ($config.resources -notcontains $notice -or -not (Test-Path -LiteralPath $notice -PathType Leaf)) {
             throw "mygo.json must include the existing $notice in resources."
         }
@@ -68,7 +68,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or ($buildInfo -join "`n") -notmatch "\bGOOS=$goos\b" -or ($buildInfo -join "`n") -notmatch "\bGOARCH=$goarch\b") {
         throw "Executable does not contain the expected $Platform build metadata."
     }
-    foreach ($notice in @('README.md', 'THIRD_PARTY_NOTICES.md')) {
+    foreach ($notice in @('README.md')) {
         $installedNotice = Join-Path $resourceRoot $notice
         if (-not (Test-Path -LiteralPath $installedNotice -PathType Leaf) -or
             (Get-FileHash -LiteralPath $installedNotice).Hash -ne (Get-FileHash -LiteralPath $notice).Hash) {
@@ -105,7 +105,7 @@ try {
     try {
         $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
         $noticePrefix = if ($goos -eq 'darwin') { "$($config.name).app/Contents/Resources/" } else { '' }
-        foreach ($notice in @('README.md', 'THIRD_PARTY_NOTICES.md')) {
+        foreach ($notice in @('README.md')) {
             if ($entries -cnotcontains "$noticePrefix$notice") { throw "ZIP is missing $notice." }
         }
         if (-not ($entries | Where-Object { $_.StartsWith("${noticePrefix}licenses/") -and -not $_.EndsWith('/') })) {

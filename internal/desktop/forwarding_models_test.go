@@ -81,3 +81,49 @@ func TestGatewayTableHasNoAliasEditor(t *testing.T) {
 		t.Fatal("new catalog model not enabled")
 	}
 }
+
+func TestGatewayIgnoresChatModelVisibility(t *testing.T) {
+	a := profileTestApp(t)
+	p := a.selectedForwardProfile()
+	a.setModelEnabled(store.DefaultProviderID, "gpt-5.5", false)
+	if modelEnabled(a.provider(store.DefaultProviderID), "gpt-5.5") {
+		t.Fatal("chat visibility did not change")
+	}
+	if status := a.forwardingModelStatus(p.Models[0]); status != "" || len(a.forwardingModels(p)) != 2 {
+		t.Fatal("chat visibility leaked into Gateway", status)
+	}
+	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.forwardingModelSettings(c, p) }) }, 600, 800)
+	if _, ok := tester.Find("Share github.com gpt-5.5"); !ok || tester.HasText("Hidden in Providers") {
+		t.Fatal("hidden chat model unavailable in Gateway table")
+	}
+	a.setForwardEnabled(p, 0, false)
+	a.setModelEnabled(store.DefaultProviderID, "gpt-5.5", true)
+	if len(a.forwardingModels(p)) != 1 || p.Models[0].Enabled {
+		t.Fatal("chat visibility changed Gateway's independent selection")
+	}
+}
+
+func TestGatewayTableExcludesDisabledProviders(t *testing.T) {
+	a := profileTestApp(t)
+	p := a.selectedForwardProfile()
+	a.setProviderEnabled("work", false)
+	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.forwardingModelSettings(c, p) }) }, 600, 800)
+	if _, ok := tester.Find("Share work gpt-5.5"); ok || tester.HasText("Microsoft 365") || !tester.HasText("Models · 1 enabled") {
+		t.Fatal("disabled provider remains in Gateway table")
+	}
+	if len(a.forwardingModels(p)) != 1 || !p.Models[1].Enabled {
+		t.Fatal("disabled provider remains routable or lost saved selection")
+	}
+	a.provider("work").Disabled = false
+	a.saveSettings()
+	tester.Frame()
+	if _, ok := tester.Find("Share work gpt-5.5"); !ok || len(a.forwardingModels(p)) != 2 {
+		t.Fatal("re-enabled provider did not restore Gateway selection")
+	}
+	a.setProviderEnabled("work", false)
+	a.setProviderEnabled(store.DefaultProviderID, false)
+	tester.Frame()
+	if !tester.HasText("Models · 0 enabled") || !tester.HasText("Sign in and load models in Providers first.") {
+		t.Fatal("all-disabled Gateway did not show empty state")
+	}
+}

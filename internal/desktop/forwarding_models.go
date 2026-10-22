@@ -27,7 +27,7 @@ func (a *app) reconcileProfileModels(profile *store.ForwardProfile) {
 	}
 	for _, p := range a.state.Settings.Providers {
 		r := a.providers[p.ID]
-		if r == nil {
+		if p.Disabled || r == nil {
 			continue
 		}
 		for _, m := range r.models {
@@ -60,9 +60,8 @@ func (a *app) forwardingModelStatus(m store.ForwardModel) string {
 	if a.clientForProvider(m.ProviderID) == nil {
 		return "Sign in to provider"
 	}
-	if !modelEnabled(p, m.ModelID) {
-		return "Hidden in Providers"
-	}
+	// Provider model visibility only controls the app's chat picker. Gateway
+	// profiles keep independent selections from the complete provider catalog.
 	if _, ok := a.modelForProvider(m.ProviderID, m.ModelID); !ok {
 		return "Model unavailable"
 	}
@@ -98,7 +97,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 		ui.Row(c).FillWidth().Gap(8).Wrap().Children(func() {
 			enabled := 0
 			for _, m := range profile.Models {
-				if m.Enabled {
+				if p := a.provider(m.ProviderID); p != nil && !p.Disabled && m.Enabled {
 					enabled++
 				}
 			}
@@ -122,10 +121,12 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 				ui.Text(c, "Enabled").Width(48).FontSize(11).TextColor(t.TextMuted)
 			})
 			// One table in the page scroll; no nested Scroll or height limit.
+			hasModels := false
 			for _, p := range a.state.Settings.Providers {
-				if !slices.ContainsFunc(profile.Models, func(m store.ForwardModel) bool { return m.ProviderID == p.ID }) {
+				if p.Disabled || !slices.ContainsFunc(profile.Models, func(m store.ForwardModel) bool { return m.ProviderID == p.ID }) {
 					continue
 				}
+				hasModels = true
 				ui.Text(c, p.Name).FillWidth().Padding(5, 8).FontSize(11).FontWeight(500).BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
 				for i, m := range profile.Models {
 					if m.ProviderID != p.ID {
@@ -153,7 +154,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 					})
 				}
 			}
-			if len(profile.Models) == 0 {
+			if !hasModels {
 				ui.Text(c, "Sign in and load models in Providers first.").Padding(8).FontSize(12)
 			}
 		})
