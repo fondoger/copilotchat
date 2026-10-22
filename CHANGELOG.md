@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.4
+
+- Add Claude Desktop configuration with one-click Apply, opaque compatible model IDs, capability discovery, and `modelPrefer1mContext` enabled.
+- Add optional GoVisual inspection for inbound Gateway requests and outbound provider HTTP calls, including upstream URL, status and timing. Keep captures bounded and credential headers redacted.
+- Forward token-counting requests to the upstream Messages or Responses API, preserving upstream errors without local token estimates.
+- Exclude disabled providers from LLM Gateway while keeping its model selections independent of native chat visibility.
+- Use provider-prefixed Gateway model IDs, support Anthropic-to-Responses translation, and apply Claude Code, Claude Desktop and Codex configuration directly.
+- Remove the standalone third-party notices document and its packaging references; retain bundled dependency license texts.
+
 ## 0.5.2
 
 - Redesign Agent setup with compact profile tabs, context menus for rename/duplicate/delete, and a fully expanded model table below configuration.
