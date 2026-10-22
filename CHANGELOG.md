@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.5.4
+## 0.5.5
+
+- Map Desktop model families by effort support: max to fable, xhigh to opus, other reasoning or 1M-context models to opus-4-5, and remaining models to sonnet-4-5. Preserve native Claude IDs.
 
 - Add Claude Desktop configuration with one-click Apply, opaque compatible model IDs, capability discovery, and `modelPrefer1mContext` enabled.
 - Add optional GoVisual inspection for inbound Gateway requests and outbound provider HTTP calls, including upstream URL, status and timing. Keep captures bounded and credential headers redacted.

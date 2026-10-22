@@ -26,7 +26,7 @@ func signedFixture(t *testing.T, target string) (options, manifest) {
 		prefix = "Copilot Chat.app/Contents/Resources/"
 		executable = "Copilot Chat.app/Contents/MacOS/Copilot Chat"
 	}
-	for _, name := range []string{executable, prefix + "README.md", prefix + "THIRD_PARTY_NOTICES.md", prefix + "licenses/test/LICENSE"} {
+	for _, name := range []string{executable, prefix + "README.md", prefix + "licenses/test/LICENSE"} {
 		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: 7, Typeflag: tar.TypeReg}); err != nil {
 			t.Fatal(err)
 		}

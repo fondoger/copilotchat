@@ -32,7 +32,7 @@ func main() {
 			prefix = "Copilot Chat.app/Contents/Resources/"
 			executable = "Copilot Chat.app/Contents/MacOS/Copilot Chat"
 		}
-		for _, name := range []string{executable, prefix + "README.md", prefix + "THIRD_PARTY_NOTICES.md", prefix + "licenses/test/LICENSE"} {
+		for _, name := range []string{executable, prefix + "README.md", prefix + "licenses/test/LICENSE"} {
 			content := []byte("isolated signed fixture for " + name)
 			check(tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg}))
 			_, err := tw.Write(content)

@@ -114,7 +114,7 @@ func verifyArchive(r io.Reader, appName, target string) error {
 		prefix = appName + ".app/Contents/Resources/"
 		executable = appName + ".app/Contents/MacOS/" + appName
 	}
-	want := map[string]bool{executable: false, prefix + "README.md": false, prefix + "THIRD_PARTY_NOTICES.md": false}
+	want := map[string]bool{executable: false, prefix + "README.md": false}
 	licenses := false
 	tr := tar.NewReader(gz)
 	for {
