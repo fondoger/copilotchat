@@ -176,48 +176,88 @@ func TestInspectionCaptureLimitDoesNotTruncateTraffic(t *testing.T) {
 }
 
 func TestInspectionRecordsOutboundHTTP(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, `{"error":{"message":"not found"}}`)
-	}))
-	defer upstream.Close()
-	httpClient := provider.NewHTTPClient()
-	defer httpClient.CloseIdleConnections()
-	client := &rawClient{fn: func(ctx context.Context, raw provider.RawRequest) (*http.Response, error) {
-		r, err := http.NewRequestWithContext(ctx, "POST", upstream.URL+raw.Endpoint, strings.NewReader(string(raw.Body)))
-		if err != nil {
-			return nil, err
-		}
-		r.Header.Set("Authorization", "Bearer upstream-test-secret")
-		return httpClient.Do(r)
-	}}
-	s := New("inspection-test-key")
-	t.Cleanup(s.Close)
-	s.Update(map[string]Target{"p": {Client: client}}, map[string]Profile{"test": {ID: "test", Models: []Model{{ProviderID: "p", ID: "claude-test", Model: provider.Model{ID: "claude-test", Endpoint: "/v1/messages"}}}}})
-	s.SetInspection(true)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, inspectionRequest("POST", "/test/v1/messages/count_tokens", `{"model":"claude-test","messages":[{"role":"user","content":"foo"}]}`))
-	logs := inspectionLogs(t, s)
-	if w.Code != 404 || len(logs) != 1 || logs[0].PerformanceMetrics == nil {
-		t.Fatal("missing upstream observation", w.Code, logs)
-	}
-	calls := logs[0].PerformanceMetrics.HTTPCalls
-	if len(calls) != 1 || calls[0].Method != "POST" || calls[0].URL != upstream.URL+"/v1/messages/count_tokens" || calls[0].Status != 404 || calls[0].Duration <= 0 {
-		t.Fatal("incorrect outbound capture", calls)
-	}
-	data, _ := json.Marshal(logs)
-	if strings.Contains(string(data), "upstream-test-secret") {
-		t.Fatal("upstream credential captured")
-	}
-	s.SetInspection(false)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, inspectionRequest("POST", "/test/v1/messages/count_tokens", `{"model":"claude-test","messages":[{"role":"user","content":"foo"}]}`))
-	if w.Code != 404 {
-		t.Fatal("disabling inspection changed upstream forwarding", w.Code)
-	}
-	s.SetInspection(true)
-	if len(inspectionLogs(t, s)) != 0 {
-		t.Fatal("disabled requests were captured")
+	const limit = 1 << 20
+	for _, test := range []struct {
+		name, content, response string
+	}{
+		{"complete", "foo", `{"error":{"message":"not found"}}`},
+		{"empty response", "foo", ""},
+		{"truncated", strings.Repeat("x", limit+100), strings.Repeat("y", limit+100)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"model":"claude-test","messages":[{"role":"user","content":"` + test.content + `"}]}`
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil || string(data) != body {
+					t.Error("capture changed the upstream request body")
+				}
+				if r.Header.Get("Authorization") != "Bearer upstream-test-secret" {
+					t.Error("capture changed the upstream credential")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Add("X-Test-Response", "first")
+				w.Header().Add("X-Test-Response", "second")
+				w.Header().Set("Set-Cookie", "session=upstream-test-cookie")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, test.response)
+			}))
+			defer upstream.Close()
+			httpClient := provider.NewHTTPClient()
+			defer httpClient.CloseIdleConnections()
+			client := &rawClient{fn: func(ctx context.Context, raw provider.RawRequest) (*http.Response, error) {
+				r, err := http.NewRequestWithContext(ctx, "POST", upstream.URL+raw.Endpoint, strings.NewReader(string(raw.Body)))
+				if err != nil {
+					return nil, err
+				}
+				r.Header.Set("Authorization", "Bearer upstream-test-secret")
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Add("X-Test-Request", "first")
+				r.Header.Add("X-Test-Request", "second")
+				return httpClient.Do(r)
+			}}
+			s := New("inspection-test-key")
+			t.Cleanup(s.Close)
+			s.Update(map[string]Target{"p": {Client: client}}, map[string]Profile{"test": {ID: "test", Models: []Model{{ProviderID: "p", ID: "claude-test", Model: provider.Model{ID: "claude-test", Endpoint: "/v1/messages"}}}}})
+			s.SetInspection(true)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, inspectionRequest("POST", "/test/v1/messages", body))
+			logs := inspectionLogs(t, s)
+			if w.Code != 404 || w.Body.String() != test.response || len(logs) != 1 || logs[0].PerformanceMetrics == nil {
+				t.Fatal("missing upstream observation or changed response", w.Code)
+			}
+			calls := logs[0].PerformanceMetrics.HTTPCalls
+			if len(calls) != 1 || calls[0].Method != "POST" || calls[0].URL != upstream.URL+"/v1/messages" || calls[0].Status != 404 || calls[0].Duration <= 0 {
+				t.Fatal("incorrect outbound capture")
+			}
+			call := calls[0]
+			if call.RequestHeaders.Get("Content-Type") != "application/json" || call.ResponseHeaders.Get("Content-Type") != "application/json" ||
+				strings.Join(call.RequestHeaders.Values("X-Test-Request"), ",") != "first,second" || strings.Join(call.ResponseHeaders.Values("X-Test-Response"), ",") != "first,second" {
+				t.Fatal("outbound headers not captured")
+			}
+			if call.RequestHeaders.Get("Authorization") == "" || call.ResponseHeaders.Get("Set-Cookie") == "" {
+				t.Fatal("credential headers should be redacted, not omitted")
+			}
+			if call.RequestBody == nil || *call.RequestBody != body[:min(len(body), limit)] ||
+				call.ResponseBody == nil || *call.ResponseBody != test.response[:min(len(test.response), limit)] {
+				t.Fatal("outbound bodies not captured within the limit")
+			}
+			if call.RequestBodyTruncated != (len(body) > limit) || call.ResponseBodyTruncated != (len(test.response) > limit) {
+				t.Fatal("incorrect outbound body truncation flags")
+			}
+			data, _ := json.Marshal(logs)
+			if strings.Contains(string(data), "upstream-test-secret") || strings.Contains(string(data), "upstream-test-cookie") {
+				t.Fatal("upstream credential captured")
+			}
+			s.SetInspection(false)
+			w = httptest.NewRecorder()
+			s.ServeHTTP(w, inspectionRequest("POST", "/test/v1/messages", body))
+			if w.Code != 404 || w.Body.String() != test.response {
+				t.Fatal("disabling inspection changed upstream forwarding", w.Code)
+			}
+			s.SetInspection(true)
+			if len(inspectionLogs(t, s)) != 0 {
+				t.Fatal("disabled requests were captured")
+			}
+		})
 	}
 }

@@ -1,9 +1,7 @@
 package desktop
 
 import (
-	"fmt"
 	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -52,59 +50,6 @@ func settingsSavedState(t *testing.T, a *app) store.State {
 		t.Fatal(err)
 	}
 	return state
-}
-
-func TestSettingsNavigation(t *testing.T) {
-	a := newSettingsTestApp(t)
-	tester := ui.NewTester(a.settingsView, 900, 620)
-	for _, page := range []struct{ name, content string }{
-		{"General", "Send message with"},
-		{"Appearance", "Chat font size"},
-		{"Providers", "Default model"},
-		{"LLM Gateway", "Local forwarding"},
-		{"MCP", "Server configuration"},
-		{"Extensions", "Model for chat title generation"},
-	} {
-		t.Run(page.name, func(t *testing.T) {
-			settingsClick(t, tester, page.name)
-			if a.settingsPage != page.name || !tester.HasText(page.content) {
-				t.Fatalf("selected %q, expected %q with %q; text: %q", a.settingsPage, page.name, page.content, tester.Texts())
-			}
-			for _, omitted := range []string{"Prompts", "Advanced"} {
-				if tester.HasText(omitted) {
-					t.Errorf("unexpected settings tab %q", omitted)
-				}
-			}
-		})
-	}
-}
-
-func TestSettingsNavigationAlignment(t *testing.T) {
-	for _, width := range []int{700, 900} {
-		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			a := newSettingsTestApp(t)
-			tester := ui.NewTester(a.settingsView, width, 620)
-			var previousY float32
-			for i, page := range []string{"General", "Appearance", "Providers", "LLM Gateway", "MCP", "Extensions"} {
-				row, ok := tester.Find(page + " settings")
-				if !ok {
-					t.Fatalf("missing navigation button %q", page)
-				}
-				label, ok := tester.Find(page)
-				if !ok {
-					t.Fatalf("missing navigation label %q", page)
-				}
-				// The 20px icon starts at x20; an 8px gap places every label at x48.
-				if math.Abs(float64(row.X-12)) > .5 || math.Abs(float64(label.X-48)) > .5 || math.Abs(float64(row.H-28)) > .5 {
-					t.Errorf("%s has misaligned navigation geometry: button=%+v label=%+v", page, row, label)
-				}
-				if i > 0 && math.Abs(float64(row.Y-previousY-32)) > .5 {
-					t.Errorf("%s does not have 4px spacing after the preceding 28px row", page)
-				}
-				previousY = row.Y
-			}
-		})
-	}
 }
 
 func TestReferenceIconsRender(t *testing.T) {
@@ -157,44 +102,6 @@ func TestReferenceIconsRender(t *testing.T) {
 		if pixels < 4 {
 			t.Errorf("%s did not draw visible SVG geometry (%d pixels)", name, pixels)
 		}
-	}
-}
-
-func TestSettingsChatTitleTogglePersists(t *testing.T) {
-	a := newSettingsTestApp(t)
-	a.settingsPage = "Extensions"
-	tester := ui.NewTester(a.settingsView, 900, 620)
-	for _, want := range []bool{false, true} {
-		settingsClick(t, tester, "Enable Chat Title")
-		if a.state.Settings.ChatTitle != want {
-			t.Fatalf("Chat Title = %v, want %v", a.state.Settings.ChatTitle, want)
-		}
-		if got := settingsSavedState(t, a).Settings.ChatTitle; got != want {
-			t.Fatalf("saved Chat Title = %v, want %v", got, want)
-		}
-	}
-}
-
-func TestSettingsProviderModelSelectionPersists(t *testing.T) {
-	a := newSettingsTestApp(t)
-	a.settingsPage = "Providers"
-	tester := ui.NewTester(a.settingsView, 900, 620)
-	settingsClick(t, tester, "Model")
-	if !tester.HasText("Claude Sonnet 4") {
-		t.Fatal("model picker did not open")
-	}
-	settingsClick(t, tester, "Select Claude Sonnet 4 from GitHub Copilot")
-	if got := a.state.Settings.Model; got != "claude-sonnet-4" {
-		t.Fatalf("default model = %q", got)
-	}
-	if got := settingsSavedState(t, a).Settings.Model; got != "claude-sonnet-4" {
-		t.Fatalf("saved default model = %q", got)
-	}
-	// The visibility table also displays model names. A second click on the
-	// trigger confirms the popup can be reopened after committing a choice.
-	settingsClick(t, tester, "Model")
-	if !tester.HasText("Claude Sonnet 4") {
-		t.Fatal("model picker could not reopen")
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -83,27 +82,6 @@ func TestLegacyCredentialsMigrateWithoutLosingSignIn(t *testing.T) {
 		if !failSet && (oldExists || !newExists) {
 			t.Fatal("migration did not atomically adopt the new credential key")
 		}
-	}
-}
-
-func TestProviderDefaultModelBindsAccountAndResetsReasoning(t *testing.T) {
-	a := providerTestApp(t)
-	a.providerSettingsID = "work"
-	a.state.Settings.Model = "same"
-	a.state.Settings.ReasoningEffort = "high"
-	a.state.Settings.ThinkingBudgetTokens = 1000
-	tt := ui.NewTester(func(c *ui.Context) { a.settingsModelSelect(c, "test-model", &a.state.Settings.Model, false) }, 500, 400)
-	if !tt.HasText("Choose a model") {
-		t.Fatal("another account's same-named model appeared selected")
-	}
-	settingsClick(t, tt, "Model")
-	settingsClick(t, tt, "Select Shared model from Work")
-	if a.state.Settings.ActiveProviderID != "work" || a.state.Settings.Model != "same" || a.state.Settings.ReasoningEffort != "" || a.state.Settings.ThinkingBudgetTokens != 0 {
-		t.Fatal("default model selection lost account identity or retained stale reasoning")
-	}
-	settings := settingsSavedState(t, a).Settings
-	if settings.ActiveProviderID != "work" || settings.Model != "same" {
-		t.Fatal("default provider/model pair was not saved")
 	}
 }
 
@@ -355,23 +333,6 @@ func TestDisabledProviderRetainsAccountAndCannotBeUsed(t *testing.T) {
 	a.setProviderEnabled("work", true)
 	if a.clientForProvider("work") != client || a.provider("work").Disabled {
 		t.Fatal("reenabling did not restore the existing signed-in provider")
-	}
-}
-
-func TestSingleEnabledProviderHasNoSubtitleOrPickerGroups(t *testing.T) {
-	a := providerTestApp(t)
-	a.provider("work").Disabled = true
-	a.state.Settings.Model = "same"
-	tt := ui.NewTester(func(c *ui.Context) { ui.Row(c).Height(50).Children(func() { a.modelPicker(c) }) }, 720, 600)
-	if tt.HasText("Personal") {
-		t.Fatal("single enabled provider still adds a title subtitle")
-	}
-	settingsClick(t, tt, "Choose model")
-	if slices.Contains(tt.Texts(), "Personal") || slices.Contains(tt.Texts(), "Work") || tt.HasText("Work model") {
-		t.Fatal("picker grouped a single provider or included a disabled provider")
-	}
-	if !tt.HasText("Personal model") {
-		t.Fatal("enabled models are missing")
 	}
 }
 

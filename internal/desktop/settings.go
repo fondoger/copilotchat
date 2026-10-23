@@ -204,7 +204,7 @@ func (a *app) extensionSettings(c *ui.Context) {
 	})
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Text(c, "Model for chat title generation").FontWeight(500)
-		a.settingsModelSelect(c, "title-model", &a.state.Settings.TitleModel, true).Disabled(!a.state.Settings.ChatTitle)
+		a.titleModelSelect(c).Disabled(!a.state.Settings.ChatTitle)
 	})
 }
 

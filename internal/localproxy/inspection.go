@@ -40,7 +40,7 @@ func (s *Server) SetInspection(enabled bool) {
 		govisual.WithDashboardPath(inspectionPath),
 		govisual.WithMaxRequests(100),
 		govisual.WithProfiling(true),
-		// Collect outbound HTTP timings without CPU, heap or goroutine sampling.
+		// Collect outbound HTTP headers, bodies and timings without CPU, heap or goroutine sampling.
 		govisual.WithProfileType(0),
 		govisual.WithProfileThreshold(0),
 		govisual.WithMaxProfileMetrics(100),

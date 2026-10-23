@@ -129,7 +129,17 @@ func (a *app) selectedModel() string {
 	if chat := a.current(); chat != nil && chat.Model != "" {
 		return chat.Model
 	}
-	return a.state.Settings.Model
+	return a.newChatModel()
+}
+
+func (a *app) newChatModel() string {
+	if a.state.Settings.Model != "" {
+		return a.state.Settings.Model
+	}
+	if models := a.providerModels(a.state.Settings.ActiveProviderID); len(models) > 0 {
+		return models[0].ID
+	}
+	return ""
 }
 
 func (a *app) clientStillConnected(client provider.Client) bool {

@@ -16,4 +16,7 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 )
 
+// https://github.com/doganarif/GoVisual/pull/70: outbound HTTP headers and bodies.
+replace github.com/doganarif/govisual/v2 => github.com/fondoger/GoVisual/v2 v2.0.2-0.20261022121931-1d5fe49983b1
+
 tool github.com/egoist/mygo/cmd/mygo

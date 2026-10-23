@@ -246,8 +246,6 @@ func (a *app) providerSettings(c *ui.Context) {
 		ui.Text(c, r.credentialNotice).FontSize(12).TextColor(t.Danger).Selectable()
 	}
 	ui.Divider(c)
-	ui.Text(c, "Default model").FontWeight(500)
-	a.settingsModelSelect(c, "default-model", &a.state.Settings.Model, false).Disabled(p.Disabled || r.client == nil || len(a.providerModels(id)) == 0)
 	ui.Row(c).Children(func() {
 		label := "Refresh models"
 		if r.modelsBusy {
@@ -301,28 +299,16 @@ func (a *app) providerSettings(c *ui.Context) {
 
 type modelChoice struct{ ProviderID, ModelID string }
 
-func (a *app) settingsModelSelect(c *ui.Context, key string, value *string, inherit bool) ui.Element {
-	providerID := a.providerSettingsID
-	if providerID == "" {
-		providerID = a.state.Settings.ActiveProviderID
-	}
-	if inherit {
-		providerID = a.state.Settings.TitleProviderID
-	}
-	choice := modelChoice{a.state.Settings.ActiveProviderID, *value}
-	if inherit {
-		choice.ProviderID = providerID
-	}
-	label := "Choose a model"
-	if inherit && *value == "" {
-		label = "Same as chat model"
-	} else if *value != "" && choice.ProviderID == providerID {
-		label = *value
-		if model, ok := a.modelForProvider(providerID, *value); ok {
+func (a *app) titleModelSelect(c *ui.Context) ui.Element {
+	choice := modelChoice{a.state.Settings.TitleProviderID, a.state.Settings.TitleModel}
+	label := "Same as chat model"
+	if choice.ModelID != "" {
+		label = choice.ModelID
+		if model, ok := a.modelForProvider(choice.ProviderID, choice.ModelID); ok {
 			label = modelDisplayName(model)
 		}
 	}
-	sel := ui.SelectBase(c.Key(key), &choice)
+	sel := ui.SelectBase(c.Key("title-model"), &choice)
 	t := c.Theme()
 	sel.Trigger.Height(30).MinWidth(180).MaxWidth(300).Padding(4, 8).Gap(8).Radius(6).Border(1, t.Border).Background(t.Surface).Label("Model").Children(func() {
 		ui.Text(c, label).Grow(1).MinWidth(0).SingleLine()
@@ -331,17 +317,12 @@ func (a *app) settingsModelSelect(c *ui.Context, key string, value *string, inhe
 	sel.Popup(func(panel ui.Element) {
 		panel.Margin(4, 0, 0, 0).Padding(4).Radius(8).Border(1, t.Border).Background(t.Background).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .18)).MaxHeight(300).Width(320)
 		ui.Scroll(c).MaxHeight(280).Children(func() {
-			if inherit {
-				sel.Item(modelChoice{}).Padding(6, 10).Children(func() { ui.Text(c, "Same as chat model") })
-			}
+			sel.Item(modelChoice{}).Padding(6, 10).Children(func() { ui.Text(c, "Same as chat model") })
 			for _, p := range a.state.Settings.Providers {
-				if !inherit && p.ID != providerID {
-					continue
-				}
 				if a.clientForProvider(p.ID) == nil {
 					continue
 				}
-				if inherit && a.enabledProviderCount() > 1 {
+				if a.enabledProviderCount() > 1 {
 					ui.Row(c).Gap(7).Padding(6, 10).TextColor(t.TextMuted).Children(func() {
 						providerIcon(c, p.Kind, 14)
 						ui.Text(c, p.Name).FontSize(11).SingleLine()
@@ -358,14 +339,7 @@ func (a *app) settingsModelSelect(c *ui.Context, key string, value *string, inhe
 		})
 	})
 	sel.Trigger.OnChange(func() {
-		*value = choice.ModelID
-		if inherit {
-			a.state.Settings.TitleProviderID = choice.ProviderID
-		} else {
-			a.state.Settings.ActiveProviderID = choice.ProviderID
-			a.state.Settings.ReasoningEffort = ""
-			a.state.Settings.ThinkingBudgetTokens = 0
-		}
+		a.state.Settings.TitleProviderID, a.state.Settings.TitleModel = choice.ProviderID, choice.ModelID
 		a.saveSettings()
 	})
 	return sel.Trigger

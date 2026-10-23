@@ -247,7 +247,7 @@ func (a *app) newChat() {
 	a.closePreview()
 	a.editMessageID, a.editText = "", ""
 	now := time.Now()
-	chat := store.Conversation{ID: newID(), Title: "New Chat", Model: a.state.Settings.Model, ProviderID: a.state.Settings.ActiveProviderID, ReasoningEffort: a.state.Settings.ReasoningEffort, ThinkingBudgetTokens: a.state.Settings.ThinkingBudgetTokens, CreatedAt: now, UpdatedAt: now}
+	chat := store.Conversation{ID: newID(), Title: "New Chat", Model: a.newChatModel(), ProviderID: a.state.Settings.ActiveProviderID, ReasoningEffort: a.state.Settings.ReasoningEffort, ThinkingBudgetTokens: a.state.Settings.ThinkingBudgetTokens, CreatedAt: now, UpdatedAt: now}
 	a.state.Conversations = append([]store.Conversation{chat}, a.state.Conversations...)
 	a.state.ActiveID = chat.ID
 	a.draft = ""
