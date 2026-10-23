@@ -86,7 +86,7 @@ func (a *app) forwardingModels(profile *store.ForwardProfile) []localproxy.Model
 		if kind == "" {
 			kind = store.ProviderKindGitHub
 		}
-		identities = append(identities, localproxy.ProviderIdentity{ID: p.ID, Kind: kind, Name: p.Name, Login: p.Login})
+		identities = append(identities, localproxy.ProviderIdentity{ID: p.ID, Kind: kind, Host: p.Host, Name: p.Name, Login: p.Login, AccountID: a.providerState(p.ID).accountID})
 	}
 	return localproxy.NameModels(models, identities)
 }

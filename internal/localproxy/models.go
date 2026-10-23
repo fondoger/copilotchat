@@ -13,13 +13,14 @@ import (
 // Count configured accounts, including temporarily offline ones, so refreshing
 // credentials or hiding models does not rename another account's public IDs.
 type ProviderIdentity struct {
-	ID, Kind, Name, Login string
+	ID, Kind, Host, Name, Login, AccountID string
 }
 
 // Model binds generated public IDs to one account and its original model.
 // Routes contains only generated short/qualified IDs, never saved user aliases.
 type Model struct {
 	ProviderID, ID, ProviderName string
+	ProviderKey                  string `json:"-"`
 	Routes                       []string
 	Model                        provider.Model
 }
@@ -47,13 +48,17 @@ func NameModels(models []Model, providers []ProviderIdentity) []Model {
 		if logins[p.Kind+"/"+account] > 1 {
 			qualified += fmt.Sprintf("-%x", sha256.Sum256([]byte(p.ID)))[:9]
 		}
+		key := ""
+		if p.AccountID != "" {
+			key = p.Kind + "\x00" + strings.ToLower(strings.TrimSpace(p.Host)) + "\x00" + p.AccountID
+		}
 		for _, m := range models {
 			if m.ProviderID != p.ID || m.Model.ID == "" {
 				continue
 			}
 			short := p.Kind + "/" + m.Model.ID
 			full := p.Kind + "/" + qualified + "/" + m.Model.ID
-			m.ID, m.ProviderName = short, p.Name
+			m.ID, m.ProviderName, m.ProviderKey = short, p.Name, key
 			if counts[p.Kind] > 1 {
 				m.ID = full
 			}

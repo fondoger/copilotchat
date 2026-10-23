@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -20,7 +21,7 @@ func (a *app) m365Client(id string, entry m365SavedSignIn) (provider.Client, int
 	if err != nil {
 		return nil, nil, err
 	}
-	return microsoft.NewClient(source.Token, provider.AccountInfo{Login: account.Username, Host: microsoft.Host}), source, nil
+	return microsoft.NewClient(source.Token, provider.AccountInfo{ID: strings.ToLower(account.TenantID + "." + account.ID), Login: account.Username, Host: microsoft.Host}), source, nil
 }
 
 func (a *app) loadM365Provider(p store.Provider, r *providerRuntime) {
@@ -91,6 +92,7 @@ func (a *app) finishM365Login(id string, epoch uint64, ctx context.Context, canc
 		}
 		a.cancelProviderModels(id)
 		r.client, r.m365Auth, r.models, r.modelsLoaded = client, source, nil, false
+		r.accountID = ""
 		r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 		r.status, r.credentialNotice = "Connected.", ""
 		if entry.Mode == "windows-wam" {

@@ -22,6 +22,12 @@ func clientModelIDs(models []Model, desktop bool) []Model {
 		if seen[id] {
 			id = claudeDesktopOpaqueID(models[i])
 		}
+		if seen[id] && models[i].ProviderKey != "" {
+			// Repeated connections to the same account still need distinct IDs.
+			duplicate := models[i]
+			duplicate.ProviderKey = ""
+			id = claudeDesktopOpaqueID(duplicate)
+		}
 		seen[id] = true
 		models[i].ID = id
 	}

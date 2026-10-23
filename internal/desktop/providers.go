@@ -29,7 +29,7 @@ type providerRuntime struct {
 	authEpoch, modelsEpoch                uint64
 	authCode                              github.DeviceCode
 	authCancel, modelsCancel              context.CancelFunc
-	status, credentialNotice              string
+	status, credentialNotice, accountID   string
 	modelsLoaded                          bool
 	modelsAttemptedAt                     time.Time
 }
@@ -573,7 +573,7 @@ func (a *app) signOutProvider(id string) {
 	}
 	a.cancelProviderWork(id)
 	r.client, r.models = nil, nil
-	r.modelsLoaded = false
+	r.modelsLoaded, r.accountID = false, ""
 	if p := a.provider(id); p != nil {
 		p.Login = ""
 	}
@@ -609,12 +609,12 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 	if p == nil {
 		return
 	}
+	r := a.providerState(id)
 	if newSignIn {
 		// A successful sign-in can replace the account even when /user fails.
-		p.Login = ""
+		p.Login, r.accountID = "", ""
 	}
 	if err != nil {
-		r := a.providerState(id)
 		label := "GitHub username"
 		if p.Kind == store.ProviderKindM365 {
 			label = "Microsoft account"
@@ -623,6 +623,9 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 		return
 	}
 	p.Login = account.Login
+	if account.ID != "" {
+		r.accountID = account.ID
+	}
 }
 
 func (a *app) refreshProviderModels(id string) {

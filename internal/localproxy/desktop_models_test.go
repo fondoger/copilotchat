@@ -2,7 +2,9 @@ package localproxy
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -74,6 +76,13 @@ func TestClaudeDesktopDuplicateClaudeIDsAndRouting(t *testing.T) {
 		{ProviderID: "second", ID: "m365-copilot/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2026-01-01T00:00:00Z"}},
 		{ProviderID: "third", ID: "github-copilot/claude-opus-4-6", Model: provider.Model{ID: "claude-opus-4-6", Endpoint: "/v1/messages"}},
 	}
+	identities := []ProviderIdentity{
+		{ID: "first", Kind: "github-copilot", Host: "github.com", Login: "first-user", AccountID: "101"},
+		{ID: "second", Kind: "m365-copilot", Host: "office.example.test", Login: "work@example.test", AccountID: "tenant-fixture.user-fixture"},
+		{ID: "third", Kind: "github-copilot", Host: "enterprise.ghe.com", Login: "third-user", AccountID: "303"},
+	}
+	models = NameModels(models, identities)
+	originalPublicID := models[0].ID
 	ids := clientModelIDs(models, true)
 	if ids[0].ID != "claude-opus-4-6" || ids[1].ID != claudeDesktopOpaqueID(models[1]) || ids[2].ID != claudeDesktopOpaqueID(models[2]) || ids[1].ID == ids[2].ID {
 		t.Fatal("duplicate or normalized Claude IDs are not unique", ids)
@@ -108,12 +117,46 @@ func TestClaudeDesktopDuplicateClaudeIDsAndRouting(t *testing.T) {
 		t.Fatal("catalog sorting changed first-account naming", catalog.Body.String())
 	}
 	for i, model := range ids {
-		w := call("POST", "/test/v1/messages/count_tokens", `{"model":"`+model.ID+`","messages":[{"role":"user","content":"foo"}]}`)
-		if w.Code != 200 || routed != models[i].ProviderID {
-			t.Fatal("Desktop ID routed to wrong account", model.ID, routed, w.Code, w.Body.String())
+		byProvider := models[i]
+		byProvider.ProviderKey = ""
+		legacy := sha256.Sum256([]byte(models[i].ProviderID + "\x00" + models[i].Model.ID))
+		aliases := []string{model.ID, claudeDesktopOpaqueID(models[i]), claudeDesktopOpaqueID(byProvider), "mythos-" + new(big.Int).SetBytes(legacy[:16]).String()}
+		for _, id := range aliases {
+			w := call("POST", "/test/v1/messages/count_tokens", `{"model":"`+id+`","messages":[{"role":"user","content":"foo"}]}`)
+			if w.Code != 200 || routed != models[i].ProviderID {
+				t.Fatal("Desktop ID or legacy alias routed to wrong account", id, routed, w.Code, w.Body.String())
+			}
 		}
 	}
-	if models[0].ID != "github-copilot/claude-opus-4.6" || clientModelIDs(models, false)[1].ID != models[1].ID {
+	// A published ID must beat another connection's hidden alias.
+	originalKey := models[0].ProviderKey
+	models[0].ProviderKey = models[1].ProviderKey
+	s.Update(clients, map[string]Profile{"test": {ID: "test", Models: models}})
+	w := call("POST", "/test/v1/messages/count_tokens", `{"model":"`+ids[1].ID+`","messages":[{"role":"user","content":"foo"}]}`)
+	if w.Code != 200 || routed != "second" {
+		t.Fatal("compatibility alias took priority over a published ID", w.Code)
+	}
+	models[0].ProviderKey = originalKey
+	if models[0].ID != originalPublicID || clientModelIDs(models, false)[1].ID != models[1].ID {
 		t.Fatal("Desktop naming changed other clients")
+	}
+	// Recreate providers/profile, then route requests using the old Desktop IDs.
+	restored := map[string]Target{}
+	for i := range models {
+		oldID := models[i].ProviderID
+		models[i].ProviderID = "recreated-" + oldID
+		identities[i].ID = models[i].ProviderID
+		identities[i].Name = "Renamed provider"
+		identities[i].Host = strings.ToUpper(identities[i].Host)
+		identities[i].Login = "renamed-" + identities[i].Login
+		restored[models[i].ProviderID] = clients[oldID]
+	}
+	models = NameModels(models, identities)
+	s.Update(restored, map[string]Profile{"test": {ID: "recreated-profile", Models: models}})
+	for i, model := range ids {
+		w := call("POST", "/test/v1/messages/count_tokens", `{"model":"`+model.ID+`","messages":[{"role":"user","content":"foo"}]}`)
+		if w.Code != 200 || "recreated-"+routed != models[i].ProviderID {
+			t.Fatal("old Desktop ID did not survive provider recreation", w.Code)
+		}
 	}
 }

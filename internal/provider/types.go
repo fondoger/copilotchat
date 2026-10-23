@@ -49,6 +49,7 @@ type Model struct {
 }
 
 type AccountInfo struct {
+	ID    string `json:"id,omitempty"`
 	Login string `json:"login"`
 	Host  string `json:"host"`
 }

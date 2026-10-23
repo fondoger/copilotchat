@@ -1,6 +1,7 @@
 package localproxy
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"math/big"
 	"slices"
@@ -30,10 +31,32 @@ func claudeDesktopModelID(m Model) string {
 	return claudeDesktopOpaqueID(m)
 }
 
-// Bind the decimal fingerprint to the original model and provider, independent
-// of capabilities, account display names, and catalog sorting.
+// Bind the decimal fingerprint to the stable account and original model.
+// Fall back to the configured provider ID before account metadata is available.
 func claudeDesktopOpaqueID(m Model) string {
-	digest := sha256.Sum256([]byte(m.ProviderID + "\x00" + m.Model.ID))
-	code := new(big.Int).SetBytes(digest[:16]).String()
+	identity := m.ProviderKey
+	if identity == "" {
+		identity = m.ProviderID
+	}
+	digest := md5.Sum([]byte(identity + "\x00" + m.Model.ID))
+	code := new(big.Int).SetBytes(digest[:8]).String()
 	return "mythos-" + code
+}
+
+// Accept earlier encodings as request aliases without advertising extra models.
+func claudeDesktopModelAliasMatches(m Model, id string) bool {
+	if !strings.HasPrefix(id, "mythos-") {
+		return false
+	}
+	if claudeDesktopOpaqueID(m) == id {
+		return true
+	}
+	if m.ProviderKey != "" {
+		m.ProviderKey = ""
+		if claudeDesktopOpaqueID(m) == id {
+			return true
+		}
+	}
+	digest := sha256.Sum256([]byte(m.ProviderID + "\x00" + m.Model.ID))
+	return id == "mythos-"+new(big.Int).SetBytes(digest[:16]).String()
 }

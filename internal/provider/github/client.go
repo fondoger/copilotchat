@@ -113,7 +113,8 @@ func (c *Client) Account(ctx context.Context) (provider.AccountInfo, error) {
 		return provider.AccountInfo{}, err
 	}
 	var user struct {
-		Login string `json:"login"`
+		ID    json.Number `json:"id"`
+		Login string      `json:"login"`
 	}
 	if err := provider.ReadJSON(resp, &user); err != nil {
 		return provider.AccountInfo{}, err
@@ -126,7 +127,7 @@ func (c *Client) Account(ctx context.Context) (provider.AccountInfo, error) {
 	if c.token != token {
 		return provider.AccountInfo{}, errors.New("the active GitHub account changed; retry the request")
 	}
-	return provider.AccountInfo{Login: user.Login, Host: c.host}, nil
+	return provider.AccountInfo{ID: user.ID.String(), Login: user.Login, Host: c.host}, nil
 }
 
 func sleepContext(ctx context.Context, delay time.Duration) error {

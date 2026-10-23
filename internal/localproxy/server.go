@@ -314,11 +314,24 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	desktopModels := clientModelIDs(models, desktop)
 	for i, candidate := range models {
 		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
-		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || (desktop && desktopModels[i].ID == routeModelID)) && compatible {
+		matchesDesktop := desktop && desktopModels[i].ID == routeModelID
+		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop) && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx
 			}
 			break
+		}
+	}
+	// Published IDs take priority over compatibility aliases.
+	if desktop && providerCtx == nil {
+		for _, candidate := range models {
+			compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
+			if compatible && claudeDesktopModelAliasMatches(candidate, routeModelID) {
+				if item := s.targets[candidate.ProviderID]; item != nil {
+					model, target, providerCtx = candidate, item.Target, item.ctx
+				}
+				break
+			}
 		}
 	}
 	s.mu.RUnlock()
