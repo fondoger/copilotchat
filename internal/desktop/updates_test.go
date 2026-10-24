@@ -227,7 +227,7 @@ func TestDeletingOtherChatClearsDraftAndUpdateRestartBlock(t *testing.T) {
 		t.Fatal("cached draft in the first chat did not block restarting")
 	}
 
-	a.deleteID, a.deleteOpen = "first", true
+	a.requestDeleteChats([]string{"first"})
 	tester := ui.NewTester(a.dialogs, 900, 620)
 	settingsClick(t, tester, "Delete")
 	if a.conversation("first") != nil || a.state.ActiveID != "second" {

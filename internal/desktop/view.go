@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -225,29 +226,17 @@ func (a *app) dialogs(c *ui.Context) {
 			})
 		})
 	})
-	switch ui.AlertDialog(c, &a.deleteOpen, "Delete conversation?", "This conversation and its attachments will be removed from this device.", "Cancel", "Delete") {
-	case 1:
-		delete(a.drafts, a.deleteID)
-		if a.webParked != nil && a.webParked.chatID == a.deleteID {
-			destroyWebChatView(a.webParked)
-			a.webParked = nil
-		}
-		if a.preview != nil && a.preview.chatID == a.deleteID {
-			a.closePreview()
-		}
-		for i, chat := range a.state.Conversations {
-			if chat.ID == a.deleteID {
-				a.state.Conversations = append(a.state.Conversations[:i], a.state.Conversations[i+1:]...)
-				break
-			}
-		}
-		if a.state.ActiveID == a.deleteID {
-			a.closeWebChat()
-			a.state.ActiveID = ""
-			a.draft = ""
-			a.attachments = nil
-		}
-		a.save()
+	deleteTitle := "Delete conversation?"
+	deleteMessage := "This conversation and its attachments will be removed from this device."
+	if count := len(a.deleteIDs); count > 1 {
+		deleteTitle = fmt.Sprintf("Delete %d conversations?", count)
+		deleteMessage = "These conversations and their attachments will be removed from this device."
+	}
+	if ui.AlertDialog(c, &a.deleteOpen, deleteTitle, deleteMessage, "Cancel", "Delete") == 1 {
+		a.deleteChats(a.deleteIDs)
+	}
+	if !a.deleteOpen {
+		a.deleteIDs = nil
 	}
 	if a.approval != nil {
 		p := a.approval

@@ -5,20 +5,29 @@
   const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
   const sites = {
     'doubao-web': {blank:/^\/chat\/?$/, remote:/^\/chat\/\d+$/, editor:'#chat-route-main [contenteditable="true"], #chat-route-main textarea', css:'#chat-route-main > :first-child, div[data-header-host="main"]', fresh:'nav [role="button"], nav button'},
-    'deepseek-web': {blank:/^\/$/, remote:new RegExp('^/a/chat/s/'+uuid+'$'), editor:'textarea[placeholder="Message DeepSeek"], textarea[placeholder="给 DeepSeek 发送消息"]', css:'#root > .cb86951c > .cddfb2ed, .c3ecdb44 > .dc04ec1d, .c3ecdb44 > ._4cbcd96', fresh:'[tabindex="0"]'},
-    'claude-web': {blank:/^\/new\/?$/, remote:new RegExp('^/chat/'+uuid+'$'), editor:'[data-testid="chat-input"][contenteditable="true"]', css:'aside[aria-label="Sidebar"], header.dframe-header', fresh:'aside a[href="/new"]'},
-    'gemini-web': {blank:/^\/(?:u\/\d+\/)?app\/?$/, remote:/^\/(?:u\/\d+\/)?app\/[0-9a-f]+$/, editor:'.ql-editor[role="textbox"][contenteditable="true"]', css:'nav[aria-label="Side Navigation"], side-navigation, .conversation-title-container', fresh:'a[href="/app"][aria-label="New chat"], nav a[href="/app"]'},
-    'chatgpt-web': {blank:/^\/$/, remote:new RegExp('^/c/'+uuid+'$'), editor:'[contenteditable="true"][data-composer-markdown], #prompt-textarea[contenteditable="true"]', css:'aside.app-shell-left-panel, nav[aria-label="Chat history"], #stage-slideover-sidebar, #sidebar-header, #browser-sidebar-popover, header', fresh:'button[aria-label="New chat"], a[data-testid="create-new-chat-button"]'}
+    'deepseek-web': {blank:/^\/$/, remote:new RegExp('^/a/chat/s/'+uuid+'$'), editor:'textarea[placeholder="Message DeepSeek"], textarea[placeholder="给 DeepSeek 发送消息"]', css:'aside, nav, header, [role="navigation"], [role="banner"], .the-header, div:has(> .the-header), #root div:has(a[href^="/a/chat/s/"]):not(:has(textarea))', fresh:'[tabindex="0"]'},
+    'claude-web': {blank:/^\/new\/?$/, remote:new RegExp('^/chat/'+uuid+'$'), editor:'[data-testid="chat-input"][contenteditable="true"]', css:'aside, nav, header, [role="navigation"], [role="banner"], .dframe-sidebar, .dframe-header, [data-testid="sidebar"], [data-testid="chat-header"], [data-translucent-title-bar]', layout:'.dframe-content-inner { padding-inline-start: 0 !important; --df-sidebar-clearance: 0 !important; }', fresh:'aside a[href="/new"]'},
+    'gemini-web': {blank:/^\/(?:u\/\d+\/)?app\/?$/, remote:/^\/(?:u\/\d+\/)?app\/[0-9a-f]+$/, editor:'.ql-editor[role="textbox"][contenteditable="true"]', css:'aside, nav, [role="navigation"], side-navigation, bard-sidenav, chat-app-side-nav-menu-button, top-bar-actions, .conversation-title-container', fresh:'a[href="/app"][aria-label="New chat"], nav a[href="/app"]'},
+    'chatgpt-web': {blank:/^\/$/, remote:new RegExp('^/c/'+uuid+'$'), editor:'[contenteditable="true"][data-composer-markdown], #prompt-textarea[contenteditable="true"]', css:'aside, nav, header, [role="navigation"], [role="banner"], .app-shell-left-panel, #stage-slideover-sidebar, #sidebar-header, #browser-sidebar-popover, [data-testid="open-sidebar-button"], [data-testid="close-sidebar-button"], [aria-controls*="sidebar" i], [class*="sidebar-trigger"], button[aria-label*="sidebar" i], button[aria-label*="侧边栏"], button[aria-label*="边栏"]', fresh:'button[aria-label="New chat"], a[data-testid="create-new-chat-button"]'}
   };
   const site = sites[config.kind];
   if (!site) return;
-  const hideSidebar = () => {
-    const style = document.createElement('style');
-    style.textContent = site.css + ' { display: none !important; }';
-    document.head.appendChild(style);
+  const style = document.createElement('style');
+  style.textContent = site.css + ' { display: none !important; }' + (site.layout || '');
+  // Preload runs before head exists. Keep CSS outside the site's replaceable head.
+  let styledRoot;
+  const rootObserver = new MutationObserver(() => installStyle());
+  const installStyle = () => {
+    const root = document.documentElement;
+    if (root !== styledRoot) {
+      rootObserver.disconnect();
+      styledRoot = root;
+      if (root) rootObserver.observe(root, {childList: true});
+    }
+    if (root && style.parentNode !== root) root.appendChild(style);
   };
-  if (document.head) hideSidebar();
-  else document.addEventListener('DOMContentLoaded', hideSidebar, {once: true});
+  new MutationObserver(installStyle).observe(document, {childList: true});
+  installStyle();
 
   document.addEventListener('keydown', event => {
     if (!event.isTrusted || event.isComposing || event.repeat || event.altKey) return;

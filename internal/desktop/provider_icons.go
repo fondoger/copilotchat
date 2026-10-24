@@ -8,6 +8,12 @@ import (
 var (
 	microsoftCopilotIcon = loadIcon("microsoft-365-copilot-gray-bold")
 	doubaoIcon           = loadIcon("doubao-mono")
+	webProviderIcons     = map[string]*ui.SVG{
+		store.ProviderKindDeepSeekWeb: loadIcon("deepseek-mono"),
+		store.ProviderKindChatGPTWeb:  loadIcon("openai-mono"),
+		store.ProviderKindClaudeWeb:   loadIcon("claude-mono"),
+		store.ProviderKindGeminiWeb:   loadIcon("gemini-mono"),
+	}
 )
 
 func providerKindName(kind string) string {
@@ -21,7 +27,10 @@ func providerKindName(kind string) string {
 }
 
 func providerIcon(c *ui.Context, kind string, size float32) ui.Element {
-	if store.IsWebProvider(kind) {
+	if icon, ok := webProviderIcons[kind]; ok {
+		return ui.Icon(c, icon).Size(size, size).Shrink(0).Label(providerKindName(kind) + " icon")
+	}
+	if kind == store.ProviderKindDoubao {
 		return ui.Image(c, doubaoIcon).Size(size, size).Shrink(0).Label(providerKindName(kind) + " icon")
 	}
 	if kind == store.ProviderKindM365 {

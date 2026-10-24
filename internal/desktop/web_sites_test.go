@@ -198,7 +198,7 @@ func TestWebSitesScriptCreationIntent(t *testing.T) {
 	for _, site := range webSiteFixtures {
 		for _, scenario := range []string{
 			"ordinary edit", "IME", "ShiftEnter", "programmatic Enter", "outside Enter", "empty Enter",
-			"SPA roundtrip", "trusted Enter", "temporary route", "rejected submit", "attachment submit", "history back", "history click", "history without intent", "noncanonical route", "editor selection", "cross origin", "subframe", "settings",
+			"early stylesheet", "SPA roundtrip", "trusted Enter", "temporary route", "rejected submit", "attachment submit", "history back", "history click", "history without intent", "noncanonical route", "editor selection", "cross origin", "subframe", "settings",
 		} {
 			t.Run(site.kind+"/"+scenario, func(t *testing.T) {
 				input, err := json.Marshal(map[string]string{
@@ -254,8 +254,21 @@ let editor = node(fixture.kind !== 'deepseek-web', [fixture.editor], 'Research q
 // Gemini also has a hidden contenteditable clipboard before the real composer.
 const clipboard = node(true, ['[contenteditable="true"]'], 'Clipboard, not the message');
 const nodes = fixture.kind === 'gemini-web' ? [clipboard, editor] : [editor];
-const documentEvents = events(), windowEvents = events(), styles = [], calls = [];
-const document = {title:'Research title', head:{appendChild(style) {styles.push(style)}},
+const documentEvents = events(), windowEvents = events(), styles = [], calls = [], observers = [];
+class MutationObserver {
+  constructor(callback) {this.callback = callback; observers.push(this)}
+  observe(target) {this.target = target}
+  disconnect() {this.target = null}
+}
+const mutations = target => {
+  for (const observer of observers.filter(observer => observer.target === target)) observer.callback();
+};
+const root = () => ({children:[], appendChild(style) {
+  if (style.parentNode) style.parentNode.children.splice(style.parentNode.children.indexOf(style), 1);
+  this.children.push(style); style.parentNode = this;
+  if (!styles.includes(style)) styles.push(style);
+}, removeChild(style) {this.children.splice(this.children.indexOf(style), 1); style.parentNode = null}});
+const document = {title:'Research title', documentElement:fixture.scenario === 'early stylesheet' ? null : root(), head:null,
   createElement() {return {}}, addEventListener:documentEvents.addEventListener,
   querySelector(selector) {
     const options = selector.split(',').map(part => part.trim());
@@ -263,7 +276,7 @@ const document = {title:'Research title', head:{appendChild(style) {styles.push(
       part === '[contenteditable="true"]' && node.isContentEditable)) || null;
   }};
 const outside = {closest() {return null}};
-const state = {document, URL, setTimeout, navigator:{platform:'Win32'},
+const state = {document, URL, setTimeout, MutationObserver, navigator:{platform:'Win32'},
   location:new URL(fixture.scenario === 'cross origin' ? fixture.auth : fixture.start),
   addEventListener:windowEvents.addEventListener,
   mygo:{call(...args) {calls.push(args); return Promise.resolve()}}};
@@ -278,9 +291,14 @@ const bridge = state.__copilotWebChat;
 if (['cross origin', 'subframe', 'settings'].includes(fixture.scenario)) {
   assert.equal(bridge, undefined, 'untrusted document installed the bridge');
   assert.equal(styles.length, 0, 'untrusted document was modified');
+  assert.equal(observers.length, 0, 'untrusted document installed observers');
   assert.equal(calls.length, 0);
 } else {
   assert.ok(bridge, 'site bridge missing');
+  if (fixture.scenario !== 'early stylesheet') {
+    assert.equal(styles.length, 1, 'stylesheet must mount immediately without a head');
+    assert.equal(styles[0].parentNode, document.documentElement);
+  }
   const snapshot = () => bridge.snapshot();
   const key = (extra = {}, target = editor) => documentEvents.dispatch('keydown', target, {key:'Enter', ...extra});
   const navigate = raw => state.history.pushState({}, '', raw);
@@ -290,6 +308,33 @@ if (['cross origin', 'subframe', 'settings'].includes(fixture.scenario)) {
   };
   assert.equal(snapshot().draft, null);
   switch (fixture.scenario) {
+    case 'early stylesheet': {
+      assert.equal(styles.length, 0);
+      document.documentElement = root();
+      mutations(document);
+      assert.equal(styles.length, 1, 'stylesheet must mount before DOMContentLoaded');
+      const style = styles[0];
+      assert.ok(style.textContent.length);
+      assert.equal(style.parentNode, document.documentElement);
+      document.head = {};
+      mutations(document.documentElement);
+      document.head = {};
+      mutations(document.documentElement);
+      assert.equal(style.parentNode, document.documentElement, 'head replacement lost stylesheet');
+      document.documentElement.removeChild(style);
+      mutations(document.documentElement);
+      assert.equal(style.parentNode, document.documentElement, 'removed stylesheet was not restored');
+      const oldRoot = document.documentElement;
+      document.documentElement = root();
+      mutations(document);
+      assert.equal(style.parentNode, document.documentElement, 'new root lost stylesheet');
+      assert.equal(oldRoot.children.length, 0);
+      vm.runInNewContext(fixture.script, state);
+      assert.equal(styles.length, 1, 'duplicate preload created another stylesheet');
+      assert.equal(document.documentElement.children.length, 1);
+      noBinding();
+      break;
+    }
     case 'SPA roundtrip': {
       const control = (text, href, label, destination) => ({textContent:text, getAttribute(name) {return name === 'href' ? href : name === 'aria-label' ? label : null}, click() {editor = node(editor.isContentEditable, [fixture.editor], ''); nodes.splice(0, nodes.length, editor); navigate(destination)}});
       const blankPath = new URL(fixture.start).pathname;

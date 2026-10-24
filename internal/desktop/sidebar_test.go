@@ -75,7 +75,7 @@ func TestSidebarHoverActionsRemainClickableOverChildren(t *testing.T) {
 	row, _ = tt.Find("Another conversation")
 	tt.Move(row.X+48, row.Y+row.H/2)
 	settingsClick(t, tt, "Delete Another conversation")
-	if !a.deleteOpen || a.deleteID != "second" || a.state.ActiveID != "current" {
+	if !a.deleteOpen || !reflect.DeepEqual(a.deleteIDs, []string{"second"}) || a.state.ActiveID != "current" {
 		t.Fatal("delete did not target hovered chat")
 	}
 	a.deleteOpen = false

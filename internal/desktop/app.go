@@ -19,7 +19,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.5.5"
+const version = "0.5.6"
 
 type toolApproval struct {
 	Server, Name, Arguments string
@@ -33,47 +33,49 @@ type chatDraft struct {
 
 // All application state is owned by the UI thread. Workers publish through update.
 type app struct {
-	win, settingsWin               *mygo.Window
-	tray                           *mygo.Tray
-	state                          store.State
-	storage                        *store.Store
-	dataDir                        string
-	quitting                       bool
-	updater                        *appupdate.Manager
-	updateCancel                   context.CancelFunc
-	updateError                    string
-	updateQuitWaiting              bool
-	draft, query, status           string
-	attachments                    []store.Attachment
-	drafts                         map[string]chatDraft
-	sidebarHidden, searchOpen      bool
-	webModelToggle                 bool
-	modelSelection                 uint64
-	pendingChat                    string
-	composer                       ui.Handle
-	list                           ui.ListState
-	md                             markdown.Options
-	streaming                      bool
-	streamChat, streamMessage      string
-	cancel                         context.CancelFunc
-	providers                      map[string]*providerRuntime
-	providerSettingsID             string
-	providerSecrets                credentialStore
-	providerRefreshCancel          context.CancelFunc
-	titleJobs                      map[string]*titleJob
-	preview                        *artifactPreview
-	webChat, webSettings           *webChatView
-	webParked                      *webChatView
-	settingsPage                   string
-	extensionPage                  string
-	agentSetup                     agentSetupState
-	mcpJSON, mcpStatus             string
-	mcpBusy                        bool
-	approval                       *toolApproval
-	approvalOpen                   bool
-	renameID, renameText, deleteID string
-	renameOpen, deleteOpen         bool
-	editMessageID, editText        string
+	win, settingsWin          *mygo.Window
+	tray                      *mygo.Tray
+	state                     store.State
+	storage                   *store.Store
+	dataDir                   string
+	quitting                  bool
+	updater                   *appupdate.Manager
+	updateCancel              context.CancelFunc
+	updateError               string
+	updateQuitWaiting         bool
+	draft, query, status      string
+	attachments               []store.Attachment
+	drafts                    map[string]chatDraft
+	sidebarHidden, searchOpen bool
+	sidebarSelection          sidebarSelection
+	webModelToggle            bool
+	modelSelection            uint64
+	pendingChat               string
+	composer                  ui.Handle
+	list                      ui.ListState
+	md                        markdown.Options
+	streaming                 bool
+	streamChat, streamMessage string
+	cancel                    context.CancelFunc
+	providers                 map[string]*providerRuntime
+	providerSettingsID        string
+	providerSecrets           credentialStore
+	providerRefreshCancel     context.CancelFunc
+	titleJobs                 map[string]*titleJob
+	preview                   *artifactPreview
+	webChat, webSettings      *webChatView
+	webParked                 *webChatView
+	settingsPage              string
+	extensionPage             string
+	agentSetup                agentSetupState
+	mcpJSON, mcpStatus        string
+	mcpBusy                   bool
+	approval                  *toolApproval
+	approvalOpen              bool
+	renameID, renameText      string
+	deleteIDs                 []string
+	renameOpen, deleteOpen    bool
+	editMessageID, editText   string
 
 	forwarder                        *localproxy.Server
 	forwardError, startupError       string
@@ -251,6 +253,7 @@ func (a *app) conversation(id string) *store.Conversation {
 }
 
 func (a *app) newChat() {
+	a.sidebarSelection = sidebarSelection{}
 	a.pendingChat = ""
 	a.captureWebChatDeparture(a.finishNewChat)
 }
@@ -312,6 +315,7 @@ func (a *app) rememberDraft() {
 }
 
 func (a *app) selectChat(id string) {
+	a.sidebarSelection.selectOne(id)
 	a.pendingChat = id
 	a.captureWebChatDeparture(func() { a.finishSelectChat(id) })
 }

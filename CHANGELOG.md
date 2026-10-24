@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6
+
+- Add five web chat providers with shared sessions, drafts, and dedicated provider icons.
+- Add Shift-click range selection and bulk conversation deletion.
+- Improve embedded chat layouts and prevent sidebar/header flashes.
+
 ## 0.5.5
 
 - Map Desktop model families by effort support: max to fable, xhigh to opus, other reasoning or 1M-context models to opus-4-5, and remaining models to sonnet-4-5. Preserve native Claude IDs.

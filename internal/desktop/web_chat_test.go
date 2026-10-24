@@ -244,13 +244,13 @@ const source = process.argv[1];
 function page(initial = 'https://www.doubao.com/chat', framed = false) {
   const events = {}, styles = [];
   const document = {
-    title: '豆包', head: {appendChild: x => styles.push(x)},
+    title: '豆包', documentElement: {appendChild(x) {x.parentNode = this; styles.push(x)}}, head: {},
     createElement: () => ({}),
     querySelector: () => null,
     addEventListener: (name, fn) => events[name] = fn,
   };
   const calls = [];
-  const state = {document, URL, setTimeout, location: new URL(initial), navigator: {platform: 'Win32'},
+  const state = {document, URL, setTimeout, MutationObserver: class {observe() {} disconnect() {}}, location: new URL(initial), navigator: {platform: 'Win32'},
     mygo: {call: (...args) => {calls.push(args); return Promise.resolve();}},
     addEventListener: (name, fn) => events[name] = fn};
   state.window = state; state.top = framed ? {} : state;

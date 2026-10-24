@@ -1,7 +1,7 @@
 {
   "name": "Copilot Chat",
   "identifier": "io.qinyuan.copilotchat",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "out": "dist",
   "resources": [
     "README.md"

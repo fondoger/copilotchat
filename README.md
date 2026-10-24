@@ -1,6 +1,6 @@
 # Copilot Chat
 
-基于 [MyGo](https://github.com/egoist/mygo) 的原生 AI 聊天客户端，支持 GitHub Copilot、Microsoft 365 Copilot 和豆包网页版，可在 Windows 和 macOS 上运行。
+基于 [MyGo](https://github.com/egoist/mygo) 的原生 AI 聊天客户端，支持 GitHub Copilot、Microsoft 365 Copilot，以及豆包、DeepSeek、Claude、Gemini 和 ChatGPT 网页聊天，可在 Windows 和 macOS 上运行。
 
 ## 下载与平台
 

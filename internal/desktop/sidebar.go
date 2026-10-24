@@ -32,9 +32,12 @@ func (a *app) sidebar(c *ui.Context) {
 		})
 		ui.Scroll(c).Grow(1).Padding(4, 12, 12, 12).Gap(0).Children(func() {
 			chats := a.sidebarChats("")
+			now := time.Now()
+			visible := a.visibleSidebarIDs(chats, now)
+			a.sidebarSelection.prune(visible)
 			last := ""
 			for _, chat := range chats {
-				group := chatGroup(chat, time.Now())
+				group := chatGroup(chat, now)
 				collapsed := a.state.Settings.CollapsedGroups[group]
 				if group != last {
 					a.sidebarGroup(c, group, collapsed, sidebarOver)
@@ -45,7 +48,7 @@ func (a *app) sidebar(c *ui.Context) {
 				}
 				row := ui.Row(c.Key(chat.ID)).Label(chat.Title).FillWidth().Height(32).Padding(6, 8).Gap(8).Background(ui.Transparent).Radius(8).Clip()
 				_, _, over := row.PointerPosition()
-				if chat.ID == a.state.ActiveID {
+				if a.sidebarSelection.ids[chat.ID] || chat.ID == a.state.ActiveID {
 					row.Background(selected)
 				} else if over {
 					row.Background(hovered)
@@ -59,8 +62,8 @@ func (a *app) sidebar(c *ui.Context) {
 					ui.Text(c, chat.Title).Font(chatTitleFontFamily()).FontSize(14).FontWeight(500).SingleLine().Grow(1)
 					a.sidebarChatActions(c, chat, over)
 				})
-				row.OnClick(func() { a.selectChat(chat.ID) })
-				if row.DoubleClicked() && chat.ID == a.state.ActiveID {
+				row.OnClick(func() { a.selectSidebarChat(chat.ID, row.ClickModifiers()&ui.Shift != 0, visible) })
+				if row.DoubleClicked() && row.ClickModifiers()&ui.Shift == 0 && chat.ID == a.state.ActiveID {
 					a.renameChat(chat)
 				}
 				row.ContextMenu(func(m *ui.Menu) { a.chatMenu(m, chat) })
@@ -280,7 +283,7 @@ func (a *app) sidebarChatActions(c *ui.Context, chat *store.Conversation, over b
 	}
 	bar.Children(func() {
 		sidebarAction(c, iSidebarDelete, "Delete "+chat.Title).TextColor(ui.Hex("#ef4444")).Disabled(a.streaming && a.streamChat == chat.ID).OnClick(func() {
-			a.deleteID, a.deleteOpen = chat.ID, true
+			a.requestDeleteChats([]string{chat.ID})
 		})
 		star := iStar
 		favoriteLabel := "Favorite " + chat.Title
@@ -569,6 +572,13 @@ func chatGroup(chat *store.Conversation, now time.Time) string {
 }
 
 func (a *app) chatMenu(m *ui.Menu, chat *store.Conversation) {
+	ids := a.sidebarContextIDs(chat.ID)
+	if len(ids) > 1 {
+		if m.Item(fmt.Sprintf("Delete %d conversations", len(ids))).Disabled(!a.canDeleteChats(ids)).Chosen() {
+			a.requestDeleteChats(ids)
+		}
+		return
+	}
 	if m.Item("Rename").Chosen() {
 		a.renameChat(chat)
 	}
@@ -586,7 +596,6 @@ func (a *app) chatMenu(m *ui.Menu, chat *store.Conversation) {
 	}
 	m.Separator()
 	if m.Item("Delete conversation").Disabled(a.streaming && a.streamChat == chat.ID).Chosen() {
-		a.deleteID = chat.ID
-		a.deleteOpen = true
+		a.requestDeleteChats([]string{chat.ID})
 	}
 }
