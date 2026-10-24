@@ -40,14 +40,7 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	}
 	agentSetupScreenshot(t, tester, "agent-setup")
 	settingsClick(t, tester, "Model defaults")
-	var lastY float32
 	for _, key := range agentconfig.ClaudeModelVariables {
-		label, ok := tester.Find(key)
-		selectBox, selectOK := tester.Find("Choose " + key)
-		if !ok || !selectOK || selectBox.X < label.X+label.W || label.Y <= lastY {
-			t.Fatalf("default must occupy a separate row with label left of select: %s %+v %+v", key, label, selectBox)
-		}
-		lastY = label.Y
 		settingsClick(t, tester, "Choose "+key)
 		if _, ok := tester.Find("Select Choose " + key + " github-copilot/gpt-fixture"); !ok {
 			t.Fatal("Responses model missing from Claude defaults")

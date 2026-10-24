@@ -31,10 +31,16 @@ func (a *app) view(c *ui.Context) {
 			ui.Column(c).Fill().MinWidth(0).Children(func() {
 				a.header(c)
 				chat := a.current()
-				if chat == nil || len(chat.Messages) == 0 {
-					a.emptyView(c)
+				webChat := a.isDoubaoChat(chat)
+				if webChat {
+					a.doubaoChatView(c, chat)
 				} else {
-					a.messagesView(c, chat)
+					a.parkDoubaoChat()
+					if chat == nil || len(chat.Messages) == 0 {
+						a.emptyView(c)
+					} else {
+						a.messagesView(c, chat)
+					}
 				}
 				if a.status != "" {
 					ui.Row(c).Padding(4, 20).Gap(8).Children(func() {
@@ -42,7 +48,9 @@ func (a *app) view(c *ui.Context) {
 						iconButton(c, iClose, "Dismiss message").OnClick(func() { a.status = "" })
 					})
 				}
-				a.composerView(c)
+				if !webChat {
+					a.composerView(c)
+				}
 			})
 		})
 	})
@@ -210,6 +218,7 @@ func (a *app) dialogs(c *ui.Context) {
 			ui.PrimaryButton(c, "Save name").Disabled(strings.TrimSpace(a.renameText) == "").OnClick(func() {
 				if chat := a.conversation(a.renameID); chat != nil {
 					chat.Title = strings.TrimSpace(a.renameText)
+					chat.TitleManual = true
 					a.save()
 				}
 				a.renameOpen = false
@@ -219,6 +228,10 @@ func (a *app) dialogs(c *ui.Context) {
 	switch ui.AlertDialog(c, &a.deleteOpen, "Delete conversation?", "This conversation and its attachments will be removed from this device.", "Cancel", "Delete") {
 	case 1:
 		delete(a.drafts, a.deleteID)
+		if a.doubaoParked != nil && a.doubaoParked.chatID == a.deleteID {
+			destroyDoubao(a.doubaoParked)
+			a.doubaoParked = nil
+		}
 		if a.preview != nil && a.preview.chatID == a.deleteID {
 			a.closePreview()
 		}
@@ -229,6 +242,7 @@ func (a *app) dialogs(c *ui.Context) {
 			}
 		}
 		if a.state.ActiveID == a.deleteID {
+			a.closeDoubaoChat()
 			a.state.ActiveID = ""
 			a.draft = ""
 			a.attachments = nil

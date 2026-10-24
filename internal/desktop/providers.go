@@ -70,6 +70,9 @@ func (a *app) providerState(id string) *providerRuntime {
 func (a *app) loadProviders() {
 	for _, p := range a.state.Settings.Providers {
 		r := a.providerState(p.ID)
+		if p.Kind == store.ProviderKindDoubao {
+			continue
+		}
 		if p.Kind == store.ProviderKindM365 {
 			a.loadM365Provider(p, r)
 			continue
@@ -133,6 +136,9 @@ func (a *app) selectedModel() string {
 }
 
 func (a *app) newChatModel() string {
+	if p := a.provider(a.state.Settings.ActiveProviderID); p != nil && p.Kind == store.ProviderKindDoubao {
+		return ""
+	}
 	if a.state.Settings.Model != "" {
 		return a.state.Settings.Model
 	}
@@ -256,9 +262,25 @@ func (a *app) chooseModel(providerID, modelID string) {
 	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, modelID
 	a.state.Settings.ReasoningEffort = ""
 	a.state.Settings.ThinkingBudgetTokens = 0
-	if chat := a.current(); chat != nil {
+	if a.isDoubaoChat(a.current()) {
+		a.newChat()
+	} else if chat := a.current(); chat != nil {
 		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
 		chat.ThinkingBudgetTokens = 0
+	}
+	a.saveSettings()
+}
+
+func (a *app) chooseDoubao(providerID string) {
+	p := a.provider(providerID)
+	if p == nil || p.Disabled || p.Kind != store.ProviderKindDoubao || a.streaming {
+		return
+	}
+	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, ""
+	a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens = "", 0
+	chat := a.current()
+	if chat == nil || !a.isDoubaoChat(chat) || chat.ProviderID != providerID {
+		a.newChat()
 	}
 	a.saveSettings()
 }
@@ -285,6 +307,8 @@ func (a *app) addProviderKind(kind, name, host string) (string, error) {
 		host, err = github.NormalizeHost(host)
 	case store.ProviderKindM365:
 		host = store.M365ProviderHost
+	case store.ProviderKindDoubao:
+		host = store.DoubaoHost
 	default:
 		return "", errors.New("unknown provider type")
 	}
@@ -293,10 +317,7 @@ func (a *app) addProviderKind(kind, name, host string) (string, error) {
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		name = "GitHub Copilot"
-		if kind == store.ProviderKindM365 {
-			name = "Microsoft 365 Copilot"
-		}
+		name = providerKindName(kind)
 	}
 	p := store.Provider{ID: newID(), Kind: kind, Name: name, Host: host}
 	a.state.Settings.Providers = append(a.state.Settings.Providers, p)
@@ -339,6 +360,7 @@ func (a *app) resetDefaultProvider() {
 }
 
 func (a *app) cancelProviderWork(id string) {
+	a.closeDoubaoProvider(id)
 	a.cancelProviderLogin(id)
 	a.cancelProviderModels(id)
 	if chat := a.conversation(a.streamChat); chat != nil && chat.ProviderID == id {
@@ -442,7 +464,7 @@ func providerCatalogRefreshDue(p store.Provider, r *providerRuntime, now time.Ti
 
 func (a *app) beginProviderLogin(id string) {
 	p := a.provider(id)
-	if p == nil || p.Disabled {
+	if p == nil || p.Disabled || p.Kind == store.ProviderKindDoubao {
 		return
 	}
 	if p.Kind == store.ProviderKindM365 {
@@ -589,6 +611,10 @@ func (a *app) signOutProvider(id string) {
 }
 
 func (a *app) clearProviderCredentials(id string) error {
+	if p := a.provider(id); p != nil && p.Kind == store.ProviderKindDoubao {
+		// Browser storage is shared. Removing a provider must not sign out others.
+		return nil
+	}
 	if p := a.provider(id); p != nil && p.Kind == store.ProviderKindM365 {
 		return a.clearM365Credentials(id)
 	}

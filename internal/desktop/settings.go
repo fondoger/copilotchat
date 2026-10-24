@@ -26,6 +26,9 @@ var settingsIcons = map[string]*ui.SVG{
 var settingsChevron = loadIcon("tabler-chevron-down")
 
 func (a *app) settingsView(c *ui.Context) {
+	if a.settingsPage != "Providers" {
+		a.closeDoubaoSettings()
+	}
 	t := a.theme(c)
 	t.FontSize = 14
 	if !t.Dark {

@@ -47,6 +47,7 @@ type app struct {
 	attachments                    []store.Attachment
 	drafts                         map[string]chatDraft
 	sidebarHidden, searchOpen      bool
+	webModelToggle                 bool
 	composer                       ui.Handle
 	list                           ui.ListState
 	md                             markdown.Options
@@ -59,6 +60,8 @@ type app struct {
 	providerRefreshCancel          context.CancelFunc
 	titleJobs                      map[string]*titleJob
 	preview                        *artifactPreview
+	doubaoChat, doubaoSettings     *doubaoView
+	doubaoParked                   *doubaoView
 	settingsPage                   string
 	extensionPage                  string
 	agentSetup                     agentSetupState
@@ -102,6 +105,7 @@ func Run(dataDir string) error {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return nil
 	}
+	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
 	a.loadProviders()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 	mygo.App.OnActivate(func(bool) { a.show() })
@@ -118,6 +122,10 @@ func Run(dataDir string) error {
 		a.stopForwarding()
 		a.stopUpdates()
 		a.closePreview()
+		a.closeDoubaoChat()
+		destroyDoubao(a.doubaoParked)
+		a.doubaoParked = nil
+		a.closeDoubaoSettings()
 		a.stop()
 		a.cancelLogin()
 		a.cancelModelRefresh()
@@ -239,22 +247,32 @@ func (a *app) conversation(id string) *store.Conversation {
 }
 
 func (a *app) newChat() {
-	if a.current() != nil && len(a.current().Messages) == 0 && a.draft == "" && len(a.attachments) == 0 {
-		a.composer.Focus()
+	if chat := a.current(); chat != nil && chat.ProviderID == a.state.Settings.ActiveProviderID && len(chat.Messages) == 0 && chat.WebURL == "" && a.draft == "" && len(a.attachments) == 0 {
+		if a.isDoubaoChat(chat) {
+			a.focusDoubaoChat()
+		} else {
+			a.composer.Focus()
+		}
 		return
 	}
 	a.rememberDraft()
 	a.closePreview()
+	a.parkDoubaoChat()
 	a.editMessageID, a.editText = "", ""
 	now := time.Now()
 	chat := store.Conversation{ID: newID(), Title: "New Chat", Model: a.newChatModel(), ProviderID: a.state.Settings.ActiveProviderID, ReasoningEffort: a.state.Settings.ReasoningEffort, ThinkingBudgetTokens: a.state.Settings.ThinkingBudgetTokens, CreatedAt: now, UpdatedAt: now}
+	if p := a.provider(chat.ProviderID); p != nil && p.Kind == store.ProviderKindDoubao {
+		chat.WebKind = store.ProviderKindDoubao
+	}
 	a.state.Conversations = append([]store.Conversation{chat}, a.state.Conversations...)
 	a.state.ActiveID = chat.ID
 	a.draft = ""
 	a.attachments = nil
 	a.list = ui.ListState{}
 	a.save()
-	a.composer.Focus()
+	if !a.isDoubaoChat(a.current()) {
+		a.composer.Focus()
+	}
 }
 
 func (a *app) rememberDraft() {
@@ -271,6 +289,7 @@ func (a *app) rememberDraft() {
 func (a *app) selectChat(id string) {
 	if a.state.ActiveID != id {
 		a.closePreview()
+		a.parkDoubaoChat()
 		a.editMessageID, a.editText = "", ""
 		a.rememberDraft()
 		a.state.ActiveID = id
@@ -279,7 +298,11 @@ func (a *app) selectChat(id string) {
 		a.list = ui.ListState{}
 		a.save()
 	}
-	a.composer.Focus()
+	if a.isDoubaoChat(a.current()) {
+		a.focusDoubaoChat()
+	} else {
+		a.composer.Focus()
+	}
 }
 
 func (a *app) openSettings(page string) {
@@ -299,7 +322,10 @@ func (a *app) openSettings(page string) {
 		return
 	}
 	a.settingsWin = mygo.NewWindow(mygo.WindowOptions{Title: "Settings — Copilot Chat", Width: 900, Height: 620, MinWidth: 700, MinHeight: 480, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 48, Content: ui.View(a.settingsView)})
-	a.settingsWin.OnClosed(func() { a.settingsWin = nil })
+	a.settingsWin.OnClosed(func() {
+		a.closeDoubaoSettings()
+		a.settingsWin = nil
+	})
 }
 
 func (a *app) applyAppearance() { mygo.Theme.SetSource(mygo.ThemeSource(a.state.Settings.Theme)) }

@@ -1,6 +1,6 @@
 # Copilot Chat
 
-基于 [MyGo](https://github.com/egoist/mygo) 的原生 AI 聊天客户端，支持 GitHub Copilot 和 Microsoft 365 Copilot，可在 Windows 和 macOS 上运行。
+基于 [MyGo](https://github.com/egoist/mygo) 的原生 AI 聊天客户端，支持 GitHub Copilot、Microsoft 365 Copilot 和豆包网页版，可在 Windows 和 macOS 上运行。
 
 ## 下载与平台
 
@@ -30,6 +30,7 @@ go run .
 
 - [GitHub Copilot](docs/copilot.md)
 - [Microsoft 365 Copilot](docs/m365.md)
+- [豆包网页版](docs/doubao.md)
 - [MCP 配置](docs/mcp.md)
 - [LLM Gateway / Agent 配置](docs/agents.md)
 - [构建与发布](docs/building.md)

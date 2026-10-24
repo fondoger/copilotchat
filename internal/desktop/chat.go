@@ -669,7 +669,7 @@ func fileSize(n int64) string {
 
 func (a *app) exportChat(id string) {
 	chat := a.conversation(id)
-	if chat == nil || a.win == nil {
+	if chat == nil || a.win == nil || a.isDoubaoChat(chat) {
 		return
 	}
 	var text strings.Builder

@@ -24,7 +24,9 @@ func (a *app) autosaveProviderForm(id string, form *providerForm) {
 		return
 	}
 	host := store.M365ProviderHost
-	if p.Kind != store.ProviderKindM365 {
+	if p.Kind == store.ProviderKindDoubao {
+		host = store.DoubaoHost
+	} else if p.Kind != store.ProviderKindM365 {
 		var err error
 		host, err = github.NormalizeHost(form.Host)
 		if err != nil {
@@ -102,7 +104,13 @@ func (a *app) providersPage(c *ui.Context) {
 				remove.OnClick(func() { _ = a.removeProvider(a.providerSettingsID) })
 			})
 		})
-		ui.Scroll(c.Key("provider-detail-" + a.providerSettingsID)).Grow(1).MinWidth(0).Padding(16).Gap(14).Children(func() { a.providerSettings(c) })
+		selected := a.provider(a.providerSettingsID)
+		if selected != nil && selected.Kind == store.ProviderKindDoubao {
+			ui.Column(c.Key("provider-detail-" + selected.ID)).Grow(1).MinWidth(0).MinHeight(0).Padding(16).Gap(14).Children(func() { a.providerSettings(c) })
+		} else {
+			a.closeDoubaoSettings()
+			ui.Scroll(c.Key("provider-detail-" + a.providerSettingsID)).Grow(1).MinWidth(0).Padding(16).Gap(14).Children(func() { a.providerSettings(c) })
+		}
 	})
 }
 
@@ -112,7 +120,7 @@ func (a *app) addProviderButton(c *ui.Context) {
 	t := c.Theme()
 	ui.PopoverBase(c.Key("add-provider-popup"), trigger, open, func(panel ui.Element) {
 		panel.Width(244).Margin(4, 0, 0, 0).Padding(4).Gap(2).Radius(8).Border(1, t.Border).Background(t.Background).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .18))
-		for _, kind := range []string{store.ProviderKindGitHub, store.ProviderKindM365} {
+		for _, kind := range []string{store.ProviderKindGitHub, store.ProviderKindM365, store.ProviderKindDoubao} {
 			name := providerKindName(kind)
 			item := ui.ButtonBase(c.Key(kind)).FillWidth().Height(34).Padding(6, 8).Gap(8).Radius(5).Justify(ui.Start).Label("Add " + name)
 			if item.Hovered() {
@@ -134,6 +142,8 @@ func (a *app) addProviderButton(c *ui.Context) {
 				host := "github.com"
 				if kind == store.ProviderKindM365 {
 					host = store.M365ProviderHost
+				} else if kind == store.ProviderKindDoubao {
+					host = store.DoubaoHost
 				}
 				_, _ = a.addProviderKind(kind, name, host)
 				*open = false
@@ -158,6 +168,17 @@ func (a *app) providerSettings(c *ui.Context) {
 		enabled := !p.Disabled
 		ui.Switch(c, &enabled).Label("Enable provider").OnChange(func() { a.setProviderEnabled(id, enabled) })
 	})
+	if p.Kind == store.ProviderKindDoubao {
+		ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+			ui.Text(c, "Provider name").FontWeight(500)
+			ui.TextInput(c.Key("provider-name-"+id), &form.Name).FillWidth().Label("Provider name input").OnChange(func() { a.autosaveProviderForm(id, form) })
+			if form.Error != "" {
+				ui.Text(c, form.Error).FontSize(12).TextColor(t.Danger)
+			}
+		})
+		a.doubaoProviderView(c, id)
+		return
+	}
 	description := "Use the models included with this GitHub Copilot account."
 	if microsoft {
 		description = "Use your Microsoft Entra work account to access the Microsoft 365 Copilot models enabled by your organization."

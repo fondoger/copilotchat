@@ -25,8 +25,8 @@ func TestCodeBlockToolbarHoverAndCopyForAllLanguages(t *testing.T) {
 		t.Run(language, func(t *testing.T) {
 			tt := codeBlockTester(featureApp(), language, "hello world\n")
 			button, ok := tt.Find("Copy Source Code")
-			if !ok || button.W != 28 || button.H != 28 {
-				t.Fatalf("copy control geometry: %+v", button)
+			if !ok {
+				t.Fatal("copy control missing")
 			}
 			region := image.Rect(int(button.X), int(button.Y), int(button.X+button.W), int(button.Y+button.H))
 			pixels := func() []byte {

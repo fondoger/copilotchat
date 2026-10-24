@@ -25,6 +25,9 @@ const (
 	DefaultProviderID                  = "github.com"
 	ProviderKindGitHub                 = "github-copilot"
 	ProviderKindM365                   = "m365-copilot"
+	ProviderKindDoubao                 = "doubao-web"
+	DoubaoHost                         = "www.doubao.com"
+	DoubaoChatURL                      = "https://www.doubao.com/chat"
 	M365ProviderHost                   = microsoft.Host
 	DefaultUpdateIntervalHours         = 24
 	DefaultSidebarWidth        float32 = 240
@@ -135,6 +138,9 @@ type Message struct {
 }
 
 type Conversation struct {
+	WebKind              string    `json:"webKind,omitempty"`
+	WebURL               string    `json:"webUrl,omitempty"`
+	TitleManual          bool      `json:"titleManual,omitempty"`
 	ProviderID           string    `json:"providerId"`
 	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`
 	ThinkingBudgetTokens int       `json:"thinkingBudgetTokens,omitempty"`
@@ -360,12 +366,31 @@ func validateProviders(state *State) error {
 			}
 			p.Host = M365ProviderHost
 			defaultName = "Microsoft 365 Copilot"
+		case ProviderKindDoubao:
+			if p.Host != "" && p.Host != DoubaoHost {
+				return fmt.Errorf("provider %q: Doubao must use %s", p.Name, DoubaoHost)
+			}
+			p.Host = DoubaoHost
+			defaultName = "豆包"
 		default:
 			return fmt.Errorf("provider %q: unsupported provider kind %q", p.Name, p.Kind)
 		}
 		p.Name = strings.TrimSpace(p.Name)
 		if p.Name == "" {
 			p.Name = defaultName
+		}
+	}
+	for i := range state.Conversations {
+		chat := &state.Conversations[i]
+		if chat.WebKind != "" && chat.WebKind != ProviderKindDoubao {
+			return fmt.Errorf("conversation %q: unsupported web provider kind", chat.ID)
+		}
+		if chat.WebURL != "" {
+			canonical, ok := DoubaoConversationURL(chat.WebURL)
+			if !ok || chat.WebKind != ProviderKindDoubao {
+				return fmt.Errorf("conversation %q: invalid Doubao conversation URL", chat.ID)
+			}
+			chat.WebURL = canonical
 		}
 	}
 	if !seen[state.Settings.ActiveProviderID] {

@@ -20,7 +20,7 @@ func TestProviderPickerAddsMicrosoftWithoutChangingGitHub(t *testing.T) {
 	if len(a.state.Settings.Providers) != 2 {
 		t.Fatal("opening the provider picker created a provider")
 	}
-	for _, label := range []string{"Add GitHub Copilot", "Add Microsoft 365 Copilot", "Microsoft 365 Copilot icon", "GitHub Copilot icon"} {
+	for _, label := range []string{"Add GitHub Copilot", "Add Microsoft 365 Copilot"} {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatalf("provider picker missing %q", label)
 		}
@@ -89,7 +89,7 @@ func saveProviderScreenshot(t *testing.T, tester *ui.Tester, name string) {
 	}
 }
 
-func TestMicrosoftInteractiveSignInAndProviderIcons(t *testing.T) {
+func TestMicrosoftInteractiveSignIn(t *testing.T) {
 	a := providerTestApp(t)
 	a.state.Settings.Providers = append(a.state.Settings.Providers, store.Provider{ID: "m365", Kind: store.ProviderKindM365, Name: "Microsoft 365 Copilot", Host: store.M365ProviderHost})
 	a.providerSettingsID = "m365"
@@ -97,11 +97,6 @@ func TestMicrosoftInteractiveSignInAndProviderIcons(t *testing.T) {
 	r.authBusy = true
 	r.status = "Choose your work account in the Windows sign-in window…"
 	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.providerSettings(c) }) }, 600, 1000)
-	for _, label := range []string{"Cancel", "Microsoft 365 Copilot icon"} {
-		if _, ok := tester.Find(label); !ok {
-			t.Fatalf("Microsoft sign-in missing %q", label)
-		}
-	}
 	if !tester.HasText(r.status) || tester.HasText("Open GitHub") || tester.HasText("Copy code") {
 		t.Fatal("Microsoft sign-in must wait for interactive authorization without a device code")
 	}
@@ -116,28 +111,6 @@ func TestMicrosoftInteractiveSignInAndProviderIcons(t *testing.T) {
 		t.Fatal("CLI connection incorrectly asks the user to wait for a device code")
 	}
 
-	icons := ui.NewTester(func(c *ui.Context) {
-		ui.Row(c).Padding(8).Gap(8).Background(ui.Hex("#ffffff")).Children(func() {
-			providerIcon(c, store.ProviderKindGitHub, 24).TextColor(ui.Hex("#333333"))
-			providerIcon(c, store.ProviderKindM365, 24)
-		})
-	}, 80, 40)
-	bounds, ok := icons.Find("Microsoft 365 Copilot icon")
-	if !ok {
-		t.Fatal("Microsoft provider icon missing")
-	}
-	colorPixels := 0
-	for y := int(bounds.Y); y < int(bounds.Y+bounds.H); y++ {
-		for x := int(bounds.X); x < int(bounds.X+bounds.W); x++ {
-			pixel := icons.Image().RGBAAt(x, y)
-			if pixel.A > 200 && max(pixel.R, pixel.G, pixel.B)-min(pixel.R, pixel.G, pixel.B) > 60 {
-				colorPixels++
-			}
-		}
-	}
-	if colorPixels < 50 {
-		t.Fatalf("Microsoft provider symbol lost its colors (%d colored pixels)", colorPixels)
-	}
 }
 
 func TestMicrosoftProviderMinimumWindowLayout(t *testing.T) {

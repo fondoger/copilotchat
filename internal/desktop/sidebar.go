@@ -51,7 +51,11 @@ func (a *app) sidebar(c *ui.Context) {
 					row.Background(hovered)
 				}
 				row.Children(func() {
-					ui.Icon(c, iChat).Size(16, 16).Shrink(0)
+					if a.isDoubaoChat(chat) {
+						providerIcon(c, store.ProviderKindDoubao, 16)
+					} else {
+						ui.Icon(c, iChat).Size(16, 16).Shrink(0)
+					}
 					ui.Text(c, chat.Title).Font(chatTitleFontFamily()).FontSize(14).FontWeight(500).SingleLine().Grow(1)
 					a.sidebarChatActions(c, chat, over)
 				})
@@ -378,6 +382,10 @@ func (a *app) modelPickerToggle(c *ui.Context) func() {
 // only covers that toolbar's focus subtree, not the composer or popup search.
 func (a *app) applicationMenuShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyL, func() {
+		if a.isDoubaoChat(a.current()) {
+			a.focusDoubaoChat()
+			return
+		}
 		if !a.composer.Focused(c) {
 			a.composer.Focus(c)
 		}
@@ -386,6 +394,12 @@ func (a *app) applicationMenuShortcuts(c *ui.Context) {
 	// The native composer keeps focus while this lightweight popup is open.
 	// Route Escape at the window root as well as the overlay's own handler.
 	picker := ui.Local(c.Root(), "top-model-picker", func() modelPickerState { return modelPickerState{} })
+	if a.webModelToggle {
+		a.webModelToggle = false
+		if !a.streaming {
+			picker.Open = !picker.Open
+		}
+	}
 	if picker.Open {
 		c.OnShortcut(0, ui.KeyEscape, func() { picker.Open = false })
 	}
@@ -563,7 +577,7 @@ func (a *app) chatMenu(m *ui.Menu, chat *store.Conversation) {
 		a.save()
 	}
 	m.Separator()
-	if m.Item("Export Markdown…").Chosen() {
+	if m.Item("Export Markdown…").Disabled(a.isDoubaoChat(chat)).Chosen() {
 		a.exportChat(chat.ID)
 	}
 	m.Separator()

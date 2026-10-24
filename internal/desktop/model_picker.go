@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/store"
 )
 
 // Small stroke icons keep a consistent size with the original model picker.
@@ -50,7 +51,9 @@ func (a *app) modelPicker(c *ui.Context) {
 		state.Open = false
 	}
 	label := a.selectedModel()
-	if model, ok := a.modelForProvider(a.selectedProviderID(), label); ok {
+	if a.isDoubaoChat(a.current()) {
+		label = "豆包"
+	} else if model, ok := a.modelForProvider(a.selectedProviderID(), label); ok {
 		label = modelDisplayName(model)
 	}
 	if label == "" {
@@ -89,6 +92,9 @@ func (a *app) modelPicker(c *ui.Context) {
 		ui.Scroll(c.Key("model-picker-list")).Label("Model list").MaxHeight(min(float32(510), height-100)).Padding(0, scrollbarGutter, 0, 0).Gap(6).Children(func() {
 			count := 0
 			for _, configured := range a.state.Settings.Providers {
+				if configured.Kind == store.ProviderKindDoubao {
+					continue
+				}
 				if a.clientForProvider(configured.ID) == nil {
 					continue
 				}
@@ -147,6 +153,36 @@ func (a *app) modelPicker(c *ui.Context) {
 						pin.OnClick(func() { a.toggleModelPin(configured.ID, model.ID) })
 					})
 				}
+			}
+			webGroupShown := false
+			for _, configured := range a.state.Settings.Providers {
+				if configured.Kind != store.ProviderKindDoubao || configured.Disabled {
+					continue
+				}
+				if !webGroupShown {
+					ui.Row(c.Key("group-web-chat")).Padding(4, 8).Gap(7).Children(func() {
+						ui.Icon(c, iEmptyChat).Size(16, 16).TextColor(t.TextMuted)
+						ui.Text(c, "Web Chat").FontSize(12).FontWeight(500).TextColor(t.TextMuted)
+					})
+					webGroupShown = true
+				}
+				count++
+				selectButton := ui.ButtonBase(c.Key("web-provider-"+configured.ID)).FillWidth().MinWidth(0).Height(32).Padding(5, 8).Gap(8).Radius(6).Justify(ui.Start).Label("Choose " + configured.Name)
+				if selectButton.Hovered() {
+					selectButton.Background(t.SurfaceHover)
+				}
+				selectButton.Children(func() {
+					if a.isDoubaoChat(a.current()) && a.selectedProviderID() == configured.ID {
+						ui.Icon(c, modelCheckIcon).Size(16, 16).TextColor(t.Success)
+					} else {
+						ui.Box(c).Size(16, 16)
+					}
+					providerIcon(c, configured.Kind, 16)
+					ui.Text(c, configured.Name).FontSize(13).Grow(1).MinWidth(0).SingleLine()
+				}).OnClick(func() {
+					a.chooseDoubao(configured.ID)
+					state.Open = false
+				})
 			}
 			if count == 0 {
 				ui.Text(c, "No available models").Padding(12).TextColor(t.TextMuted)

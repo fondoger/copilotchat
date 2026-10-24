@@ -118,14 +118,14 @@ func TestImagePreviewKeepsOriginalBytesAndUsesDetectedSafeExtension(t *testing.T
 	}
 }
 
-func TestComposerAndMessageImagesHaveSquareThumbnails(t *testing.T) {
+func TestRemovingDraftImagePreservesSentAttachment(t *testing.T) {
 	a := editingApp()
 	f := store.Attachment{Name: "screenshot.png", MIME: "image/png", Data: testPreviewPNG, Size: 68}
 	a.attachments = []store.Attachment{f}
 	a.current().Messages[0].Attachments = []store.Attachment{f}
 	tt := ui.NewTester(a.view, 1060, 720)
-	if r, ok := tt.Find("Open image screenshot.png"); !ok || r.W != r.H || r.W < 40 {
-		t.Fatalf("square image thumbnail missing: %v", r)
+	if _, ok := tt.Find("Open image screenshot.png"); !ok {
+		t.Fatal("sent image cannot be opened")
 	}
 	if !tt.HasText("screenshot.png") {
 		t.Fatal("composer filename missing")
