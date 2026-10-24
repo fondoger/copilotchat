@@ -10,6 +10,7 @@ func TestWebChatShortcutsRejectUnownedCalls(t *testing.T) {
 	a, _ := doubaoTestApp()
 	bridge := &webChatShortcuts{app: a}
 	bridge.Invoke(context.Background(), "sidebar")
+	bridge.DraftChanged(context.Background())
 	if a.sidebarHidden {
 		t.Fatal("caller without an owned page executed a command")
 	}

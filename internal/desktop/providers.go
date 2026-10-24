@@ -259,16 +259,7 @@ func (a *app) chooseModel(providerID, modelID string) {
 	if _, ok := a.modelForProvider(providerID, modelID); !ok {
 		return
 	}
-	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, modelID
-	a.state.Settings.ReasoningEffort = ""
-	a.state.Settings.ThinkingBudgetTokens = 0
-	if a.isDoubaoChat(a.current()) {
-		a.newChat()
-	} else if chat := a.current(); chat != nil {
-		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
-		chat.ThinkingBudgetTokens = 0
-	}
-	a.saveSettings()
+	a.chooseChatProvider(providerID, modelID)
 }
 
 func (a *app) chooseDoubao(providerID string) {
@@ -276,11 +267,74 @@ func (a *app) chooseDoubao(providerID string) {
 	if p == nil || p.Disabled || p.Kind != store.ProviderKindDoubao || a.streaming {
 		return
 	}
-	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, ""
-	a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens = "", 0
+	a.chooseChatProvider(providerID, "")
+}
+
+func (a *app) chooseChatProvider(providerID, modelID string) {
+	a.modelSelection++
+	request := a.modelSelection
 	chat := a.current()
-	if chat == nil || !a.isDoubaoChat(chat) || chat.ProviderID != providerID {
+	if a.isDoubaoChat(chat) && chat.ProviderID != providerID && a.doubaoChat != nil && a.doubaoChat.view != nil {
+		p := a.doubaoChat
+		id, generation, page := chat.ID, p.generation, p.view.Page()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			snapshot, err := readDoubaoSnapshot(ctx, page)
+			a.update(func() {
+				if a.modelSelection != request || a.state.ActiveID != id || !a.currentDoubao(p) || p.generation != generation {
+					return
+				}
+				if err == nil {
+					a.applyDoubaoSnapshot(p, snapshot)
+				}
+				a.finishChatProvider(providerID, modelID, err == nil && !p.startedChat && !snapshot.Started && doubaoBlankRoute(snapshot.URL) && snapshot.URL == page.URL())
+			})
+		}()
+		return
+	}
+	// No live page means this local draft has not yet opened a web document.
+	a.finishChatProvider(providerID, modelID, a.doubaoChat == nil || !a.doubaoChat.startedChat)
+}
+
+func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
+	provider := a.provider(providerID)
+	if provider == nil || provider.Disabled || a.streaming {
+		return
+	}
+	web := provider.Kind == store.ProviderKindDoubao
+	if !web {
+		if _, ok := a.modelForProvider(providerID, modelID); !ok || !modelAllowed(provider, modelID) {
+			return
+		}
+	}
+	chat := a.current()
+	wasWeb := a.isDoubaoChat(chat)
+	cross := chat != nil && (wasWeb != web || wasWeb && chat.ProviderID != providerID)
+	reuse := chat != nil && len(chat.Messages) == 0 && chat.WebURL == "" && (!wasWeb || webUnused)
+	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, modelID
+	a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens = "", 0
+	if cross && !reuse || chat == nil && web {
 		a.newChat()
+	} else if chat != nil && (!web || cross) {
+		if wasWeb {
+			if p := a.doubaoChat; p != nil {
+				p.resetDraft = true
+				if p.cancel != nil {
+					p.cancel()
+				}
+			}
+			a.parkDoubaoChat()
+		}
+		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
+		chat.ThinkingBudgetTokens, chat.WebKind = 0, ""
+		if web {
+			chat.WebKind = store.ProviderKindDoubao
+			chat.WebStarted = chat.WebStarted || a.draft != "" || len(a.attachments) != 0
+		} else {
+			a.composer.Focus()
+		}
+		a.rememberDraft()
 	}
 	a.saveSettings()
 }

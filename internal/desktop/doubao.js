@@ -27,11 +27,38 @@
     window.mygo.call('WebChatShortcuts.Invoke', command).catch(() => {});
   }, true);
 
-  let pending = false, createdURL = '';
+  const editor = () => document.querySelector('#chat-route-main [contenteditable="true"]') || document.querySelector('#chat-route-main textarea');
+  const text = node => {
+    if (!node.isContentEditable) return node.value;
+    const blocks = Array.from(node.children);
+    if (blocks.length && blocks.every(block => block.tagName === 'P')) {
+      return blocks.map(block => block.textContent ? block.innerText : '').join('\n');
+    }
+    return node.textContent ? node.innerText : '';
+  };
+  const notify = () => window.mygo?.call('WebChatShortcuts.DraftChanged').catch(() => {});
+  let edited = false, restored = false, restoring = false, lastText = '';
+  for (const event of ['input', 'compositionend']) document.addEventListener(event, e => {
+    const node = editor();
+    if (node && (e.target === node || node.contains(e.target))) {
+      const value = text(node);
+      if (!restoring && value !== lastText) edited = true;
+      lastText = value;
+      notify();
+    }
+  }, true);
+
+  let pending = false, started = false, createdURL = '';
   const observeRoute = () => {
     if (createdURL) return;
     const path = location.pathname;
-    if (/^\/chat\/local_\d+$/.test(path)) pending = true;
+    if (/^\/chat\/local_\d+$/.test(path)) {
+      pending = true;
+      if (!started) {
+        started = true;
+        notify();
+      }
+    }
     else {
       if (pending && /^\/chat\/\d+$/.test(path)) createdURL = location.origin + path;
       pending = false;
@@ -50,7 +77,35 @@
   window.__copilotDoubao = {
     snapshot() {
       observeRoute();
-      return {url: location.href, title: document.title, createdURL};
+      const node = editor();
+      return {url: location.href, title: document.title, createdURL, started, edited, draft: node && (restored || edited) ? text(node) : null};
+    },
+    restoreDraft(value) {
+      const node = editor();
+      if (!node) return false;
+      if (restored || edited || started || !/^\/chat\/?$/.test(location.pathname)) return true;
+      restored = true;
+      lastText = text(node);
+      if (lastText || !value) return true;
+      restoring = true;
+      try {
+        if (node.isContentEditable) {
+          node.focus();
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.execCommand('insertText', false, value);
+        } else {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(node, value);
+          node.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+      } finally {
+        restoring = false;
+        lastText = text(node);
+      }
+      return true;
     }
   };
   observeRoute();

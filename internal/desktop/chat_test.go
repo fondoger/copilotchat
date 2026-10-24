@@ -109,6 +109,44 @@ func TestCancellationInvalidatesLoginModelsAndTitleJobs(t *testing.T) {
 	}
 }
 
+func TestNewChatReusesMatchingPlaceholderAfterVisitingHistory(t *testing.T) {
+	a := &app{state: store.DefaultState()}
+	a.newChat()
+	blankID := a.state.ActiveID
+	a.state.Conversations = append(a.state.Conversations, store.Conversation{ID: "web-history", WebKind: store.ProviderKindDoubao, WebURL: store.DoubaoChatURL + "/123", Title: "Existing"})
+	for range 5 {
+		a.selectChat("web-history")
+		a.newChat()
+		if a.state.ActiveID != blankID || len(a.state.Conversations) != 2 {
+			t.Fatal("New Chat duplicated the existing matching placeholder")
+		}
+	}
+	a.draft = "keep draft"
+	a.newChat()
+	if a.state.ActiveID == blankID || a.drafts[blankID].Text != "keep draft" {
+		t.Fatal("New Chat reused a nonempty draft")
+	}
+}
+
+func TestNewChatDoesNotReuseDifferentOrMeaningfulPlaceholders(t *testing.T) {
+	for _, change := range []func(*store.Conversation){
+		func(c *store.Conversation) { c.Model = "another-model" },
+		func(c *store.Conversation) { c.ProviderID = "another-provider" },
+		func(c *store.Conversation) { c.TitleManual = true },
+		func(c *store.Conversation) { c.Favorite = true },
+		func(c *store.Conversation) { c.WebStarted = true },
+	} {
+		a := &app{state: store.DefaultState()}
+		a.newChat()
+		id := a.state.ActiveID
+		change(a.current())
+		a.newChat()
+		if a.state.ActiveID == id {
+			t.Fatal("reused an incompatible or meaningful conversation")
+		}
+	}
+}
+
 func TestDraftNavigationAndNewChatKeepUnsentContent(t *testing.T) {
 	a := &app{state: store.DefaultState()}
 	a.state.ActiveID = "first"

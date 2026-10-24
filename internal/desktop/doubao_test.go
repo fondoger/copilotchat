@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -18,6 +19,82 @@ func doubaoTestApp() (*app, *doubaoView) {
 	p := &doubaoView{chatID: "local", providerID: "doubao"}
 	a.doubaoChat = p
 	return a, p
+}
+
+func TestDoubaoNavigationAbortDoesNotMaskLoadFailures(t *testing.T) {
+	for _, tc := range []struct {
+		platform string
+		code     int
+		aborted  bool
+	}{
+		{"windows", 9, true},  // WebView2 ConnectionAborted during rapid switching.
+		{"windows", 13, true}, // WebView2 OperationCanceled.
+		{"windows", -3, true},
+		{"darwin", -3, true},
+		{"windows", 7, false},  // ServerUnreachable.
+		{"windows", 8, false},  // Timeout.
+		{"windows", 12, false}, // CannotConnect.
+		{"darwin", 9, false},
+		{"darwin", 13, false},
+	} {
+		if got := doubaoNavigationAborted(tc.platform, tc.code); got != tc.aborted {
+			t.Errorf("%s error %d: aborted = %v", tc.platform, tc.code, got)
+		}
+	}
+}
+
+func TestDoubaoStartupWaitsForWindow(t *testing.T) {
+	a, _ := doubaoTestApp()
+	a.doubaoChat = nil
+	tt := ui.NewTester(a.view, 1060, 720)
+	tt.Frame()
+	if a.doubaoChat != nil || tt.HasText("Retry Doubao") {
+		t.Fatal("startup without an assigned window created a failed chat view")
+	}
+	ui.NewTester(func(c *ui.Context) { a.doubaoProviderView(c, "doubao") }, 900, 620).Frame()
+	if a.doubaoSettings != nil {
+		t.Fatal("settings startup created a failed view before its window was assigned")
+	}
+}
+
+func TestWebInputMarksPlaceholderForRestartRetention(t *testing.T) {
+	a, p := doubaoTestApp()
+	empty := ""
+	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &empty})
+	if a.current().WebStarted {
+		t.Fatal("empty editor counted as user content")
+	}
+	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &empty, Edited: true})
+	if !a.current().WebStarted {
+		t.Fatal("typed then cleared content was not retained")
+	}
+}
+
+func TestWebDraftPreservesAttachmentsOnlyWithoutTextEdits(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		text   string
+		edited bool
+		keep   bool
+	}{
+		{"unchanged", "原始文字\n🙂", false, true},
+		{"changed", "新文字", true, false},
+		{"changed back", "原始文字\n🙂", true, false},
+		{"cleared", "", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, p := doubaoTestApp()
+			a.draft = "原始文字\n🙂"
+			a.attachments = []store.Attachment{{Name: "image.png"}}
+			a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &tc.text, Edited: tc.edited})
+			if a.draft != tc.text || (len(a.attachments) == 1) != tc.keep {
+				t.Fatalf("draft %q, attachments %d", a.draft, len(a.attachments))
+			}
+			if (len(a.drafts["local"].Attachments) == 1) != tc.keep {
+				t.Fatal("saved draft retained stale attachments")
+			}
+		})
+	}
 }
 
 func TestDoubaoRequiresCreationEvidenceAndNeverRebinds(t *testing.T) {
@@ -144,6 +221,7 @@ function page(initial = 'https://www.doubao.com/chat', framed = false) {
   const document = {
     title: '豆包', head: {appendChild: x => styles.push(x)},
     createElement: () => ({}),
+    querySelector: () => null,
     addEventListener: (name, fn) => events[name] = fn,
   };
   const calls = [];
@@ -169,6 +247,52 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   assert.equal(state.__copilotDoubao, undefined); assert.equal(styles.length, 0);
 }
 {
+  const {state, events, calls} = page();
+  let value = '';
+  const editor = {isContentEditable: false, contains: target => target === editor,
+    get value() {return value}, set value(text) {value = text},
+    dispatchEvent(e) {events[e.type]({...e, target: editor})}};
+  state.HTMLTextAreaElement = function() {};
+  Object.defineProperty(state.HTMLTextAreaElement.prototype, 'value', {set(text) {this.value = text}});
+  state.Event = function(type, options) {this.type = type; Object.assign(this, options)};
+  assert.equal(state.__copilotDoubao.snapshot().draft, null);
+  assert.equal(state.__copilotDoubao.restoreDraft('草稿\n🙂'), false);
+  state.document.querySelector = selector => selector.endsWith('textarea') ? editor : null;
+  assert.equal(state.__copilotDoubao.restoreDraft('草稿\n🙂'), true);
+  assert.equal(value, '草稿\n🙂');
+  assert.equal(state.__copilotDoubao.snapshot().draft, value);
+  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+  events.input({target: editor}); // A webpage image-only change leaves the text alone.
+  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+  value = '';
+  events.input({target: editor});
+  assert.equal(state.__copilotDoubao.snapshot().draft, '');
+  state.__copilotDoubao.restoreDraft('stale');
+  assert.equal(value, '');
+  assert.ok(calls.some(call => call[0] === 'WebChatShortcuts.DraftChanged'));
+}
+{
+  const {state, events} = page();
+  const editor = {isContentEditable: true, children: [], textContent: 'user typed', innerText: 'user typed', contains: () => false};
+  state.document.querySelector = () => editor;
+  events.input({target: editor});
+  state.__copilotDoubao.restoreDraft('old native draft');
+  assert.equal(editor.innerText, 'user typed');
+}
+{
+  const {state, events} = page();
+  const editor = {isContentEditable: true, children: [
+    {tagName: 'P', textContent: 'first', innerText: 'first'},
+    {tagName: 'P', textContent: '', innerText: '\n'},
+    {tagName: 'P', textContent: '第二行 🙂', innerText: '第二行 🙂'}
+  ], contains: () => false};
+  state.document.querySelector = () => editor;
+  state.__copilotDoubao.restoreDraft('');
+  assert.equal(state.__copilotDoubao.snapshot().draft, 'first\n\n第二行 🙂');
+  events.input({target: editor});
+  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+}
+{
   const {state} = page();
   state.history.pushState({}, '', '/chat/999');
   assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
@@ -191,6 +315,7 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   const {state} = page();
   state.history.pushState({}, '', '/chat/local_123');
   state.history.replaceState({}, '', '/chat');
+  assert.equal(state.__copilotDoubao.snapshot().started, true);
   state.history.pushState({}, '', '/chat/999');
   assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
 }

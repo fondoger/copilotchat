@@ -24,6 +24,24 @@ func (s *webChatShortcuts) Invoke(ctx context.Context, command string) {
 	})
 }
 
+// Input notifications contain no text; the owned page worker reads the snapshot.
+func (s *webChatShortcuts) DraftChanged(ctx context.Context) {
+	page, window := mygo.CallerPage(ctx), mygo.CallerWindow(ctx)
+	if page == nil || window == nil || ctx.Err() != nil {
+		return
+	}
+	s.app.update(func() {
+		p := s.app.doubaoChat
+		if ctx.Err() != nil || p == nil || p.view == nil || p.view.IsDestroyed() || !s.app.currentDoubao(p) || page != p.view.Page() || window != s.app.win {
+			return
+		}
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+	})
+}
+
 func (a *app) webChatCommand(command string) {
 	switch command {
 	case "new-chat":

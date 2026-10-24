@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -34,12 +35,18 @@ type doubaoView struct {
 	idleTimer          *time.Timer
 	idleGeneration     uint64
 	wake               chan struct{}
+	generation         uint64
+	startedChat        bool
+	resetDraft         bool
 }
 
 type doubaoSnapshot struct {
-	URL        string `json:"url"`
-	Title      string `json:"title"`
-	CreatedURL string `json:"createdURL"`
+	URL        string  `json:"url"`
+	Title      string  `json:"title"`
+	CreatedURL string  `json:"createdURL"`
+	Started    bool    `json:"started"`
+	Edited     bool    `json:"edited"`
+	Draft      *string `json:"draft"`
 }
 
 func (p *doubaoView) trace(stage string) {
@@ -120,6 +127,26 @@ func (a *app) closeDoubaoProvider(id string) {
 func (a *app) focusDoubaoChat() {
 	if p := a.doubaoChat; p != nil && a.currentDoubao(p) && p.view != nil && !p.view.IsDestroyed() {
 		p.view.Focus()
+	}
+}
+
+// Empty web placeholders are useful within a session, but not after restarting.
+func (a *app) pruneEmptyWebChats() {
+	kept := a.state.Conversations[:0]
+	removed := false
+	for _, chat := range a.state.Conversations {
+		if a.isDoubaoChat(&chat) && chat.WebURL == "" && !chat.WebStarted && len(chat.Messages) == 0 && !chat.TitleManual && !chat.Favorite && (chat.Title == "New Chat" || chat.Title == "") {
+			removed = true
+			if a.state.ActiveID == chat.ID {
+				a.state.ActiveID = ""
+			}
+			continue
+		}
+		kept = append(kept, chat)
+	}
+	a.state.Conversations = kept
+	if removed {
+		a.save()
 	}
 }
 
@@ -226,6 +253,17 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 					return
 				}
 				p.ready = true
+				if p.chatID != "" && p.cancel == nil && a.currentDoubao(p) {
+					ctx, cancel := context.WithCancel(context.Background())
+					p.cancel = cancel
+					go a.pollDoubao(ctx, p, page, p.wake, a.draft, p.generation)
+				}
+				if p.wake != nil {
+					select {
+					case p.wake <- struct{}{}:
+					default:
+					}
+				}
 				if p.nextURL == "" && p.focusPending && a.currentDoubao(p) && a.settingsWin == nil && !a.searchOpen && !a.renameOpen && !a.deleteOpen {
 					p.view.Focus()
 					p.focusPending = !owner.IsFocused()
@@ -265,10 +303,12 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 	}
 	p.off = append(p.off,
 		page.OnDidFailLoad(func(err *mygo.LoadError) {
-			// Chromium reports intentional redirects/cancelled loads as -3.
-			if err.Code != -3 {
-				failed("Could not load Doubao: " + err.Description)
-			}
+			generation := p.generation
+			a.update(func() {
+				if a.currentDoubao(p) && p.generation == generation && !doubaoNavigationAborted(runtime.GOOS, err.Code) {
+					p.err = "Could not load Doubao: " + err.Description
+				}
+			})
 		}),
 		page.OnRenderProcessGone(func(string) { failed("The Doubao web process stopped.") }),
 	)
@@ -284,7 +324,7 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 			}
 		}))
 		// The worker captures only a page and its lifetime, never reads app state.
-		go a.pollDoubao(ctx, p, page, wake)
+		go a.pollDoubao(ctx, p, page, wake, a.draft, p.generation)
 	}
 	if err := page.LoadURL(target); err != nil {
 		p.err = "Could not load Doubao: " + err.Error()
@@ -292,10 +332,18 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 	return p
 }
 
+// Replacing an in-flight navigation can report an abort after the next one starts.
+// WebView2 uses its own positive status codes rather than Chromium's net errors.
+func doubaoNavigationAborted(platform string, code int) bool {
+	return code == -3 || platform == "windows" && (code == 9 || code == 13)
+}
+
 func (a *app) retargetDoubao(p *doubaoView, chat *store.Conversation) {
 	if p.cancel != nil {
 		p.cancel()
 	}
+	p.generation++
+	p.startedChat, p.resetDraft = false, false
 	p.chatID, p.providerID = chat.ID, chat.ProviderID
 	p.err, p.notice, p.ready = "", "", false
 	p.started, p.focusPending = time.Now(), true
@@ -303,9 +351,7 @@ func (a *app) retargetDoubao(p *doubaoView, chat *store.Conversation) {
 	if chat.WebURL != "" {
 		p.nextURL = chat.WebURL
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-	go a.pollDoubao(ctx, p, p.view.Page(), p.wake)
+	p.cancel = nil // Restart observation after the replacement document loads.
 	if err := p.view.Page().LoadURL("about:blank"); err != nil {
 		p.err = "Could not reset Doubao: " + err.Error()
 	}
@@ -331,9 +377,30 @@ func (a *app) doubaoRouteAllowed(p *doubaoView, raw string) bool {
 	return true // HTTPS authentication pages are allowed by the outer policy.
 }
 
-func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wake <-chan struct{}) {
+func doubaoBlankRoute(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host == store.DoubaoHost && (u.Path == "/chat" || u.Path == "/chat/")
+}
+
+func readDoubaoSnapshot(ctx context.Context, page *mygo.Page) (doubaoSnapshot, error) {
+	var snapshot doubaoSnapshot
+	value, err := page.EvalContext(ctx, `JSON.stringify(window.__copilotDoubao?.snapshot() || null)`)
+	if err != nil {
+		return snapshot, err
+	}
+	raw, ok := value.(string)
+	if !ok || raw == "null" {
+		return snapshot, context.Canceled
+	}
+	err = json.Unmarshal([]byte(raw), &snapshot)
+	return snapshot, err
+}
+
+func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wake <-chan struct{}, draft string, generation uint64) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	encoded, _ := json.Marshal(draft)
+	attempts := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -342,21 +409,20 @@ func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wa
 		case <-wake:
 		}
 		evalCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		value, err := page.EvalContext(evalCtx, `JSON.stringify(window.__copilotDoubao?.snapshot() || null)`)
+		if attempts < 10 {
+			value, _ := page.EvalContext(evalCtx, `window.__copilotDoubao?.restoreDraft(`+string(encoded)+`)`)
+			attempts++
+			if value == true {
+				attempts = 10
+			}
+		}
+		snapshot, err := readDoubaoSnapshot(evalCtx, page)
 		cancel()
 		if err != nil || ctx.Err() != nil {
 			continue
 		}
-		raw, ok := value.(string)
-		if !ok || raw == "null" {
-			continue
-		}
-		var snapshot doubaoSnapshot
-		if json.Unmarshal([]byte(raw), &snapshot) != nil {
-			continue
-		}
 		a.update(func() {
-			if ctx.Err() == nil && p.nextURL == "" {
+			if ctx.Err() == nil && p.nextURL == "" && p.generation == generation {
 				a.applyDoubaoSnapshot(p, snapshot)
 			}
 		})
@@ -370,6 +436,18 @@ func (a *app) applyDoubaoSnapshot(p *doubaoView, snapshot doubaoSnapshot) {
 		return
 	}
 	chat := a.conversation(p.chatID)
+	if !chat.WebStarted && (snapshot.Started || snapshot.Edited || snapshot.CreatedURL != "" || snapshot.Draft != nil && *snapshot.Draft != "") {
+		chat.WebStarted = true
+		a.save()
+	}
+	p.startedChat = p.startedChat || snapshot.Started || snapshot.CreatedURL != ""
+	if chat.WebURL == "" && !p.startedChat && doubaoBlankRoute(snapshot.URL) && snapshot.Draft != nil {
+		if snapshot.Edited || a.draft != *snapshot.Draft {
+			a.attachments = nil
+		}
+		a.draft = *snapshot.Draft
+		a.rememberDraft()
+	}
 	remote, ok := store.DoubaoConversationURL(snapshot.URL)
 	if !ok {
 		if u, err := url.Parse(snapshot.URL); err == nil && chat.WebURL != "" && u.Host == store.DoubaoHost && (u.Path == "/chat" || strings.HasPrefix(u.Path, "/chat/")) {
@@ -439,7 +517,7 @@ func (a *app) doubaoChatView(c *ui.Context, chat *store.Conversation) {
 		}
 		if p.owner == a.win && p.view != nil && !p.view.IsDestroyed() && p.err == "" {
 			a.doubaoChat = p
-			if p.chatID != chat.ID {
+			if p.chatID != chat.ID || p.resetDraft {
 				a.retargetDoubao(p, chat)
 			} else {
 				p.view.Focus()
@@ -447,6 +525,9 @@ func (a *app) doubaoChatView(c *ui.Context, chat *store.Conversation) {
 		} else {
 			destroyDoubao(p)
 		}
+	}
+	if a.win == nil {
+		return // NewWindow can render its content before assigning the owner.
 	}
 	if a.doubaoChat == nil {
 		target := store.DoubaoChatURL
@@ -472,6 +553,9 @@ func (a *app) doubaoProviderView(c *ui.Context, providerID string) {
 	}
 	if p := a.doubaoSettings; p != nil && (!a.currentDoubao(p) || p.providerID != providerID || (p.view != nil && p.view.IsDestroyed())) {
 		a.closeDoubaoSettings()
+	}
+	if a.settingsWin == nil {
+		return
 	}
 	if a.doubaoSettings == nil {
 		a.doubaoSettings = a.newDoubaoView(a.settingsWin, providerID, "", store.DoubaoChatURL)

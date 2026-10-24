@@ -140,6 +140,7 @@ type Message struct {
 type Conversation struct {
 	WebKind              string    `json:"webKind,omitempty"`
 	WebURL               string    `json:"webUrl,omitempty"`
+	WebStarted           bool      `json:"webStarted,omitempty"`
 	TitleManual          bool      `json:"titleManual,omitempty"`
 	ProviderID           string    `json:"providerId"`
 	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`

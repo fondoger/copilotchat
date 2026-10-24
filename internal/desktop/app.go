@@ -48,6 +48,7 @@ type app struct {
 	drafts                         map[string]chatDraft
 	sidebarHidden, searchOpen      bool
 	webModelToggle                 bool
+	modelSelection                 uint64
 	composer                       ui.Handle
 	list                           ui.ListState
 	md                             markdown.Options
@@ -105,6 +106,7 @@ func Run(dataDir string) error {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return nil
 	}
+	a.pruneEmptyWebChats()
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
 	a.loadProviders()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
@@ -141,6 +143,7 @@ func Run(dataDir string) error {
 			Title: "Copilot Chat", Width: 1060, Height: 720, MinWidth: 720, MinHeight: 480,
 			TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 50, StateKey: "main", Content: ui.View(a.view),
 		})
+		a.win.Invalidate()
 		a.win.OnClose(func(e *mygo.CloseEvent) {
 			if !a.quitting && a.state.Settings.StayInTray && a.tray != nil {
 				e.PreventDefault()
@@ -247,15 +250,15 @@ func (a *app) conversation(id string) *store.Conversation {
 }
 
 func (a *app) newChat() {
-	if chat := a.current(); chat != nil && chat.ProviderID == a.state.Settings.ActiveProviderID && len(chat.Messages) == 0 && chat.WebURL == "" && a.draft == "" && len(a.attachments) == 0 {
-		if a.isDoubaoChat(chat) {
-			a.focusDoubaoChat()
-		} else {
-			a.composer.Focus()
-		}
-		return
-	}
+	a.modelSelection++
 	a.rememberDraft()
+	for i := range a.state.Conversations {
+		chat := &a.state.Conversations[i]
+		if a.reusableNewChat(chat) {
+			a.selectChat(chat.ID)
+			return
+		}
+	}
 	a.closePreview()
 	a.parkDoubaoChat()
 	a.editMessageID, a.editText = "", ""
@@ -275,6 +278,22 @@ func (a *app) newChat() {
 	}
 }
 
+func (a *app) reusableNewChat(chat *store.Conversation) bool {
+	if chat.ProviderID != a.state.Settings.ActiveProviderID || chat.Model != a.newChatModel() || chat.ReasoningEffort != a.state.Settings.ReasoningEffort || chat.ThinkingBudgetTokens != a.state.Settings.ThinkingBudgetTokens || len(chat.Messages) != 0 || chat.WebURL != "" || chat.WebStarted || chat.TitleManual || chat.Favorite || (chat.Title != "New Chat" && chat.Title != "") {
+		return false
+	}
+	draft := a.drafts[chat.ID]
+	if draft.Text != "" || len(draft.Attachments) != 0 {
+		return false
+	}
+	for _, p := range []*doubaoView{a.doubaoChat, a.doubaoParked} {
+		if p != nil && p.chatID == chat.ID && p.startedChat {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *app) rememberDraft() {
 	if a.drafts == nil {
 		a.drafts = make(map[string]chatDraft)
@@ -287,6 +306,7 @@ func (a *app) rememberDraft() {
 }
 
 func (a *app) selectChat(id string) {
+	a.modelSelection++
 	if a.state.ActiveID != id {
 		a.closePreview()
 		a.parkDoubaoChat()
@@ -322,6 +342,7 @@ func (a *app) openSettings(page string) {
 		return
 	}
 	a.settingsWin = mygo.NewWindow(mygo.WindowOptions{Title: "Settings — Copilot Chat", Width: 900, Height: 620, MinWidth: 700, MinHeight: 480, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 48, Content: ui.View(a.settingsView)})
+	a.settingsWin.Invalidate()
 	a.settingsWin.OnClosed(func() {
 		a.closeDoubaoSettings()
 		a.settingsWin = nil
