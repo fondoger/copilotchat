@@ -72,3 +72,7 @@ func NameModels(models []Model, providers []ProviderIdentity) []Model {
 func supportsMessages(m provider.Model) bool {
 	return supports(m, "/v1/messages") || supports(m, "/responses")
 }
+
+func supportsResponses(m provider.Model) bool {
+	return supports(m, "/responses") || supports(m, "/v1/messages")
+}

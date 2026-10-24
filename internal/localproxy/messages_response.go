@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/fondoger/copilotchat/internal/provider"
@@ -71,6 +72,50 @@ func responseText(part object) (string, error) {
 	}
 }
 
+// Responses citations have URLs, not Anthropic's encrypted search results.
+// Keep attribution as ordinary text so it also survives stateless history replay.
+type responseSources []object
+
+func (s *responseSources) add(annotation object) {
+	if text(annotation["type"]) != "url_citation" {
+		return
+	}
+	u, err := url.Parse(text(annotation["url"]))
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+		return
+	}
+	for _, source := range *s {
+		if source["url"] == annotation["url"] {
+			return
+		}
+	}
+	*s = append(*s, annotation)
+}
+
+func (s *responseSources) collect(part object) {
+	for _, value := range array(part["annotations"]) {
+		s.add(obj(value))
+	}
+}
+
+func (s responseSources) text() string {
+	if len(s) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("\n\nSources:")
+	label := strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "\r", " ", "\n", " ")
+	escapeURL := strings.NewReplacer("<", "%3C", ">", "%3E", "\r", "%0D", "\n", "%0A", " ", "%20")
+	for _, source := range s {
+		title := text(source["title"])
+		if title == "" {
+			title = text(source["url"])
+		}
+		fmt.Fprintf(&out, "\n- [%s](<%s>)", label.Replace(title), escapeURL.Replace(text(source["url"])))
+	}
+	return out.String()
+}
+
 func responseTool(item object) (object, error) {
 	if text(item["call_id"]) == "" || text(item["name"]) == "" {
 		return nil, errors.New("Responses tool call is missing its call ID or name")
@@ -95,11 +140,15 @@ func responsesToMessage(response object, model string) (object, error) {
 	}
 	content := []any{}
 	tools := false
+	var sources responseSources
 	for _, value := range array(response["output"]) {
 		item := obj(value)
 		switch text(item["type"]) {
+		case "web_search_call":
+			// Search and page opens are executed by the provider, not the client.
 		case "message":
 			for _, v := range array(item["content"]) {
+				sources.collect(obj(v))
 				value, err := responseText(obj(v))
 				if err != nil {
 					return nil, err
@@ -119,6 +168,9 @@ func responsesToMessage(response object, model string) (object, error) {
 		default:
 			return nil, fmt.Errorf("Responses output item %q cannot be converted", text(item["type"]))
 		}
+	}
+	if attribution := sources.text(); attribution != "" {
+		content = append(content, object{"type": "text", "text": attribution})
 	}
 	id := text(response["id"])
 	if id == "" {
@@ -260,6 +312,7 @@ type messagesStream struct {
 	started, finished, tools bool
 	blocks                   []*messageBlock
 	byKey                    map[string]*messageBlock
+	sources                  responseSources
 }
 
 func newMessagesStream(w http.ResponseWriter, model string) *messagesStream {
@@ -342,6 +395,8 @@ func blockKey(output, part int) string { return fmt.Sprintf("text:%d:%d", output
 
 func (s *messagesStream) item(index int, item object, done bool) error {
 	switch text(item["type"]) {
+	case "web_search_call":
+		return nil
 	case "function_call":
 		if !done && (text(item["call_id"]) == "" || text(item["name"]) == "") {
 			return nil
@@ -389,6 +444,7 @@ func (s *messagesStream) item(index int, item object, done bool) error {
 			return nil
 		}
 		for i, value := range array(item["content"]) {
+			s.sources.collect(obj(value))
 			value, err := responseText(obj(value))
 			if err != nil {
 				return err
@@ -422,6 +478,16 @@ func (s *messagesStream) complete(response object) error {
 	}
 	for i, value := range array(response["output"]) {
 		if err := s.item(i, obj(value), true); err != nil {
+			return err
+		}
+	}
+	// A separate block avoids changing text already streamed and reconciled by fill.
+	if attribution := s.sources.text(); attribution != "" {
+		b, err := s.block("sources", "text", object{"type": "text", "text": ""})
+		if err != nil {
+			return err
+		}
+		if err := s.fill(b, attribution); err != nil {
 			return err
 		}
 	}
@@ -473,6 +539,8 @@ func (s *messagesStream) event(e object) error {
 		return s.item(index, obj(e["item"]), false)
 	case "response.output_item.done":
 		return s.item(index, obj(e["item"]), true)
+	case "response.output_text.annotation.added":
+		s.sources.add(obj(e["annotation"]))
 	case "response.output_text.delta", "response.refusal.delta":
 		b, err := s.block(blockKey(index, number(e["content_index"])), "text", object{"type": "text", "text": ""})
 		if err != nil {

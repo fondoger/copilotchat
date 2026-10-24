@@ -313,7 +313,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	desktopModels := clientModelIDs(models, desktop)
 	for i, candidate := range models {
-		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
+		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
 		matchesDesktop := desktop && desktopModels[i].ID == routeModelID
 		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop) && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
@@ -325,7 +325,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	// Published IDs take priority over compatibility aliases.
 	if desktop && providerCtx == nil {
 		for _, candidate := range models {
-			compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model))
+			compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
 			if compatible && claudeDesktopModelAliasMatches(candidate, routeModelID) {
 				if item := s.targets[candidate.ProviderID]; item != nil {
 					model, target, providerCtx = candidate, item.Target, item.ctx
@@ -348,6 +348,8 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		body, _ = json.Marshal(fields)
 	}
 	converted := protocol == "/v1/messages" && !supports(model.Model, "/v1/messages")
+	reverse := endpoint == "/responses" && !supports(model.Model, "/responses")
+	var bridge *responsesBridge
 	countTokens := endpoint == "/v1/messages/count_tokens"
 	if desktop && !countTokens {
 		body = normalizeDesktopEffort(body, model.Model)
@@ -360,6 +362,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		endpoint = "/responses"
+	}
+	if reverse {
+		body, stream, bridge, err = responsesToMessages(body, model.Model)
+		if err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		endpoint = "/v1/messages"
 	}
 	agent := false
 	vision := hasImages(envelope.Input)
@@ -391,7 +401,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.Unmarshal(envelope.Input, &input) == nil && len(input) > 0 {
 		last := input[len(input)-1]
-		agent = last.Type == "function_call_output" || last.Role == "assistant" || last.Role == "tool"
+		agent = last.Type == "function_call_output" || last.Type == "custom_tool_call_output" || last.Role == "assistant" || last.Role == "tool"
 	}
 	if endpoint == "/responses/compact" {
 		agent = true
@@ -416,7 +426,13 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		header.Del("Anthropic-Version")
 		header.Del("Anthropic-Beta")
 	}
-	if beta := r.URL.Query().Get("beta"); beta == "true" && !converted {
+	if reverse {
+		header = r.Header.Clone()
+		header.Del("OpenAI-Beta")
+		header.Del("Anthropic-Version")
+		header.Del("Anthropic-Beta")
+	}
+	if beta := r.URL.Query().Get("beta"); beta == "true" && !converted && !reverse {
 		query.Set("beta", beta)
 	}
 	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: header, ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
@@ -437,6 +453,10 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if converted {
 		writeMessagesResponse(w, response, envelope.Model, stream)
+		return
+	}
+	if reverse {
+		writeResponsesResponse(w, response, envelope.Model, stream, bridge)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

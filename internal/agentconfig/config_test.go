@@ -36,6 +36,10 @@ func TestLocalAgentConfiguration(t *testing.T) {
 		t.Fatal(text, err)
 	}
 	o.Model.Endpoint = "/v1/messages"
+	if config, err := Generate(o); err != nil || !strings.Contains(config, `wire_api = "responses"`) {
+		t.Fatal("Messages model was not exposed through the Responses bridge", config, err)
+	}
+	o.Model.Endpoint = "/chat/completions"
 	if _, err = Generate(o); err == nil {
 		t.Fatal("incompatible model accepted")
 	}

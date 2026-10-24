@@ -35,16 +35,12 @@ type Options struct {
 }
 
 func Compatible(model provider.Model, agent string) bool {
-	endpoint := ""
 	switch agent {
-	case ClaudeCode, ClaudeDesktop:
+	case ClaudeCode, ClaudeDesktop, Codex:
 		return hasEndpoint(model, "/v1/messages") || hasEndpoint(model, "/responses")
-	case Codex:
-		endpoint = "/responses"
 	default:
 		return false
 	}
-	return hasEndpoint(model, endpoint)
 }
 
 func hasEndpoint(model provider.Model, endpoint string) bool {
@@ -79,6 +75,8 @@ func Generate(o Options) (string, error) {
 			"disableNonessentialServices":     true,
 			"skipWebFetchPreflight":           false,
 			"disableDeploymentModeChooser":    true,
+			"sshHostAllowlist":                []string{"*"},
+			"builtinBrowserEnabled":           true,
 		}, "", "  ")
 		return string(data) + "\n", err
 	}

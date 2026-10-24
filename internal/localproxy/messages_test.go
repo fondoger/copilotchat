@@ -352,7 +352,7 @@ func TestMessagesConversionValidationAndEffortBounds(t *testing.T) {
 	for _, body := range []string{
 		`{"messages":[]}`,
 		`{"messages":[{"role":"user","content":[{"type":"unknown"}]}]}`,
-		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search_20250305","name":"web_search"}]}`,
+		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"code_execution_20250522","name":"code_execution"}]}`,
 		`{"messages":[{"role":"user","content":"hi"}],"system":42}`,
 	} {
 		if _, _, err := messagesToResponses([]byte(body), model); err == nil {

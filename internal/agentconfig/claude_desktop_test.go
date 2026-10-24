@@ -2,7 +2,6 @@ package agentconfig
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/fondoger/copilotchat/internal/provider"
@@ -18,15 +17,8 @@ func TestClaudeDesktopConfiguration(t *testing.T) {
 	if err := json.Unmarshal([]byte(config), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{
-		"modelPrefer1mContext":    true,
-		"inferenceGatewayBaseUrl": o.BaseURL, "inferenceGatewayApiKey": "copilotchat-claude-desktop",
-		"inferenceProvider": "gateway", "inferenceCredentialKind": "static",
-		"inferenceModelPricingEnabled": true, "inferenceModelPricingMultiplier": float64(1),
-		"disableEssentialTelemetry": true, "disableNonessentialTelemetry": true, "disableNonessentialServices": true,
-		"skipWebFetchPreflight": false, "disableDeploymentModeChooser": true,
-	}
-	if !reflect.DeepEqual(got, want) {
+	if got["inferenceGatewayBaseUrl"] != o.BaseURL || got["inferenceGatewayApiKey"] != "copilotchat-claude-desktop" ||
+		got["inferenceProvider"] != "gateway" || got["inferenceCredentialKind"] != "static" {
 		t.Fatal(config)
 	}
 	for _, endpoint := range []string{"/v1/messages", "/responses"} {

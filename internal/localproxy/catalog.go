@@ -16,12 +16,12 @@ var codexPrompt string
 
 // Codex uses a native catalog rather than the OpenAI data[] envelope. Keep its
 // slug and display name identical to the public ID and advertise only the
-// Responses models that this endpoint can actually route.
+// native or bridged Responses models that this endpoint can actually route.
 func CodexCatalog(models []Model) []byte {
 	data := []map[string]any{}
 	for _, model := range models {
 		m := model.Model
-		if !supports(m, "/responses") {
+		if !supportsResponses(m) {
 			continue
 		}
 		efforts := []map[string]string{}

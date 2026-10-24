@@ -178,9 +178,33 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 		dst["reasoning"] = object{"effort": effort, "summary": "auto"}
 	}
 	tools := []any{}
+	search := false
 	for _, value := range array(src["tools"]) {
 		tool := obj(value)
 		kind := text(tool["type"])
+		if kind == "web_search_20250305" {
+			if text(tool["name"]) != "web_search" {
+				return nil, false, errors.New("web_search_20250305 requires the name web_search")
+			}
+			for key, value := range tool {
+				if key == "max_uses" && value != nil {
+					limit, ok := value.(json.Number)
+					n, err := limit.Int64()
+					if !ok || err != nil || n <= 0 {
+						return nil, false, errors.New("web_search max_uses must be a positive integer")
+					}
+					// Responses limits all built-in tool calls, not just searches.
+					dst["max_tool_calls"] = limit
+					continue
+				}
+				if key != "type" && key != "name" && key != "cache_control" && value != nil {
+					return nil, false, fmt.Errorf("web_search option %q is not supported by the Responses bridge", key)
+				}
+			}
+			tools = append(tools, object{"type": "web_search"})
+			search = true
+			continue
+		}
 		if kind != "" && kind != "custom" {
 			return nil, false, fmt.Errorf("server tool %q is not supported by the Responses bridge; use client-side tools", kind)
 		}
@@ -208,7 +232,11 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 		case "any":
 			dst["tool_choice"] = "required"
 		case "tool":
-			dst["tool_choice"] = object{"type": "function", "name": choice["name"]}
+			if search && text(choice["name"]) == "web_search" {
+				dst["tool_choice"] = object{"type": "web_search"}
+			} else {
+				dst["tool_choice"] = object{"type": "function", "name": choice["name"]}
+			}
 		default:
 			return nil, false, errors.New("unsupported tool_choice")
 		}

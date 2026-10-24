@@ -1,5 +1,8 @@
 本文档记录 Claude Desktop 第三方网关模式的模型识别行为。
 
+参考文档：
+- 3P Inference json配置Reference：https://claude.com/docs/third-party/claude-desktop/configuration
+
 - 黑名单关键词: gpt、openai、codex、gemini、deepseek、qwen、glm...
 - 必须包含的关键词之一: claude、sonnet、opus、haiku、fable、mythos、anthropic
 - 通过模型校验仅代表模型会可用，但是如果不匹配已知的自家模型，则无法展示**推理强度选择器**. /v1/models API返回的effort无法控制实际展示的档位。

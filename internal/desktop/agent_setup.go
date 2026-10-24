@@ -156,7 +156,7 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 		var ok bool
 		o.Model, ok = agentModelByRef(models, ref)
 		if !ok {
-			return "", fmt.Errorf("Choose an enabled Responses model below for Codex")
+			return "", fmt.Errorf("Choose an enabled Messages or Responses model below for Codex")
 		}
 	}
 	return agentconfig.Generate(o)

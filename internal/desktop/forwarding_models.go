@@ -165,6 +165,6 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 			}
 		})
 		ui.Text(c, "Model IDs include their provider. Multiple accounts also include the account name.").FontSize(11).TextColor(t.TextMuted)
-		ui.Text(c, "Claude Code lists Messages and Responses models. Codex lists Responses models.").FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, "Claude Code and Codex list Messages and Responses models.").FontSize(11).TextColor(t.TextMuted)
 	})
 }
