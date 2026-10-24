@@ -38,7 +38,7 @@ func TestDoubaoURLBoundary(t *testing.T) {
 		"https://www.doubao.com/chat/38447877386550786",
 		"https://www.doubao.com/chat/38447877386550786?source=chat#latest",
 	} {
-		got, ok := DoubaoConversationURL(raw)
+		got, ok := WebConversationURL(ProviderKindDoubao, raw)
 		if !ok || got != DoubaoChatURL+"/38447877386550786" {
 			t.Fatalf("valid route %q rejected: %q", raw, got)
 		}
@@ -51,7 +51,7 @@ func TestDoubaoURLBoundary(t *testing.T) {
 		"https://www.doubao.com/chat/%31%32%33", "https://www.doubao.com/chat/../123",
 		"https://www.doubao.com/chat/1e3", "https://www.doubao.com/security/doubao-region-ban",
 	} {
-		if got, ok := DoubaoConversationURL(raw); ok {
+		if got, ok := WebConversationURL(ProviderKindDoubao, raw); ok {
 			t.Errorf("unsafe/non-conversation route accepted: %q -> %q", raw, got)
 		}
 	}

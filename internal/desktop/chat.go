@@ -23,7 +23,7 @@ import (
 
 func (a *app) send() bool {
 	text := strings.TrimSpace(a.draft)
-	if a.streaming || (text == "" && len(a.attachments) == 0) {
+	if a.streaming || a.isWebChat(a.current()) || (text == "" && len(a.attachments) == 0) {
 		return false
 	}
 	if p := a.provider(a.selectedProviderID()); p != nil && p.Disabled {
@@ -99,7 +99,7 @@ func localTitle(text string, files []store.Attachment) string {
 
 func (a *app) retryLast() {
 	chat := a.current()
-	if a.streaming || chat == nil || len(chat.Messages) < 2 {
+	if a.streaming || chat == nil || a.isWebChat(chat) || len(chat.Messages) < 2 {
 		return
 	}
 	if chat.Messages[len(chat.Messages)-1].Role != "assistant" {
@@ -232,6 +232,9 @@ func completeToolHistory(messages []provider.Message) []provider.Message {
 }
 
 func (a *app) startReply(chat *store.Conversation) {
+	if chat == nil || a.isWebChat(chat) {
+		return
+	}
 	client := a.clientForProvider(chat.ProviderID)
 	if client == nil {
 		a.status = "Connect this conversation's provider in Settings → Providers first."
@@ -669,7 +672,7 @@ func fileSize(n int64) string {
 
 func (a *app) exportChat(id string) {
 	chat := a.conversation(id)
-	if chat == nil || a.win == nil || a.isDoubaoChat(chat) {
+	if chat == nil || a.win == nil || a.isWebChat(chat) {
 		return
 	}
 	var text strings.Builder

@@ -70,7 +70,7 @@ func (a *app) providerState(id string) *providerRuntime {
 func (a *app) loadProviders() {
 	for _, p := range a.state.Settings.Providers {
 		r := a.providerState(p.ID)
-		if p.Kind == store.ProviderKindDoubao {
+		if store.IsWebProvider(p.Kind) {
 			continue
 		}
 		if p.Kind == store.ProviderKindM365 {
@@ -116,10 +116,15 @@ func (a *app) selectedProviderID() string {
 	return store.DefaultProviderID
 }
 
-func (a *app) selectedClient() provider.Client { return a.clientForProvider(a.selectedProviderID()) }
+func (a *app) selectedClient() provider.Client {
+	if a.isWebChat(a.current()) {
+		return nil
+	}
+	return a.clientForProvider(a.selectedProviderID())
+}
 
 func (a *app) clientForProvider(id string) provider.Client {
-	if p := a.provider(id); p == nil || p.Disabled {
+	if p := a.provider(id); p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
 		return nil
 	}
 	if r := a.providers[id]; r != nil {
@@ -136,7 +141,7 @@ func (a *app) selectedModel() string {
 }
 
 func (a *app) newChatModel() string {
-	if p := a.provider(a.state.Settings.ActiveProviderID); p != nil && p.Kind == store.ProviderKindDoubao {
+	if p := a.provider(a.state.Settings.ActiveProviderID); p != nil && store.IsWebProvider(p.Kind) {
 		return ""
 	}
 	if a.state.Settings.Model != "" {
@@ -153,7 +158,7 @@ func (a *app) clientStillConnected(client provider.Client) bool {
 		return false
 	}
 	for id, r := range a.providers {
-		if p := a.provider(id); p != nil && !p.Disabled && r.client == client {
+		if p := a.provider(id); p != nil && !p.Disabled && !store.IsWebProvider(p.Kind) && r.client == client {
 			return true
 		}
 	}
@@ -161,6 +166,9 @@ func (a *app) clientStillConnected(client provider.Client) bool {
 }
 
 func (a *app) titleClient(chat *store.Conversation) (provider.Client, string) {
+	if chat == nil || a.isWebChat(chat) {
+		return nil, ""
+	}
 	if a.state.Settings.TitleModel != "" {
 		providerID := a.state.Settings.TitleProviderID
 		if providerID == "" {
@@ -172,7 +180,7 @@ func (a *app) titleClient(chat *store.Conversation) (provider.Client, string) {
 }
 
 func modelAllowed(p *store.Provider, id string) bool {
-	return p != nil && !p.Disabled && modelEnabled(p, id)
+	return p != nil && !p.Disabled && !store.IsWebProvider(p.Kind) && modelEnabled(p, id)
 }
 
 // modelEnabled is a saved model preference, independent of whether its provider
@@ -225,7 +233,7 @@ func (a *app) setAllModelsEnabled(providerID string, enabled bool) {
 
 func (a *app) providerModels(id string) []provider.Model {
 	p, r := a.provider(id), a.providers[id]
-	if p == nil || r == nil {
+	if p == nil || r == nil || store.IsWebProvider(p.Kind) {
 		return nil
 	}
 	var models []provider.Model
@@ -238,7 +246,7 @@ func (a *app) providerModels(id string) []provider.Model {
 }
 
 func (a *app) modelForProvider(providerID, modelID string) (provider.Model, bool) {
-	if p := a.provider(providerID); p == nil || p.Disabled {
+	if p := a.provider(providerID); p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
 		return provider.Model{}, false
 	}
 	if r := a.providers[providerID]; r != nil {
@@ -262,9 +270,9 @@ func (a *app) chooseModel(providerID, modelID string) {
 	a.chooseChatProvider(providerID, modelID)
 }
 
-func (a *app) chooseDoubao(providerID string) {
+func (a *app) chooseWebProvider(providerID string) {
 	p := a.provider(providerID)
-	if p == nil || p.Disabled || p.Kind != store.ProviderKindDoubao || a.streaming {
+	if p == nil || p.Disabled || !store.IsWebProvider(p.Kind) || a.streaming {
 		return
 	}
 	a.chooseChatProvider(providerID, "")
@@ -275,27 +283,27 @@ func (a *app) chooseChatProvider(providerID, modelID string) {
 	a.modelSelection++
 	request := a.modelSelection
 	chat := a.current()
-	if a.isDoubaoChat(chat) && chat.ProviderID != providerID && a.doubaoChat != nil && a.doubaoChat.view != nil {
-		p := a.doubaoChat
+	if a.isWebChat(chat) && chat.ProviderID != providerID && a.webChat != nil && a.webChat.view != nil {
+		p := a.webChat
 		id, generation, page := chat.ID, p.generation, p.view.Page()
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			snapshot, err := readDoubaoSnapshot(ctx, page)
+			snapshot, err := readWebChatSnapshot(ctx, page)
 			a.update(func() {
-				if a.modelSelection != request || a.state.ActiveID != id || !a.currentDoubao(p) || p.generation != generation {
+				if a.modelSelection != request || a.state.ActiveID != id || !a.currentWebChatView(p) || p.generation != generation {
 					return
 				}
 				if err == nil {
-					a.applyDoubaoSnapshot(p, snapshot)
+					a.applyWebChatSnapshot(p, snapshot)
 				}
-				a.finishChatProvider(providerID, modelID, err == nil && !p.switching && !snapshot.Switching && snapshot.Session == p.session && !p.startedChat && !snapshot.Started && doubaoBlankRoute(snapshot.URL) && snapshot.URL == page.URL())
+				a.finishChatProvider(providerID, modelID, err == nil && !p.switching && !snapshot.Switching && snapshot.Session == p.session && !p.startedChat && !snapshot.Started && store.WebBlankURL(p.kind, snapshot.URL) && snapshot.URL == page.URL())
 			})
 		}()
 		return
 	}
 	// No live page means this local draft has not yet opened a web document.
-	a.finishChatProvider(providerID, modelID, a.doubaoChat == nil || !a.doubaoChat.startedChat)
+	a.finishChatProvider(providerID, modelID, a.webChat == nil || !a.webChat.startedChat)
 }
 
 func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
@@ -303,14 +311,14 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 	if provider == nil || provider.Disabled || a.streaming {
 		return
 	}
-	web := provider.Kind == store.ProviderKindDoubao
+	web := store.IsWebProvider(provider.Kind)
 	if !web {
 		if _, ok := a.modelForProvider(providerID, modelID); !ok || !modelAllowed(provider, modelID) {
 			return
 		}
 	}
 	chat := a.current()
-	wasWeb := a.isDoubaoChat(chat)
+	wasWeb := a.isWebChat(chat)
 	cross := chat != nil && (wasWeb != web || wasWeb && chat.ProviderID != providerID)
 	reuse := chat != nil && len(chat.Messages) == 0 && chat.WebURL == "" && (!wasWeb || webUnused)
 	a.state.Settings.ActiveProviderID, a.state.Settings.Model = providerID, modelID
@@ -319,18 +327,18 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 		a.newChat()
 	} else if chat != nil && (!web || cross) {
 		if wasWeb {
-			if p := a.doubaoChat; p != nil {
+			if p := a.webChat; p != nil {
 				p.resetDraft = true
 				if p.cancel != nil {
 					p.cancel()
 				}
 			}
-			a.parkDoubaoChat()
+			a.parkWebChat()
 		}
 		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
 		chat.ThinkingBudgetTokens, chat.WebKind = 0, ""
 		if web {
-			chat.WebKind = store.ProviderKindDoubao
+			chat.WebKind = provider.Kind
 			chat.WebStarted = chat.WebStarted || a.draft != "" || len(a.attachments) != 0
 		} else {
 			a.composer.Focus()
@@ -362,10 +370,12 @@ func (a *app) addProviderKind(kind, name, host string) (string, error) {
 		host, err = github.NormalizeHost(host)
 	case store.ProviderKindM365:
 		host = store.M365ProviderHost
-	case store.ProviderKindDoubao:
-		host = store.DoubaoHost
 	default:
-		return "", errors.New("unknown provider type")
+		web, ok := store.WebProviderFor(kind)
+		if !ok {
+			return "", errors.New("unknown provider type")
+		}
+		host = web.Host
 	}
 	if err != nil {
 		return "", err
@@ -415,7 +425,7 @@ func (a *app) resetDefaultProvider() {
 }
 
 func (a *app) cancelProviderWork(id string) {
-	a.closeDoubaoProvider(id)
+	a.closeWebProvider(id)
 	a.cancelProviderLogin(id)
 	a.cancelProviderModels(id)
 	if chat := a.conversation(a.streamChat); chat != nil && chat.ProviderID == id {
@@ -508,7 +518,7 @@ func (a *app) refreshDueProviderModels(now time.Time) {
 }
 
 func providerCatalogRefreshDue(p store.Provider, r *providerRuntime, now time.Time) bool {
-	if p.Disabled || r == nil || r.client == nil || r.modelsBusy || r.authBusy {
+	if p.Disabled || store.IsWebProvider(p.Kind) || r == nil || r.client == nil || r.modelsBusy || r.authBusy {
 		return false
 	}
 	if !r.modelsAttemptedAt.IsZero() && now.Sub(r.modelsAttemptedAt) >= 0 && now.Sub(r.modelsAttemptedAt) < providerCatalogRetryInterval {
@@ -519,7 +529,7 @@ func providerCatalogRefreshDue(p store.Provider, r *providerRuntime, now time.Ti
 
 func (a *app) beginProviderLogin(id string) {
 	p := a.provider(id)
-	if p == nil || p.Disabled || p.Kind == store.ProviderKindDoubao {
+	if p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
 		return
 	}
 	if p.Kind == store.ProviderKindM365 {
@@ -666,7 +676,7 @@ func (a *app) signOutProvider(id string) {
 }
 
 func (a *app) clearProviderCredentials(id string) error {
-	if p := a.provider(id); p != nil && p.Kind == store.ProviderKindDoubao {
+	if p := a.provider(id); p != nil && store.IsWebProvider(p.Kind) {
 		// Browser storage is shared. Removing a provider must not sign out others.
 		return nil
 	}
@@ -712,7 +722,7 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 func (a *app) refreshProviderModels(id string) {
 	p := a.provider(id)
 	r := a.providerState(id)
-	if p == nil || p.Disabled || r.client == nil || r.modelsBusy || a.quitting {
+	if p == nil || p.Disabled || store.IsWebProvider(p.Kind) || r.client == nil || r.modelsBusy || a.quitting {
 		return
 	}
 	r.modelsEpoch++

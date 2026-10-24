@@ -51,8 +51,8 @@ func (a *app) sidebar(c *ui.Context) {
 					row.Background(hovered)
 				}
 				row.Children(func() {
-					if a.isDoubaoChat(chat) {
-						providerIcon(c, store.ProviderKindDoubao, 16)
+					if a.isWebChat(chat) {
+						providerIcon(c, a.webChatKind(chat), 16)
 					} else {
 						ui.Icon(c, iChat).Size(16, 16).Shrink(0)
 					}
@@ -382,8 +382,8 @@ func (a *app) modelPickerToggle(c *ui.Context) func() {
 // only covers that toolbar's focus subtree, not the composer or popup search.
 func (a *app) applicationMenuShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyL, func() {
-		if a.isDoubaoChat(a.current()) {
-			a.focusDoubaoChat()
+		if a.isWebChat(a.current()) {
+			a.focusWebChat()
 			return
 		}
 		if !a.composer.Focused(c) {
@@ -581,7 +581,7 @@ func (a *app) chatMenu(m *ui.Menu, chat *store.Conversation) {
 		a.save()
 	}
 	m.Separator()
-	if m.Item("Export Markdown…").Disabled(a.isDoubaoChat(chat)).Chosen() {
+	if m.Item("Export Markdown…").Disabled(a.isWebChat(chat)).Chosen() {
 		a.exportChat(chat.ID)
 	}
 	m.Separator()

@@ -16,8 +16,8 @@ func (s *webChatShortcuts) Invoke(ctx context.Context, command string) {
 		return
 	}
 	s.app.update(func() {
-		p := s.app.doubaoChat
-		if ctx.Err() != nil || p == nil || p.view == nil || p.view.IsDestroyed() || !s.app.currentDoubao(p) || page != p.view.Page() || window != s.app.win {
+		p := s.app.webChat
+		if ctx.Err() != nil || p == nil || p.view == nil || p.view.IsDestroyed() || !s.app.currentWebChatView(p) || page != p.view.Page() || window != s.app.win {
 			return
 		}
 		s.app.webChatCommand(command)
@@ -31,8 +31,8 @@ func (s *webChatShortcuts) DraftChanged(ctx context.Context) {
 		return
 	}
 	s.app.update(func() {
-		p := s.app.doubaoChat
-		if ctx.Err() != nil || p == nil || p.view == nil || p.view.IsDestroyed() || !s.app.currentDoubao(p) || page != p.view.Page() || window != s.app.win {
+		p := s.app.webChat
+		if ctx.Err() != nil || p == nil || p.view == nil || p.view.IsDestroyed() || !s.app.currentWebChatView(p) || page != p.view.Page() || window != s.app.win {
 			return
 		}
 		select {
@@ -57,7 +57,7 @@ func (a *app) webChatCommand(command string) {
 			a.webModelToggle = !a.webModelToggle
 		}
 	case "focus":
-		a.focusDoubaoChat()
+		a.focusWebChat()
 	case "next-chat":
 		a.cycleChat(1)
 	case "previous-chat":

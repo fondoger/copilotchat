@@ -52,9 +52,9 @@ func TestDoubaoSelectionPreservesNativeAndWebHistory(t *testing.T) {
 	}
 	a.state.Conversations = []store.Conversation{{ID: "native", ProviderID: store.DefaultProviderID, Title: "Existing", Model: "same", Messages: []store.Message{{Role: "user", Content: "Keep this"}}}}
 	a.state.ActiveID = "native"
-	a.chooseDoubao(id)
+	a.chooseWebProvider(id)
 	webID := a.state.ActiveID
-	if webID == "native" || !a.isDoubaoChat(a.current()) || a.current().Model != "" {
+	if webID == "native" || !a.isWebChat(a.current()) || a.current().Model != "" {
 		t.Fatalf("did not create web conversation: %#v", a.current())
 	}
 	if chat := a.conversation("native"); chat.ProviderID != store.DefaultProviderID || len(chat.Messages) != 1 {
@@ -72,7 +72,7 @@ func TestDoubaoSelectionPreservesNativeAndWebHistory(t *testing.T) {
 	}
 	a.selectChat(webID)
 	a.chooseModel(store.DefaultProviderID, "same")
-	if a.state.ActiveID == webID || a.isDoubaoChat(a.current()) {
+	if a.state.ActiveID == webID || a.isWebChat(a.current()) {
 		t.Fatal("API selection retained web conversation")
 	}
 	if chat := a.conversation(webID); chat.WebURL == "" || chat.ProviderID != id {
@@ -81,7 +81,7 @@ func TestDoubaoSelectionPreservesNativeAndWebHistory(t *testing.T) {
 	if err := a.removeProvider(id); err != nil {
 		t.Fatal(err)
 	}
-	if !a.isDoubaoChat(a.conversation(webID)) {
+	if !a.isWebChat(a.conversation(webID)) {
 		t.Fatal("removed provider caused web chat to become native")
 	}
 }
@@ -97,12 +97,12 @@ func TestUnsentProviderSwitchReusesConversationAndDraft(t *testing.T) {
 	a.draft = "草稿\nsecond line 🙂"
 	a.attachments = []store.Attachment{{Name: "notes.txt", Data: "ZmlsZQ=="}}
 	for range 4 {
-		a.chooseDoubao(id)
-		if a.state.ActiveID != chatID || !a.isDoubaoChat(a.current()) {
+		a.chooseWebProvider(id)
+		if a.state.ActiveID != chatID || !a.isWebChat(a.current()) {
 			t.Fatal("web selection did not convert the unused chat")
 		}
 		a.chooseModel(store.DefaultProviderID, "same")
-		if a.state.ActiveID != chatID || a.isDoubaoChat(a.current()) || len(a.state.Conversations) != 1 || a.draft != "草稿\nsecond line 🙂" || len(a.attachments) != 1 {
+		if a.state.ActiveID != chatID || a.isWebChat(a.current()) || len(a.state.Conversations) != 1 || a.draft != "草稿\nsecond line 🙂" || len(a.attachments) != 1 {
 			t.Fatal("round trip duplicated the chat or discarded its draft")
 		}
 	}
@@ -115,14 +115,14 @@ func TestUnsentProviderSwitchReusesConversationAndDraft(t *testing.T) {
 func TestStartedWebChatCannotConvertBeforeBinding(t *testing.T) {
 	a := providerTestApp(t)
 	id, _ := a.addProviderKind(store.ProviderKindDoubao, "豆包", "")
-	a.chooseDoubao(id)
+	a.chooseWebProvider(id)
 	webID := a.state.ActiveID
-	a.doubaoChat = &doubaoView{chatID: webID, providerID: id, startedChat: true}
+	a.webChat = &webChatView{chatID: webID, providerID: id, startedChat: true}
 	a.chooseModel(store.DefaultProviderID, "same")
-	if a.state.ActiveID == webID || !a.isDoubaoChat(a.conversation(webID)) {
+	if a.state.ActiveID == webID || !a.isWebChat(a.conversation(webID)) {
 		t.Fatal("converted a web chat whose first message was already sent")
 	}
-	destroyDoubao(a.doubaoParked)
+	destroyWebChatView(a.webParked)
 }
 
 func TestDoubaoDoesNotUseAPICredentialsOrModels(t *testing.T) {

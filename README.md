@@ -30,7 +30,7 @@ go run .
 
 - [GitHub Copilot](docs/copilot.md)
 - [Microsoft 365 Copilot](docs/m365.md)
-- [豆包网页版](docs/doubao.md)
+- [网页聊天 Providers](docs/web-chat.md)
 - [MCP 配置](docs/mcp.md)
 - [LLM Gateway / Agent 配置](docs/agents.md)
 - [构建与发布](docs/building.md)

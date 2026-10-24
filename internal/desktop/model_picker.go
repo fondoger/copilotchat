@@ -51,8 +51,8 @@ func (a *app) modelPicker(c *ui.Context) {
 		state.Open = false
 	}
 	label := a.selectedModel()
-	if a.isDoubaoChat(a.current()) {
-		label = "豆包"
+	if a.isWebChat(a.current()) {
+		label = providerKindName(a.webChatKind(a.current()))
 	} else if model, ok := a.modelForProvider(a.selectedProviderID(), label); ok {
 		label = modelDisplayName(model)
 	}
@@ -92,7 +92,7 @@ func (a *app) modelPicker(c *ui.Context) {
 		ui.Scroll(c.Key("model-picker-list")).Label("Model list").MaxHeight(min(float32(510), height-100)).Padding(0, scrollbarGutter, 0, 0).Gap(6).Children(func() {
 			count := 0
 			for _, configured := range a.state.Settings.Providers {
-				if configured.Kind == store.ProviderKindDoubao {
+				if store.IsWebProvider(configured.Kind) {
 					continue
 				}
 				if a.clientForProvider(configured.ID) == nil {
@@ -156,7 +156,7 @@ func (a *app) modelPicker(c *ui.Context) {
 			}
 			webGroupShown := false
 			for _, configured := range a.state.Settings.Providers {
-				if configured.Kind != store.ProviderKindDoubao || configured.Disabled {
+				if !store.IsWebProvider(configured.Kind) || configured.Disabled {
 					continue
 				}
 				if !webGroupShown {
@@ -172,7 +172,7 @@ func (a *app) modelPicker(c *ui.Context) {
 					selectButton.Background(t.SurfaceHover)
 				}
 				selectButton.Children(func() {
-					if a.isDoubaoChat(a.current()) && a.selectedProviderID() == configured.ID {
+					if a.isWebChat(a.current()) && a.selectedProviderID() == configured.ID {
 						ui.Icon(c, modelCheckIcon).Size(16, 16).TextColor(t.Success)
 					} else {
 						ui.Box(c).Size(16, 16)
@@ -180,7 +180,7 @@ func (a *app) modelPicker(c *ui.Context) {
 					providerIcon(c, configured.Kind, 16)
 					ui.Text(c, configured.Name).FontSize(13).Grow(1).MinWidth(0).SingleLine()
 				}).OnClick(func() {
-					a.chooseDoubao(configured.ID)
+					a.chooseWebProvider(configured.ID)
 					state.Open = false
 				})
 			}

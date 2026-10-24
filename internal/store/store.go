@@ -26,6 +26,10 @@ const (
 	ProviderKindGitHub                 = "github-copilot"
 	ProviderKindM365                   = "m365-copilot"
 	ProviderKindDoubao                 = "doubao-web"
+	ProviderKindDeepSeekWeb            = "deepseek-web"
+	ProviderKindClaudeWeb              = "claude-web"
+	ProviderKindGeminiWeb              = "gemini-web"
+	ProviderKindChatGPTWeb             = "chatgpt-web"
 	DoubaoHost                         = "www.doubao.com"
 	DoubaoChatURL                      = "https://www.doubao.com/chat"
 	M365ProviderHost                   = microsoft.Host
@@ -367,14 +371,16 @@ func validateProviders(state *State) error {
 			}
 			p.Host = M365ProviderHost
 			defaultName = "Microsoft 365 Copilot"
-		case ProviderKindDoubao:
-			if p.Host != "" && p.Host != DoubaoHost {
-				return fmt.Errorf("provider %q: Doubao must use %s", p.Name, DoubaoHost)
-			}
-			p.Host = DoubaoHost
-			defaultName = "豆包"
 		default:
-			return fmt.Errorf("provider %q: unsupported provider kind %q", p.Name, p.Kind)
+			web, ok := WebProviderFor(p.Kind)
+			if !ok {
+				return fmt.Errorf("provider %q: unsupported provider kind %q", p.Name, p.Kind)
+			}
+			if p.Host != "" && p.Host != web.Host {
+				return fmt.Errorf("provider %q: %s must use %s", p.Name, web.Name, web.Host)
+			}
+			p.Host = web.Host
+			defaultName = web.Name
 		}
 		p.Name = strings.TrimSpace(p.Name)
 		if p.Name == "" {
@@ -383,13 +389,13 @@ func validateProviders(state *State) error {
 	}
 	for i := range state.Conversations {
 		chat := &state.Conversations[i]
-		if chat.WebKind != "" && chat.WebKind != ProviderKindDoubao {
+		if chat.WebKind != "" && !IsWebProvider(chat.WebKind) {
 			return fmt.Errorf("conversation %q: unsupported web provider kind", chat.ID)
 		}
 		if chat.WebURL != "" {
-			canonical, ok := DoubaoConversationURL(chat.WebURL)
-			if !ok || chat.WebKind != ProviderKindDoubao {
-				return fmt.Errorf("conversation %q: invalid Doubao conversation URL", chat.ID)
+			canonical, ok := WebConversationURL(chat.WebKind, chat.WebURL)
+			if !ok {
+				return fmt.Errorf("conversation %q: invalid web conversation URL", chat.ID)
 			}
 			chat.WebURL = canonical
 		}

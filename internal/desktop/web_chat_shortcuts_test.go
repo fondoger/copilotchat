@@ -36,11 +36,11 @@ func TestWebChatShortcutsRejectUnownedCalls(t *testing.T) {
 func TestDoubaoParkedViewKeepsIdentityAndCannotPublish(t *testing.T) {
 	a, p := doubaoTestApp()
 	p.focusPending = true
-	a.parkDoubaoChat()
-	if a.doubaoChat != nil || a.doubaoParked != p || p.chatID != "local" || p.focusPending {
+	a.parkWebChat()
+	if a.webChat != nil || a.webParked != p || p.chatID != "local" || p.focusPending {
 		t.Fatal("parking changed identity or retained pending focus")
 	}
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: "https://www.doubao.com/chat/123", CreatedURL: "https://www.doubao.com/chat/123", Title: "Inactive"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: "https://www.doubao.com/chat/123", CreatedURL: "https://www.doubao.com/chat/123", Title: "Inactive"})
 	if a.current().WebURL != "" {
 		t.Fatal("inactive view published state")
 	}
@@ -51,22 +51,22 @@ func TestDoubaoParkedViewKeepsIdentityAndCannotPublish(t *testing.T) {
 	p.off = append(p.off, func() { destroyed++ })
 	// Trigger expiry without waiting five minutes. This verifies cleanup ownership,
 	// not WebView2 process exit or immediate operating-system memory reclamation.
-	a.expireDoubao(p)
-	if a.doubaoParked != nil || destroyed != 1 || p.idleTimer.Stop() {
+	a.expireWebChat(p)
+	if a.webParked != nil || destroyed != 1 || p.idleTimer.Stop() {
 		t.Fatal("expiry failed to release subscriptions and stop its timer")
 	}
-	other := &doubaoView{}
-	a.doubaoParked = other
-	a.expireDoubao(p)
-	if a.doubaoParked != other || destroyed != 1 {
+	other := &webChatView{}
+	a.webParked = other
+	a.expireWebChat(p)
+	if a.webParked != other || destroyed != 1 {
 		t.Fatal("stale expiry released a replacement view")
 	}
-	a.doubaoParked = nil
+	a.webParked = nil
 	// Provider removal releases immediately rather than waiting for expiry.
-	p = &doubaoView{providerID: "doubao", idleTimer: time.NewTimer(time.Hour)}
-	a.doubaoParked = p
-	a.closeDoubaoProvider("doubao")
-	if a.doubaoParked != nil || p.idleTimer.Stop() {
+	p = &webChatView{providerID: "doubao", idleTimer: time.NewTimer(time.Hour)}
+	a.webParked = p
+	a.closeWebProvider("doubao")
+	if a.webParked != nil || p.idleTimer.Stop() {
 		t.Fatal("provider cleanup retained cached page or timer")
 	}
 }

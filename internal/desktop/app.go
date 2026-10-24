@@ -62,8 +62,8 @@ type app struct {
 	providerRefreshCancel          context.CancelFunc
 	titleJobs                      map[string]*titleJob
 	preview                        *artifactPreview
-	doubaoChat, doubaoSettings     *doubaoView
-	doubaoParked                   *doubaoView
+	webChat, webSettings           *webChatView
+	webParked                      *webChatView
 	settingsPage                   string
 	extensionPage                  string
 	agentSetup                     agentSetupState
@@ -125,10 +125,10 @@ func Run(dataDir string) error {
 		a.stopForwarding()
 		a.stopUpdates()
 		a.closePreview()
-		a.closeDoubaoChat()
-		destroyDoubao(a.doubaoParked)
-		a.doubaoParked = nil
-		a.closeDoubaoSettings()
+		a.closeWebChat()
+		destroyWebChatView(a.webParked)
+		a.webParked = nil
+		a.closeWebSettings()
 		a.stop()
 		a.cancelLogin()
 		a.cancelModelRefresh()
@@ -252,7 +252,7 @@ func (a *app) conversation(id string) *store.Conversation {
 
 func (a *app) newChat() {
 	a.pendingChat = ""
-	a.captureDoubaoDeparture(a.finishNewChat)
+	a.captureWebChatDeparture(a.finishNewChat)
 }
 
 func (a *app) finishNewChat() {
@@ -266,12 +266,12 @@ func (a *app) finishNewChat() {
 		}
 	}
 	a.closePreview()
-	a.parkDoubaoChat()
+	a.parkWebChat()
 	a.editMessageID, a.editText = "", ""
 	now := time.Now()
 	chat := store.Conversation{ID: newID(), Title: "New Chat", Model: a.newChatModel(), ProviderID: a.state.Settings.ActiveProviderID, ReasoningEffort: a.state.Settings.ReasoningEffort, ThinkingBudgetTokens: a.state.Settings.ThinkingBudgetTokens, CreatedAt: now, UpdatedAt: now}
-	if p := a.provider(chat.ProviderID); p != nil && p.Kind == store.ProviderKindDoubao {
-		chat.WebKind = store.ProviderKindDoubao
+	if p := a.provider(chat.ProviderID); p != nil && store.IsWebProvider(p.Kind) {
+		chat.WebKind = p.Kind
 	}
 	a.state.Conversations = append([]store.Conversation{chat}, a.state.Conversations...)
 	a.state.ActiveID = chat.ID
@@ -279,7 +279,7 @@ func (a *app) finishNewChat() {
 	a.attachments = nil
 	a.list = ui.ListState{}
 	a.save()
-	if !a.isDoubaoChat(a.current()) {
+	if !a.isWebChat(a.current()) {
 		a.composer.Focus()
 	}
 }
@@ -292,7 +292,7 @@ func (a *app) reusableNewChat(chat *store.Conversation) bool {
 	if draft.Text != "" || len(draft.Attachments) != 0 {
 		return false
 	}
-	for _, p := range []*doubaoView{a.doubaoChat, a.doubaoParked} {
+	for _, p := range []*webChatView{a.webChat, a.webParked} {
 		if p != nil && p.chatID == chat.ID && p.startedChat {
 			return false
 		}
@@ -313,7 +313,7 @@ func (a *app) rememberDraft() {
 
 func (a *app) selectChat(id string) {
 	a.pendingChat = id
-	a.captureDoubaoDeparture(func() { a.finishSelectChat(id) })
+	a.captureWebChatDeparture(func() { a.finishSelectChat(id) })
 }
 
 func (a *app) finishSelectChat(id string) {
@@ -321,7 +321,7 @@ func (a *app) finishSelectChat(id string) {
 	a.modelSelection++
 	if a.state.ActiveID != id {
 		a.closePreview()
-		a.parkDoubaoChat()
+		a.parkWebChat()
 		a.editMessageID, a.editText = "", ""
 		a.rememberDraft()
 		a.state.ActiveID = id
@@ -330,8 +330,8 @@ func (a *app) finishSelectChat(id string) {
 		a.list = ui.ListState{}
 		a.save()
 	}
-	if a.isDoubaoChat(a.current()) {
-		a.focusDoubaoChat()
+	if a.isWebChat(a.current()) {
+		a.focusWebChat()
 	} else {
 		a.composer.Focus()
 	}
@@ -356,7 +356,7 @@ func (a *app) openSettings(page string) {
 	a.settingsWin = mygo.NewWindow(mygo.WindowOptions{Title: "Settings — Copilot Chat", Width: 900, Height: 620, MinWidth: 700, MinHeight: 480, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 48, Content: ui.View(a.settingsView)})
 	a.settingsWin.Invalidate()
 	a.settingsWin.OnClosed(func() {
-		a.closeDoubaoSettings()
+		a.closeWebSettings()
 		a.settingsWin = nil
 	})
 }

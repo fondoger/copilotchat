@@ -31,11 +31,11 @@ func (a *app) view(c *ui.Context) {
 			ui.Column(c).Fill().MinWidth(0).Children(func() {
 				a.header(c)
 				chat := a.current()
-				webChat := a.isDoubaoChat(chat)
+				webChat := a.isWebChat(chat)
 				if webChat {
-					a.doubaoChatView(c, chat)
+					a.webChatContent(c, chat)
 				} else {
-					a.parkDoubaoChat()
+					a.parkWebChat()
 					if chat == nil || len(chat.Messages) == 0 {
 						a.emptyView(c)
 					} else {
@@ -228,9 +228,9 @@ func (a *app) dialogs(c *ui.Context) {
 	switch ui.AlertDialog(c, &a.deleteOpen, "Delete conversation?", "This conversation and its attachments will be removed from this device.", "Cancel", "Delete") {
 	case 1:
 		delete(a.drafts, a.deleteID)
-		if a.doubaoParked != nil && a.doubaoParked.chatID == a.deleteID {
-			destroyDoubao(a.doubaoParked)
-			a.doubaoParked = nil
+		if a.webParked != nil && a.webParked.chatID == a.deleteID {
+			destroyWebChatView(a.webParked)
+			a.webParked = nil
 		}
 		if a.preview != nil && a.preview.chatID == a.deleteID {
 			a.closePreview()
@@ -242,7 +242,7 @@ func (a *app) dialogs(c *ui.Context) {
 			}
 		}
 		if a.state.ActiveID == a.deleteID {
-			a.closeDoubaoChat()
+			a.closeWebChat()
 			a.state.ActiveID = ""
 			a.draft = ""
 			a.attachments = nil

@@ -27,7 +27,7 @@ var settingsChevron = loadIcon("tabler-chevron-down")
 
 func (a *app) settingsView(c *ui.Context) {
 	if a.settingsPage != "Providers" {
-		a.closeDoubaoSettings()
+		a.closeWebSettings()
 	}
 	t := a.theme(c)
 	t.FontSize = 14

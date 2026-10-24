@@ -10,18 +10,18 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-func doubaoTestApp() (*app, *doubaoView) {
+func doubaoTestApp() (*app, *webChatView) {
 	a := &app{state: store.State{
 		Settings:      store.Settings{Providers: []store.Provider{{ID: "doubao", Kind: store.ProviderKindDoubao}}},
 		ActiveID:      "local",
 		Conversations: []store.Conversation{{ID: "local", ProviderID: "doubao", WebKind: store.ProviderKindDoubao, Title: "New chat"}},
 	}}
-	p := &doubaoView{chatID: "local", providerID: "doubao"}
-	a.doubaoChat = p
+	p := &webChatView{chatID: "local", providerID: "doubao"}
+	a.webChat = p
 	return a, p
 }
 
-func TestDoubaoNavigationAbortDoesNotMaskLoadFailures(t *testing.T) {
+func TestWebNavigationAbortDoesNotMaskLoadFailures(t *testing.T) {
 	for _, tc := range []struct {
 		platform string
 		code     int
@@ -37,22 +37,22 @@ func TestDoubaoNavigationAbortDoesNotMaskLoadFailures(t *testing.T) {
 		{"darwin", 9, false},
 		{"darwin", 13, false},
 	} {
-		if got := doubaoNavigationAborted(tc.platform, tc.code); got != tc.aborted {
+		if got := webNavigationAborted(tc.platform, tc.code); got != tc.aborted {
 			t.Errorf("%s error %d: aborted = %v", tc.platform, tc.code, got)
 		}
 	}
 }
 
-func TestDoubaoStartupWaitsForWindow(t *testing.T) {
+func TestWebChatStartupWaitsForWindow(t *testing.T) {
 	a, _ := doubaoTestApp()
-	a.doubaoChat = nil
+	a.webChat = nil
 	tt := ui.NewTester(a.view, 1060, 720)
 	tt.Frame()
-	if a.doubaoChat != nil || tt.HasText("Retry Doubao") {
+	if a.webChat != nil || tt.HasText("Retry Doubao") {
 		t.Fatal("startup without an assigned window created a failed chat view")
 	}
-	ui.NewTester(func(c *ui.Context) { a.doubaoProviderView(c, "doubao") }, 900, 620).Frame()
-	if a.doubaoSettings != nil {
+	ui.NewTester(func(c *ui.Context) { a.webProviderView(c, "doubao") }, 900, 620).Frame()
+	if a.webSettings != nil {
 		t.Fatal("settings startup created a failed view before its window was assigned")
 	}
 }
@@ -60,11 +60,11 @@ func TestDoubaoStartupWaitsForWindow(t *testing.T) {
 func TestWebInputMarksPlaceholderForRestartRetention(t *testing.T) {
 	a, p := doubaoTestApp()
 	empty := ""
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &empty})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: store.DoubaoChatURL, Draft: &empty})
 	if a.current().WebStarted {
 		t.Fatal("empty editor counted as user content")
 	}
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &empty, Edited: true})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: store.DoubaoChatURL, Draft: &empty, Edited: true})
 	if !a.current().WebStarted {
 		t.Fatal("typed then cleared content was not retained")
 	}
@@ -86,7 +86,7 @@ func TestWebDraftPreservesAttachmentsOnlyWithoutTextEdits(t *testing.T) {
 			a, p := doubaoTestApp()
 			a.draft = "原始文字\n🙂"
 			a.attachments = []store.Attachment{{Name: "image.png"}}
-			a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL, Draft: &tc.text, Edited: tc.edited})
+			a.applyWebChatSnapshot(p, webChatSnapshot{URL: store.DoubaoChatURL, Draft: &tc.text, Edited: tc.edited})
 			if a.draft != tc.text || (len(a.attachments) == 1) != tc.keep {
 				t.Fatalf("draft %q, attachments %d", a.draft, len(a.attachments))
 			}
@@ -100,7 +100,7 @@ func TestWebDraftPreservesAttachmentsOnlyWithoutTextEdits(t *testing.T) {
 func TestDoubaoRequiresCreationEvidenceAndNeverRebinds(t *testing.T) {
 	a, p := doubaoTestApp()
 	remote := store.DoubaoChatURL + "/12345678901234567890"
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, Title: "History conversation"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, Title: "History conversation"})
 	chat := a.conversation("local")
 	if chat.WebURL != "" || chat.Title != "New chat" {
 		t.Fatal("history navigation imported a remote chat")
@@ -109,99 +109,99 @@ func TestDoubaoRequiresCreationEvidenceAndNeverRebinds(t *testing.T) {
 		t.Fatal("unlinked route must warn without hiding the web view")
 	}
 	p.notice = ""
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, CreatedURL: remote, Title: "Actual new conversation - 豆包"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, CreatedURL: remote, Title: "Actual new conversation - 豆包"})
 	if chat.WebURL != remote || chat.Title != "Actual new conversation" || chat.UpdatedAt.IsZero() || p.notice != "" {
 		t.Fatalf("proven creation not bound: %+v", chat)
 	}
 	boundAt := chat.UpdatedAt
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, Title: "Delayed generated title"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, Title: "Delayed generated title"})
 	if chat.Title != "Delayed generated title" || chat.UpdatedAt != boundAt {
 		t.Fatal("delayed title was lost or reordered the conversation")
 	}
 	chat.TitleManual = true
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, Title: "Automatic title"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, Title: "Automatic title"})
 	if chat.Title != "Delayed generated title" {
 		t.Fatal("manual title overwritten")
 	}
 	foreign := store.DoubaoChatURL + "/999"
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: foreign, CreatedURL: foreign, Title: "Foreign title"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: foreign, CreatedURL: foreign, Title: "Foreign title"})
 	if chat.WebURL != remote || chat.Title != "Delayed generated title" || p.notice == "" {
 		t.Fatal("bound identity changed after foreign navigation")
 	}
 	p.notice = ""
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: store.DoubaoChatURL})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: store.DoubaoChatURL})
 	if p.notice == "" || chat.WebURL != remote {
 		t.Fatal("bound view did not fail closed on a website new-chat route")
 	}
 }
 
-func TestDoubaoSwitchQuarantinesOldSessionSnapshots(t *testing.T) {
+func TestWebChatSwitchQuarantinesOldSessionSnapshots(t *testing.T) {
 	a, p := doubaoTestApp()
 	p.session = 7
 	remote := store.DoubaoChatURL + "/123"
-	for _, snapshot := range []doubaoSnapshot{
+	for _, snapshot := range []webChatSnapshot{
 		{Session: 6, URL: remote, CreatedURL: remote},
 		{Session: 7, Switching: true, URL: remote, CreatedURL: remote},
 	} {
-		a.applyDoubaoSnapshot(p, snapshot)
+		a.applyWebChatSnapshot(p, snapshot)
 		if a.current().WebURL != "" || a.current().WebStarted {
 			t.Fatal("switching or old-session snapshot changed local identity")
 		}
 	}
 	p.switching = true
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{Session: 7, URL: remote, CreatedURL: remote})
+	a.applyWebChatSnapshot(p, webChatSnapshot{Session: 7, URL: remote, CreatedURL: remote})
 	if a.current().WebURL != "" {
 		t.Fatal("host switch did not quarantine snapshots")
 	}
 	p.switching = false
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{Session: 7, URL: remote, CreatedURL: remote})
+	a.applyWebChatSnapshot(p, webChatSnapshot{Session: 7, URL: remote, CreatedURL: remote})
 	if a.current().WebURL != remote {
 		t.Fatal("confirmed current session was not accepted")
 	}
 }
 
-func TestDoubaoRejectsSnapshotsFromStaleOwners(t *testing.T) {
+func TestWebChatRejectsSnapshotsFromStaleOwners(t *testing.T) {
 	for _, mutate := range []struct {
 		name string
-		fn   func(*app, *doubaoView)
+		fn   func(*app, *webChatView)
 	}{
-		{"view replaced", func(a *app, _ *doubaoView) { a.doubaoChat = &doubaoView{} }},
-		{"chat switched", func(a *app, _ *doubaoView) { a.state.ActiveID = "other" }},
-		{"window replaced", func(a *app, _ *doubaoView) { a.win = &mygo.Window{} }},
-		{"provider reassigned", func(a *app, _ *doubaoView) { a.state.Conversations[0].ProviderID = "other" }},
-		{"provider disabled", func(a *app, _ *doubaoView) { a.state.Settings.Providers[0].Disabled = true }},
-		{"provider removed", func(a *app, _ *doubaoView) { a.state.Settings.Providers = nil }},
-		{"quit", func(a *app, _ *doubaoView) { a.quitting = true }},
+		{"view replaced", func(a *app, _ *webChatView) { a.webChat = &webChatView{} }},
+		{"chat switched", func(a *app, _ *webChatView) { a.state.ActiveID = "other" }},
+		{"window replaced", func(a *app, _ *webChatView) { a.win = &mygo.Window{} }},
+		{"provider reassigned", func(a *app, _ *webChatView) { a.state.Conversations[0].ProviderID = "other" }},
+		{"provider disabled", func(a *app, _ *webChatView) { a.state.Settings.Providers[0].Disabled = true }},
+		{"provider removed", func(a *app, _ *webChatView) { a.state.Settings.Providers = nil }},
+		{"quit", func(a *app, _ *webChatView) { a.quitting = true }},
 	} {
 		t.Run(mutate.name, func(t *testing.T) {
 			a, p := doubaoTestApp()
 			mutate.fn(a, p)
 			remote := store.DoubaoChatURL + "/123"
-			a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, CreatedURL: remote, Title: "Wrong owner"})
+			a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, CreatedURL: remote, Title: "Wrong owner"})
 			if a.state.Conversations[0].WebURL != "" || a.state.Conversations[0].Title != "New chat" {
 				t.Fatal("stale view wrote to conversation")
 			}
 		})
 	}
 	a, _ := doubaoTestApp()
-	p := &doubaoView{providerID: "doubao"}
-	a.doubaoSettings, a.providerSettingsID, a.settingsPage = p, "doubao", "Providers"
-	if !a.currentDoubao(p) {
+	p := &webChatView{providerID: "doubao"}
+	a.webSettings, a.providerSettingsID, a.settingsPage = p, "doubao", "Providers"
+	if !a.currentWebChatView(p) {
 		t.Fatal("current settings owner not recognized")
 	}
 	a.settingsPage = "General"
-	if a.currentDoubao(p) {
+	if a.currentWebChatView(p) {
 		t.Fatal("settings callback remained current after page switch")
 	}
 	a.settingsPage = "Providers"
 	remote := store.DoubaoChatURL + "/123"
-	a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: remote, CreatedURL: remote, Title: "Settings history"})
+	a.applyWebChatSnapshot(p, webChatSnapshot{URL: remote, CreatedURL: remote, Title: "Settings history"})
 	if a.state.Conversations[0].WebURL != "" {
 		t.Fatal("settings view imported a conversation")
 	}
-	a.closeDoubaoChat()
-	a.closeDoubaoSettings()
-	a.focusDoubaoChat()
+	a.closeWebChat()
+	a.closeWebSettings()
+	a.focusWebChat()
 }
 
 func TestDoubaoTitlesAndNavigationRemainConservative(t *testing.T) {
@@ -209,7 +209,7 @@ func TestDoubaoTitlesAndNavigationRemainConservative(t *testing.T) {
 	chat := a.conversation("local")
 	chat.WebURL, chat.Title, chat.UpdatedAt = store.DoubaoChatURL+"/123", "Saved", time.Unix(100, 0)
 	for _, title := range []string{"豆包", "New chat", "豆包 - 随时帮你", "登录"} {
-		a.applyDoubaoSnapshot(p, doubaoSnapshot{URL: chat.WebURL, Title: title})
+		a.applyWebChatSnapshot(p, webChatSnapshot{URL: chat.WebURL, Title: title})
 		if chat.Title != "Saved" {
 			t.Fatalf("generic title replaced saved title: %q", title)
 		}
@@ -222,12 +222,12 @@ func TestDoubaoTitlesAndNavigationRemainConservative(t *testing.T) {
 	if !doubaoNavigationURL(store.DoubaoChatURL) || !doubaoNavigationURL("https://sso.douyin.com/login") {
 		t.Fatal("blocked site/login navigation")
 	}
-	if a.doubaoRouteAllowed(p, store.DoubaoChatURL) || a.doubaoRouteAllowed(p, store.DoubaoChatURL+"/999") || !a.doubaoRouteAllowed(p, chat.WebURL) {
+	if a.webChatRouteAllowed(p, store.DoubaoChatURL) || a.webChatRouteAllowed(p, store.DoubaoChatURL+"/999") || !a.webChatRouteAllowed(p, chat.WebURL) {
 		t.Fatal("bound conversation navigation is not locked")
 	}
 	// Persisted identity survives a removed provider; routing must not fall back to an API chat.
 	a.state.Settings.Providers = nil
-	if !a.isDoubaoChat(chat) {
+	if !a.isWebChat(chat) {
 		t.Fatal("removed provider changed web chat identity")
 	}
 }
@@ -269,7 +269,7 @@ function page(initial = 'https://www.doubao.com/chat', framed = false) {
 }
 for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undefined, true]]) {
   const {state, styles} = page(initial, framed);
-  assert.equal(state.__copilotDoubao, undefined); assert.equal(styles.length, 0);
+  assert.equal(state.__copilotWebChat, undefined); assert.equal(styles.length, 0);
 }
 {
   const {state, events, calls} = page();
@@ -280,28 +280,39 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   state.HTMLTextAreaElement = function() {};
   Object.defineProperty(state.HTMLTextAreaElement.prototype, 'value', {set(text) {this.value = text}});
   state.Event = function(type, options) {this.type = type; Object.assign(this, options)};
-  assert.equal(state.__copilotDoubao.snapshot().draft, null);
-  assert.equal(state.__copilotDoubao.restoreDraft('草稿\n🙂'), false);
+  assert.equal(state.__copilotWebChat.snapshot().draft, null);
+  assert.equal(state.__copilotWebChat.restoreDraft('草稿\n🙂'), false);
   state.document.querySelector = selector => selector.endsWith('textarea') ? editor : null;
-  assert.equal(state.__copilotDoubao.restoreDraft('草稿\n🙂'), true);
+  assert.equal(state.__copilotWebChat.restoreDraft('草稿\n🙂'), true);
   assert.equal(value, '草稿\n🙂');
-  assert.equal(state.__copilotDoubao.snapshot().draft, value);
-  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+  assert.equal(state.__copilotWebChat.snapshot().draft, value);
+  assert.equal(state.__copilotWebChat.snapshot().edited, false);
   events.input({target: editor}); // A webpage image-only change leaves the text alone.
-  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+  assert.equal(state.__copilotWebChat.snapshot().edited, false);
   value = '';
   events.input({target: editor});
-  assert.equal(state.__copilotDoubao.snapshot().draft, '');
-  state.__copilotDoubao.restoreDraft('stale');
+  assert.equal(state.__copilotWebChat.snapshot().draft, '');
+  state.__copilotWebChat.restoreDraft('stale');
   assert.equal(value, '');
   assert.ok(calls.some(call => call[0] === 'WebChatShortcuts.DraftChanged'));
+}
+{
+  const {state} = page();
+  let value = 'website cached draft';
+  const editor = {isContentEditable:false, get value() {return value}, set value(text) {value=text}, dispatchEvent() {}};
+  state.document.querySelector = () => editor;
+  state.HTMLTextAreaElement = function() {};
+  Object.defineProperty(state.HTMLTextAreaElement.prototype, 'value', {set(text) {this.value=text}});
+  state.Event = function(type) {this.type=type};
+  state.__copilotWebChat.restoreDraft('');
+  assert.equal(value, '', 'website cached draft overrode an explicitly empty local draft');
 }
 {
   const {state, events} = page();
   const editor = {isContentEditable: true, children: [], textContent: 'user typed', innerText: 'user typed', contains: () => false};
   state.document.querySelector = () => editor;
   events.input({target: editor});
-  state.__copilotDoubao.restoreDraft('old native draft');
+  state.__copilotWebChat.restoreDraft('old native draft');
   assert.equal(editor.innerText, 'user typed');
 }
 {
@@ -312,27 +323,27 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
     {tagName: 'P', textContent: '第二行 🙂', innerText: '第二行 🙂'}
   ], contains: () => false};
   state.document.querySelector = () => editor;
-  state.__copilotDoubao.restoreDraft('');
-  assert.equal(state.__copilotDoubao.snapshot().draft, 'first\n\n第二行 🙂');
+  state.__copilotWebChat.restoreDraft('first\n\n第二行 🙂');
+  assert.equal(state.__copilotWebChat.snapshot().draft, 'first\n\n第二行 🙂');
   events.input({target: editor});
-  assert.equal(state.__copilotDoubao.snapshot().edited, false);
+  assert.equal(state.__copilotWebChat.snapshot().edited, false);
 }
 {
   const {state} = page();
   state.history.pushState({}, '', '/chat/999');
-  assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
+  assert.equal(state.__copilotWebChat.snapshot().createdURL, '');
 }
 {
   const {state, styles} = page();
   state.history.pushState({}, '', '/chat/local_5916022949835137');
-  assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
+  assert.equal(state.__copilotWebChat.snapshot().createdURL, '');
   state.history.replaceState({}, '', '/chat/12345678901234567890');
   state.document.title = '实际标题 - 豆包';
-  const snapshot = state.__copilotDoubao.snapshot();
+  const snapshot = state.__copilotWebChat.snapshot();
   assert.equal(snapshot.createdURL, 'https://www.doubao.com/chat/12345678901234567890');
   assert.equal(snapshot.title, '实际标题 - 豆包');
   state.history.pushState({}, '', '/chat/999');
-  assert.equal(state.__copilotDoubao.snapshot().createdURL, snapshot.createdURL);
+  assert.equal(state.__copilotWebChat.snapshot().createdURL, snapshot.createdURL);
   vm.runInNewContext(source, state);
   assert.equal(styles.length, 1);
 }
@@ -340,9 +351,9 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   const {state} = page();
   state.history.pushState({}, '', '/chat/local_123');
   state.history.replaceState({}, '', '/chat');
-  assert.equal(state.__copilotDoubao.snapshot().started, true);
+  assert.equal(state.__copilotWebChat.snapshot().started, true);
   state.history.pushState({}, '', '/chat/999');
-  assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
+  assert.equal(state.__copilotWebChat.snapshot().createdURL, '');
 }
 (async () => {
   const {state, styles} = page();
@@ -354,29 +365,29 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   state.document.querySelectorAll = selector => selector === 'a[href]' ? [link] : [fresh];
   state.history.pushState({}, '', '/chat/local_11');
   state.history.replaceState({}, '', '/chat/12');
-  assert.equal(await state.__copilotDoubao.switchTarget(1, 'https://www.doubao.com/chat/123'), true);
-  assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
-  assert.equal(state.__copilotDoubao.snapshot().started, false);
-  const old = state.__copilotDoubao.switchTarget(2, 'https://www.doubao.com/chat/123');
-  const latest = state.__copilotDoubao.switchTarget(3, 'https://www.doubao.com/chat');
+  assert.equal(await state.__copilotWebChat.switchTarget(1, 'https://www.doubao.com/chat/123'), true);
+  assert.equal(state.__copilotWebChat.snapshot().createdURL, '');
+  assert.equal(state.__copilotWebChat.snapshot().started, false);
+  const old = state.__copilotWebChat.switchTarget(2, 'https://www.doubao.com/chat/123');
+  const latest = state.__copilotWebChat.switchTarget(3, 'https://www.doubao.com/chat');
   assert.equal(await old, false);
   assert.equal(await latest, true);
-  assert.equal(state.__copilotDoubao.snapshot().session, 3);
-  assert.equal(state.__copilotDoubao.restoreDraft('stale', 1), true);
+  assert.equal(state.__copilotWebChat.snapshot().session, 3);
+  assert.equal(state.__copilotWebChat.restoreDraft('stale', 1), true);
   assert.equal(value, '');
-  assert.equal(await state.__copilotDoubao.switchTarget(4, 'https://www.doubao.com/chat'), true);
-  assert.equal(state.__copilotDoubao.snapshot().session, 4);
-  assert.equal(await state.__copilotDoubao.switchTarget(2, 'https://www.doubao.com/chat/123'), false);
+  assert.equal(await state.__copilotWebChat.switchTarget(4, 'https://www.doubao.com/chat'), true);
+  assert.equal(state.__copilotWebChat.snapshot().session, 4);
+  assert.equal(await state.__copilotWebChat.switchTarget(2, 'https://www.doubao.com/chat/123'), false);
   assert.equal(state.location.pathname, '/chat');
   assert.equal(styles.length, 1);
-  assert.equal(await state.__copilotDoubao.switchTarget(5, 'https://www.doubao.com/chat/999'), false);
-  assert.equal(state.__copilotDoubao.snapshot().switching, true);
+  assert.equal(await state.__copilotWebChat.switchTarget(5, 'https://www.doubao.com/chat/999'), false);
+  assert.equal(state.__copilotWebChat.snapshot().switching, true);
   state.setTimeout = resolve => resolve();
   link.click = () => {}; // The website ignored its navigation control.
-  assert.equal(await state.__copilotDoubao.switchTarget(6, 'https://www.doubao.com/chat/123'), false);
+  assert.equal(await state.__copilotWebChat.switchTarget(6, 'https://www.doubao.com/chat/123'), false);
 })().catch(error => {console.error(error); process.exitCode = 1});
 `
-	cmd := exec.Command(node, "-e", harness, doubaoScript(true, ""))
+	cmd := exec.Command(node, "-e", harness, webScript(store.ProviderKindDoubao, true))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("preload behavior: %v\n%s", err, out)
 	}

@@ -11,8 +11,8 @@ var (
 )
 
 func providerKindName(kind string) string {
-	if kind == store.ProviderKindDoubao {
-		return "豆包"
+	if web, ok := store.WebProviderFor(kind); ok {
+		return web.Name
 	}
 	if kind == store.ProviderKindM365 {
 		return "Microsoft 365 Copilot"
@@ -21,8 +21,8 @@ func providerKindName(kind string) string {
 }
 
 func providerIcon(c *ui.Context, kind string, size float32) ui.Element {
-	if kind == store.ProviderKindDoubao {
-		return ui.Image(c, doubaoIcon).Size(size, size).Shrink(0).Label("Doubao icon")
+	if store.IsWebProvider(kind) {
+		return ui.Image(c, doubaoIcon).Size(size, size).Shrink(0).Label(providerKindName(kind) + " icon")
 	}
 	if kind == store.ProviderKindM365 {
 		// Image preserves the supplied icon's grayscale shading.
