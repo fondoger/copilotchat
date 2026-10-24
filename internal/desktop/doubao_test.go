@@ -135,6 +135,31 @@ func TestDoubaoRequiresCreationEvidenceAndNeverRebinds(t *testing.T) {
 	}
 }
 
+func TestDoubaoSwitchQuarantinesOldSessionSnapshots(t *testing.T) {
+	a, p := doubaoTestApp()
+	p.session = 7
+	remote := store.DoubaoChatURL + "/123"
+	for _, snapshot := range []doubaoSnapshot{
+		{Session: 6, URL: remote, CreatedURL: remote},
+		{Session: 7, Switching: true, URL: remote, CreatedURL: remote},
+	} {
+		a.applyDoubaoSnapshot(p, snapshot)
+		if a.current().WebURL != "" || a.current().WebStarted {
+			t.Fatal("switching or old-session snapshot changed local identity")
+		}
+	}
+	p.switching = true
+	a.applyDoubaoSnapshot(p, doubaoSnapshot{Session: 7, URL: remote, CreatedURL: remote})
+	if a.current().WebURL != "" {
+		t.Fatal("host switch did not quarantine snapshots")
+	}
+	p.switching = false
+	a.applyDoubaoSnapshot(p, doubaoSnapshot{Session: 7, URL: remote, CreatedURL: remote})
+	if a.current().WebURL != remote {
+		t.Fatal("confirmed current session was not accepted")
+	}
+}
+
 func TestDoubaoRejectsSnapshotsFromStaleOwners(t *testing.T) {
 	for _, mutate := range []struct {
 		name string
@@ -225,7 +250,7 @@ function page(initial = 'https://www.doubao.com/chat', framed = false) {
     addEventListener: (name, fn) => events[name] = fn,
   };
   const calls = [];
-  const state = {document, location: new URL(initial), navigator: {platform: 'Win32'},
+  const state = {document, URL, setTimeout, location: new URL(initial), navigator: {platform: 'Win32'},
     mygo: {call: (...args) => {calls.push(args); return Promise.resolve();}},
     addEventListener: (name, fn) => events[name] = fn};
   state.window = state; state.top = framed ? {} : state;
@@ -319,6 +344,37 @@ for (const [initial, framed] of [['https://sso.douyin.com/login', false], [undef
   state.history.pushState({}, '', '/chat/999');
   assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
 }
+(async () => {
+  const {state, styles} = page();
+  let value = '';
+  let editor = {isContentEditable:false, get value() {return value}};
+  const link = {getAttribute: () => '/chat/123', click() {editor = {isContentEditable:false, get value() {return value}}; state.history.pushState({}, '', '/chat/123')}};
+  const fresh = {textContent:'新对话 Ctrl Shift K', click() {value = ''; state.history.pushState({}, '', '/chat')}};
+  state.document.querySelector = () => editor;
+  state.document.querySelectorAll = selector => selector === 'a[href]' ? [link] : [fresh];
+  state.history.pushState({}, '', '/chat/local_11');
+  state.history.replaceState({}, '', '/chat/12');
+  assert.equal(await state.__copilotDoubao.switchTarget(1, 'https://www.doubao.com/chat/123'), true);
+  assert.equal(state.__copilotDoubao.snapshot().createdURL, '');
+  assert.equal(state.__copilotDoubao.snapshot().started, false);
+  const old = state.__copilotDoubao.switchTarget(2, 'https://www.doubao.com/chat/123');
+  const latest = state.__copilotDoubao.switchTarget(3, 'https://www.doubao.com/chat');
+  assert.equal(await old, false);
+  assert.equal(await latest, true);
+  assert.equal(state.__copilotDoubao.snapshot().session, 3);
+  assert.equal(state.__copilotDoubao.restoreDraft('stale', 1), true);
+  assert.equal(value, '');
+  assert.equal(await state.__copilotDoubao.switchTarget(4, 'https://www.doubao.com/chat'), true);
+  assert.equal(state.__copilotDoubao.snapshot().session, 4);
+  assert.equal(await state.__copilotDoubao.switchTarget(2, 'https://www.doubao.com/chat/123'), false);
+  assert.equal(state.location.pathname, '/chat');
+  assert.equal(styles.length, 1);
+  assert.equal(await state.__copilotDoubao.switchTarget(5, 'https://www.doubao.com/chat/999'), false);
+  assert.equal(state.__copilotDoubao.snapshot().switching, true);
+  state.setTimeout = resolve => resolve();
+  link.click = () => {}; // The website ignored its navigation control.
+  assert.equal(await state.__copilotDoubao.switchTarget(6, 'https://www.doubao.com/chat/123'), false);
+})().catch(error => {console.error(error); process.exitCode = 1});
 `
 	cmd := exec.Command(node, "-e", harness, doubaoScript(true, ""))
 	if out, err := cmd.CombinedOutput(); err != nil {

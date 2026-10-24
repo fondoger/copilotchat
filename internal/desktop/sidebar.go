@@ -525,8 +525,12 @@ func (a *app) cycleChat(step int) {
 		return
 	}
 	index := 0
+	active := a.state.ActiveID
+	if a.pendingChat != "" {
+		active = a.pendingChat
+	}
 	for i, chat := range chats {
-		if chat.ID == a.state.ActiveID {
+		if chat.ID == active {
 			index = (i + step + len(chats)) % len(chats)
 			break
 		}

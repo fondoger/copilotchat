@@ -49,6 +49,7 @@ type app struct {
 	sidebarHidden, searchOpen      bool
 	webModelToggle                 bool
 	modelSelection                 uint64
+	pendingChat                    string
 	composer                       ui.Handle
 	list                           ui.ListState
 	md                             markdown.Options
@@ -250,12 +251,17 @@ func (a *app) conversation(id string) *store.Conversation {
 }
 
 func (a *app) newChat() {
+	a.pendingChat = ""
+	a.captureDoubaoDeparture(a.finishNewChat)
+}
+
+func (a *app) finishNewChat() {
 	a.modelSelection++
 	a.rememberDraft()
 	for i := range a.state.Conversations {
 		chat := &a.state.Conversations[i]
 		if a.reusableNewChat(chat) {
-			a.selectChat(chat.ID)
+			a.finishSelectChat(chat.ID)
 			return
 		}
 	}
@@ -306,6 +312,12 @@ func (a *app) rememberDraft() {
 }
 
 func (a *app) selectChat(id string) {
+	a.pendingChat = id
+	a.captureDoubaoDeparture(func() { a.finishSelectChat(id) })
+}
+
+func (a *app) finishSelectChat(id string) {
+	a.pendingChat = ""
 	a.modelSelection++
 	if a.state.ActiveID != id {
 		a.closePreview()

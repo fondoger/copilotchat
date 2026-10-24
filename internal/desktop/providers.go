@@ -271,6 +271,7 @@ func (a *app) chooseDoubao(providerID string) {
 }
 
 func (a *app) chooseChatProvider(providerID, modelID string) {
+	a.pendingChat = ""
 	a.modelSelection++
 	request := a.modelSelection
 	chat := a.current()
@@ -288,7 +289,7 @@ func (a *app) chooseChatProvider(providerID, modelID string) {
 				if err == nil {
 					a.applyDoubaoSnapshot(p, snapshot)
 				}
-				a.finishChatProvider(providerID, modelID, err == nil && !p.startedChat && !snapshot.Started && doubaoBlankRoute(snapshot.URL) && snapshot.URL == page.URL())
+				a.finishChatProvider(providerID, modelID, err == nil && !p.switching && !snapshot.Switching && snapshot.Session == p.session && !p.startedChat && !snapshot.Started && doubaoBlankRoute(snapshot.URL) && snapshot.URL == page.URL())
 			})
 		}()
 		return

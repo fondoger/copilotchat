@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,9 +39,14 @@ type doubaoView struct {
 	generation         uint64
 	startedChat        bool
 	resetDraft         bool
+	switching          bool
+	fallback           bool
+	session            uint64
 }
 
 type doubaoSnapshot struct {
+	Session    uint64  `json:"session"`
+	Switching  bool    `json:"switching"`
 	URL        string  `json:"url"`
 	Title      string  `json:"title"`
 	CreatedURL string  `json:"createdURL"`
@@ -236,6 +242,14 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 		page.OnDOMReady(func() {
 			p.trace("dom-ready")
 			a.update(func() {
+				// A real document navigation reinstalls the preload with session zero.
+				if !p.switching {
+					p.session = 0
+					if p.cancel != nil {
+						p.cancel()
+						p.cancel = nil
+					}
+				}
 				if p.nextURL == "" && p.focusPending && a.currentDoubao(p) && a.settingsWin == nil && !a.searchOpen && !a.renameOpen && !a.deleteOpen {
 					p.view.Focus()
 				}
@@ -245,18 +259,23 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 			p.trace("load-finished")
 			a.update(func() {
 				if p.nextURL != "" {
-					if page.URL() == "about:blank" {
+					if p.fallback && page.URL() == "about:blank" {
+						p.fallback = false
+						p.session = 0
 						target := p.nextURL
 						p.nextURL = ""
 						_ = page.LoadURL(target)
 					}
 					return
 				}
+				if p.switching {
+					return
+				}
 				p.ready = true
 				if p.chatID != "" && p.cancel == nil && a.currentDoubao(p) {
 					ctx, cancel := context.WithCancel(context.Background())
 					p.cancel = cancel
-					go a.pollDoubao(ctx, p, page, p.wake, a.draft, p.generation)
+					go a.pollDoubao(ctx, p, page, p.wake, a.draft, p.generation, p.session)
 				}
 				if p.wake != nil {
 					select {
@@ -324,7 +343,7 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 			}
 		}))
 		// The worker captures only a page and its lifetime, never reads app state.
-		go a.pollDoubao(ctx, p, page, wake, a.draft, p.generation)
+		go a.pollDoubao(ctx, p, page, wake, a.draft, p.generation, p.session)
 	}
 	if err := page.LoadURL(target); err != nil {
 		p.err = "Could not load Doubao: " + err.Error()
@@ -336,6 +355,32 @@ func (a *app) newDoubaoView(owner *mygo.Window, providerID, chatID, target strin
 // WebView2 uses its own positive status codes rather than Chromium's net errors.
 func doubaoNavigationAborted(platform string, code int) bool {
 	return code == -3 || platform == "windows" && (code == 9 || code == 13)
+}
+
+// Capture before changing the active local identity; input notifications are async.
+func (a *app) captureDoubaoDeparture(next func()) {
+	a.modelSelection++
+	request := a.modelSelection
+	p := a.doubaoChat
+	if p == nil || p.view == nil || p.switching || !a.currentDoubao(p) {
+		next()
+		return
+	}
+	generation, page := p.generation, p.view.Page()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		snapshot, err := readDoubaoSnapshot(ctx, page)
+		a.update(func() {
+			if a.modelSelection != request || p.generation != generation || !a.currentDoubao(p) {
+				return
+			}
+			if err == nil {
+				a.applyDoubaoSnapshot(p, snapshot)
+			}
+			next()
+		})
+	}()
 }
 
 func (a *app) retargetDoubao(p *doubaoView, chat *store.Conversation) {
@@ -351,11 +396,49 @@ func (a *app) retargetDoubao(p *doubaoView, chat *store.Conversation) {
 	if chat.WebURL != "" {
 		p.nextURL = chat.WebURL
 	}
-	p.cancel = nil // Restart observation after the replacement document loads.
-	if err := p.view.Page().LoadURL("about:blank"); err != nil {
-		p.err = "Could not reset Doubao: " + err.Error()
-	}
-	p.trace("reset-to-blank")
+	p.cancel = nil
+	p.switching = true
+	p.fallback = false
+	generation, target, draft := p.generation, p.nextURL, a.draft
+	page := p.view.Page()
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	go func() {
+		evalCtx, done := context.WithTimeout(ctx, 8*time.Second)
+		encoded, _ := json.Marshal(target)
+		value, err := page.EvalContext(evalCtx, `window.__copilotDoubao?.switchTarget(`+strconv.FormatUint(generation, 10)+`,`+string(encoded)+`)`)
+		done()
+		a.update(func() {
+			if ctx.Err() != nil || p.generation != generation || !a.currentDoubao(p) {
+				return
+			}
+			cancel()
+			p.cancel = nil
+			p.switching = false
+			if err != nil || value != true {
+				p.session = 0
+				p.fallback = true
+				if err := page.LoadURL("about:blank"); err != nil {
+					p.err = "Could not reset Doubao: " + err.Error()
+				}
+				p.trace("reset-to-blank")
+				return
+			}
+			p.nextURL, p.session, p.ready = "", generation, true
+			pollCtx, stop := context.WithCancel(context.Background())
+			p.cancel = stop
+			go a.pollDoubao(pollCtx, p, page, p.wake, draft, generation, generation)
+			select {
+			case p.wake <- struct{}{}:
+			default:
+			}
+			if p.focusPending && a.settingsWin == nil && !a.searchOpen && !a.renameOpen && !a.deleteOpen {
+				p.view.Focus()
+				p.focusPending = !p.owner.IsFocused()
+			}
+			p.trace("spa-switched")
+		})
+	}()
 }
 
 func (a *app) doubaoRouteAllowed(p *doubaoView, raw string) bool {
@@ -396,7 +479,7 @@ func readDoubaoSnapshot(ctx context.Context, page *mygo.Page) (doubaoSnapshot, e
 	return snapshot, err
 }
 
-func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wake <-chan struct{}, draft string, generation uint64) {
+func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wake <-chan struct{}, draft string, generation, session uint64) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	encoded, _ := json.Marshal(draft)
@@ -410,7 +493,7 @@ func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wa
 		}
 		evalCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		if attempts < 10 {
-			value, _ := page.EvalContext(evalCtx, `window.__copilotDoubao?.restoreDraft(`+string(encoded)+`)`)
+			value, _ := page.EvalContext(evalCtx, `window.__copilotDoubao?.restoreDraft(`+string(encoded)+`,`+strconv.FormatUint(session, 10)+`)`)
 			attempts++
 			if value == true {
 				attempts = 10
@@ -432,7 +515,7 @@ func (a *app) pollDoubao(ctx context.Context, p *doubaoView, page *mygo.Page, wa
 // CreatedURL requires the local_<id> → server ID transition in this chat view.
 // Settings views never import; a bound record never changes identity.
 func (a *app) applyDoubaoSnapshot(p *doubaoView, snapshot doubaoSnapshot) {
-	if !a.currentDoubao(p) || p.chatID == "" {
+	if !a.currentDoubao(p) || p.chatID == "" || p.switching || snapshot.Switching || snapshot.Session != p.session {
 		return
 	}
 	chat := a.conversation(p.chatID)
@@ -517,7 +600,7 @@ func (a *app) doubaoChatView(c *ui.Context, chat *store.Conversation) {
 		}
 		if p.owner == a.win && p.view != nil && !p.view.IsDestroyed() && p.err == "" {
 			a.doubaoChat = p
-			if p.chatID != chat.ID || p.resetDraft {
+			if p.chatID != chat.ID || p.resetDraft || p.switching {
 				a.retargetDoubao(p, chat)
 			} else {
 				p.view.Focus()

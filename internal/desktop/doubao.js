@@ -38,6 +38,12 @@
   };
   const notify = () => window.mygo?.call('WebChatShortcuts.DraftChanged').catch(() => {});
   let edited = false, restored = false, restoring = false, lastText = '';
+  let session = 0, requested = 0, switching = false, navigation = Promise.resolve();
+  const reset = token => {
+    session = token;
+    pending = started = edited = restored = restoring = false;
+    createdURL = lastText = '';
+  };
   for (const event of ['input', 'compositionend']) document.addEventListener(event, e => {
     const node = editor();
     if (node && (e.target === node || node.contains(e.target))) {
@@ -50,7 +56,7 @@
 
   let pending = false, started = false, createdURL = '';
   const observeRoute = () => {
-    if (createdURL) return;
+    if (switching || createdURL) return;
     const path = location.pathname;
     if (/^\/chat\/local_\d+$/.test(path)) {
       pending = true;
@@ -75,12 +81,51 @@
   }
   window.addEventListener('popstate', observeRoute);
   window.__copilotDoubao = {
+    switchTarget(token, target) {
+      if (token <= requested) return Promise.resolve(false);
+      requested = token;
+      switching = true;
+      navigation = navigation.catch(() => false).then(async () => {
+        if (requested !== token) return false;
+        const url = new URL(target);
+        if (url.origin !== location.origin || !/^\/chat(?:\/\d+)?\/?$/.test(url.pathname)) return false;
+        const blank = /^\/chat\/?$/.test(url.pathname);
+        const controls = blank
+          ? Array.from(document.querySelectorAll('nav [role="button"], nav button')).filter(node => /^新对话(?:Ctrl|⌘|$)/.test(node.textContent.replace(/\s/g, '')))
+          : Array.from(document.querySelectorAll('a[href]')).filter(node => node.getAttribute('href') === url.pathname);
+        if (controls.length !== 1) return false;
+        const previousEditor = editor();
+        const sameRoute = location.pathname.replace(/\/$/, '') === url.pathname.replace(/\/$/, '');
+        const main = document.documentElement;
+        if (main) main.inert = true;
+        controls[0].click();
+        // Let the site's router render; URL changes alone precede editor updates.
+        let stable = 0;
+        for (let i = 0; i < 30; i++) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const node = editor();
+          const arrived = location.pathname.replace(/\/$/, '') === url.pathname.replace(/\/$/, '') && node && (blank ? text(node) === '' : sameRoute || node !== previousEditor);
+          stable = arrived ? stable + 1 : 0;
+          if (stable >= 3) {
+            if (requested !== token) return false;
+            reset(token);
+            switching = false;
+            if (main) main.inert = false;
+            notify();
+            return true;
+          }
+        }
+        return false;
+      });
+      return navigation;
+    },
     snapshot() {
       observeRoute();
       const node = editor();
-      return {url: location.href, title: document.title, createdURL, started, edited, draft: node && (restored || edited) ? text(node) : null};
+      return {url: location.href, title: document.title, session, switching, createdURL, started, edited, draft: node && (restored || edited) ? text(node) : null};
     },
-    restoreDraft(value) {
+    restoreDraft(value, token = 0) {
+      if (switching || token !== session) return true;
       const node = editor();
       if (!node) return false;
       if (restored || edited || started || !/^\/chat\/?$/.test(location.pathname)) return true;
