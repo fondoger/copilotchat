@@ -123,7 +123,7 @@ func TestResponsesReverseJSONToolsUsageAndReplay(t *testing.T) {
 func TestResponsesReverseStopReasonsAndRefusal(t *testing.T) {
 	for _, tc := range []struct{ reason, status, detail string }{
 		{"end_turn", "completed", ""}, {"stop_sequence", "completed", ""}, {"tool_use", "completed", ""},
-		{"max_tokens", "incomplete", "max_output_tokens"}, {"pause_turn", "incomplete", ""}, {"refusal", "completed", ""},
+		{"max_tokens", "incomplete", "max_output_tokens"}, {"pause_turn", "completed", ""}, {"refusal", "completed", ""},
 	} {
 		t.Run(tc.reason, func(t *testing.T) {
 			message := parsed(t, `{"id":"msg_stop","type":"message","role":"assistant","content":[{"type":"text","text":"answer"}],"usage":{}}`)
@@ -170,8 +170,8 @@ func TestResponsesReverseSearchFailureCitationsAndReplay(t *testing.T) {
 		t.Fatal("unfinished search reported as a completed turn")
 	}
 	source["stop_reason"] = "pause_turn"
-	if response, err := messagesToResponse(source, "model", nil); err != nil || response["status"] != "incomplete" {
-		t.Fatal("paused search lost its continuation state", response, err)
+	if response, err := messagesToResponse(source, "model", nil); err != nil || response["status"] != "completed" || response["error"] != nil {
+		t.Fatal("paused search did not return its available output", response, err)
 	}
 	block := obj(content[2])
 	block["citations"] = append(array(block["citations"]), array(block["citations"])[0], object{"type": "web_search_result_location", "url": "javascript:alert(1)"})
@@ -372,11 +372,15 @@ func TestResponsesReverseStreamingIncompleteAndRefusal(t *testing.T) {
 			w := reverseResponse(t, reverseSSE(reverseTextEvents(tc.reason)...), "text/event-stream", true, nil)
 			events := reverseReadEvents(t, w.Body.String())
 			response := reverseFinal(t, events)
-			if events[len(events)-1]["type"] != "response.incomplete" || obj(response["incomplete_details"])["reason"] != tc.detail {
+			terminal := "response.incomplete"
+			if tc.reason == "pause_turn" {
+				terminal = "response.completed"
+			}
+			if events[len(events)-1]["type"] != terminal || obj(response["incomplete_details"])["reason"] != tc.detail {
 				t.Fatal(response)
 			}
-			if tc.reason == "pause_turn" && (obj(response["error"])["code"] != "server_error" || !strings.Contains(text(obj(response["error"])["message"]), "pause_turn")) {
-				t.Fatal("pause_turn lost its non-success explanation", response)
+			if tc.reason == "pause_turn" && (response["status"] != "completed" || response["error"] != nil || response["incomplete_details"] != nil) {
+				t.Fatal("pause_turn did not complete normally", response)
 			}
 			var content strings.Builder
 			for _, e := range events {

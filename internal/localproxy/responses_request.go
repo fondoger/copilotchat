@@ -13,7 +13,26 @@ import (
 )
 
 type responsesBridge struct {
-	custom map[string]bool
+	custom          map[string]bool
+	pendingSearches map[string]bool
+}
+
+func updatePendingSearches(pending map[string]bool, block object) error {
+	switch text(block["type"]) {
+	case "server_tool_use":
+		id := text(block["id"])
+		if text(block["name"]) != "web_search" || id == "" || pending[id] {
+			return errors.New("invalid or duplicate Anthropic search call")
+		}
+		pending[id] = true
+	case "web_search_tool_result":
+		id := text(block["tool_use_id"])
+		if !pending[id] {
+			return errors.New("Anthropic search result has no matching pending search call")
+		}
+		delete(pending, id)
+	}
+	return nil
 }
 
 const anthropicReplayPrefix = "copilotchat-anthropic-v1:"
@@ -430,6 +449,23 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 	}
 	if len(messages) == 0 || len(pending) > 0 {
 		return fail(errors.New("input needs a conversation with completed client tool results"))
+	}
+	// Search calls can wait for client tools and receive their results in a
+	// later response. Reconstruct that state from history, never server storage.
+	bridge.pendingSearches = map[string]bool{}
+	for _, value := range messages {
+		message := obj(value)
+		if message["role"] != "assistant" {
+			continue
+		}
+		for _, block := range array(message["content"]) {
+			if err := updatePendingSearches(bridge.pendingSearches, obj(block)); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	if len(bridge.pendingSearches) > 0 && !search {
+		return fail(errors.New("pending Anthropic searches require the web_search tool"))
 	}
 	dst["messages"] = messages
 	data, err := json.Marshal(dst)

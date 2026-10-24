@@ -35,9 +35,8 @@ func responsesStatus(message object) (string, any, error) {
 	case "max_tokens":
 		return "incomplete", object{"reason": "max_output_tokens"}, nil
 	case "pause_turn":
-		// Responses has no pause/resume incomplete reason. Keep its enum valid
-		// while explicitly reporting that this turn is not finished.
-		return "incomplete", object{"reason": nil}, nil
+		// Compatibility policy: return the available output without auto-resuming.
+		return "completed", nil, nil
 	default:
 		return "", nil, fmt.Errorf("Anthropic reply has invalid or missing stop_reason %q", text(message["stop_reason"]))
 	}
@@ -130,8 +129,17 @@ func messagesToResponse(message object, model string, bridge *responsesBridge) (
 	id := responsesID(message)
 	output := []any{}
 	searches := map[string]object{}
+	pendingSearches := map[string]bool{}
+	if bridge != nil {
+		for id := range bridge.pendingSearches {
+			pendingSearches[id] = true
+		}
+	}
 	for i, v := range array(message["content"]) {
 		block := obj(v)
+		if err := updatePendingSearches(pendingSearches, block); err != nil {
+			return nil, err
+		}
 		item, err := responsesBlockItem(block, id, i, bridge, text(message["stop_reason"]) == "refusal")
 		if err != nil {
 			return nil, err
@@ -148,21 +156,20 @@ func messagesToResponse(message object, model string, bridge *responsesBridge) (
 		}
 		if text(block["type"]) == "web_search_tool_result" {
 			search := searches[text(block["tool_use_id"])]
-			if search == nil {
-				return nil, errors.New("Anthropic search result has no matching search call")
-			}
-			search["status"] = "completed"
-			if responsesSearchFailed(block) {
-				search["status"] = "failed"
+			// A result for a historical call belongs in replay state, not a new
+			// visible search call. Only finish items created in this response.
+			if search != nil {
+				search["status"] = "completed"
+				if responsesSearchFailed(block) {
+					search["status"] = "failed"
+				}
 			}
 		}
 	}
-	if status == "completed" {
-		for _, search := range searches {
-			if search["status"] == "in_progress" {
-				return nil, errors.New("Anthropic completed a turn with an unfinished search")
-			}
-		}
+	// completed is also used for tool_use and pause_turn. Only a genuine end
+	// of the Anthropic turn requires every server search to have its result.
+	if reason := text(message["stop_reason"]); (reason == "end_turn" || reason == "stop_sequence") && len(pendingSearches) > 0 {
+		return nil, errors.New("Anthropic completed a turn with an unfinished search")
 	}
 	// Replay must follow all visible items. The request translator uses those
 	// items as a match key and restores the original ordered content wholesale.
@@ -171,12 +178,8 @@ func messagesToResponse(message object, model string, bridge *responsesBridge) (
 		return nil, err
 	}
 	output = append(output, object{"type": "reasoning", "id": id + "_replay", "summary": []any{}, "encrypted_content": replay})
-	var responseError any
-	if text(message["stop_reason"]) == "pause_turn" {
-		responseError = object{"code": "server_error", "message": "Anthropic paused the turn before completion (pause_turn)"}
-	}
 	return object{"id": id, "object": "response", "created_at": 0, "model": model, "status": status,
-		"output": output, "error": responseError, "incomplete_details": details, "usage": responsesUsage(message)}, nil
+		"output": output, "error": nil, "incomplete_details": details, "usage": responsesUsage(message)}, nil
 }
 
 func writeResponsesError(w http.ResponseWriter, status int, message string) {
