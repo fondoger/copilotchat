@@ -41,6 +41,8 @@ type Model struct {
 	VisionKnown       bool            `json:"vision_known"`
 	PDFKnown          bool            `json:"pdf_known"`
 	ToolsKnown        bool            `json:"tools_known"`
+	NativeSearch      bool            `json:"native_search"`
+	NativeSearchKnown bool            `json:"native_search_known"`
 	ReasoningKnown    bool            `json:"reasoning_known"`
 	ThinkingEfforts   []string        `json:"thinking_efforts,omitempty"`
 	AdaptiveThinking  bool            `json:"adaptive_thinking"`
@@ -81,12 +83,14 @@ type Message struct {
 	Reasoning       string            `json:"reasoning,omitempty"`
 	ReasoningOpaque string            `json:"reasoning_opaque,omitempty"`
 	ProviderData    []json.RawMessage `json:"provider_data,omitempty"`
+	Replay          *Replay           `json:"replay,omitempty"`
 }
 
 type Request struct {
 	Model                string    `json:"model"`
 	Messages             []Message `json:"messages"`
 	Tools                []Tool    `json:"tools,omitempty"`
+	NativeSearch         bool      `json:"native_search,omitempty"`
 	ConversationID       string    `json:"conversation_id,omitempty"`
 	Background           bool      `json:"background,omitempty"`
 	ReasoningEffort      string    `json:"reasoning_effort,omitempty"`
@@ -118,12 +122,27 @@ type StreamEvent struct {
 	Delta string `json:"delta"`
 }
 
+// Replay is the complete, ordered assistant output in its native protocol.
+// Unlike ProviderData (legacy reasoning only), it replaces normalized history.
+type Replay struct {
+	Protocol string            `json:"protocol"`
+	Blocks   []json.RawMessage `json:"blocks"`
+}
+
+type Citation struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
+}
+
 type Completion struct {
+	Citations       []Citation        `json:"citations,omitempty"`
+	StopReason      string            `json:"stop_reason,omitempty"`
 	Content         string            `json:"content"`
 	Reasoning       string            `json:"reasoning,omitempty"`
 	ReasoningOpaque string            `json:"reasoning_opaque,omitempty"`
 	ToolCalls       []ToolCall        `json:"tool_calls,omitempty"`
 	ProviderData    []json.RawMessage `json:"provider_data,omitempty"`
+	Replay          *Replay           `json:"replay,omitempty"`
 	Usage           Usage             `json:"usage"`
 	Metrics         Metrics           `json:"metrics"`
 }
@@ -131,7 +150,7 @@ type Completion struct {
 // AssistantMessage preserves provider reasoning signatures for subsequent turns.
 func (c Completion) AssistantMessage() Message {
 	return Message{Role: "assistant", Content: c.Content, ToolCalls: c.ToolCalls,
-		Reasoning: c.Reasoning, ReasoningOpaque: c.ReasoningOpaque, ProviderData: c.ProviderData}
+		Reasoning: c.Reasoning, ReasoningOpaque: c.ReasoningOpaque, ProviderData: c.ProviderData, Replay: c.Replay}
 }
 
 type HTTPError struct {

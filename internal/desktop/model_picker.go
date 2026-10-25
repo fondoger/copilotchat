@@ -41,6 +41,9 @@ func modelCapabilityIcons(c *ui.Context, model provider.Model) {
 	if model.PDF {
 		ui.Text(c, "PDF").FontSize(10).TextColor(c.Theme().TextMuted).Tooltip("PDF input")
 	}
+	if provider.SupportsNativeSearch(model) {
+		ui.Icon(c, iNativeSearch).Size(15, 15).Tooltip("Native web search").TextColor(c.Theme().TextMuted)
+	}
 }
 
 func (a *app) modelPicker(c *ui.Context) {

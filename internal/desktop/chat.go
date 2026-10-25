@@ -160,7 +160,7 @@ func history(chat *store.Conversation) []provider.Message {
 				if json.Unmarshal(raw, &wire) == nil && validRole(wire.Role) {
 					// Signed/encrypted reasoning is specific to its provider and model.
 					if m.ProviderID == "" || m.Model == "" || m.ProviderID != chat.ProviderID || m.Model != chat.Model {
-						wire.ReasoningOpaque, wire.ProviderData = "", nil
+						wire.ReasoningOpaque, wire.ProviderData, wire.Replay = "", nil, nil
 					}
 					decoded = append(decoded, wire)
 				}
@@ -219,10 +219,13 @@ func completeToolHistory(messages []provider.Message) []provider.Message {
 					calls = append(calls, call)
 				}
 			}
+			if len(calls) != len(message.ToolCalls) {
+				message.Replay = nil
+			}
 			message.ToolCalls = calls
 			pending = append(pending, calls...)
 		}
-		if message.Role == "assistant" && message.Content == "" && len(message.ToolCalls) == 0 && len(message.ProviderData) == 0 {
+		if message.Role == "assistant" && message.Content == "" && len(message.ToolCalls) == 0 && len(message.ProviderData) == 0 && message.Replay == nil {
 			continue
 		}
 		out = append(out, message)
@@ -245,6 +248,9 @@ func (a *app) startReply(chat *store.Conversation) {
 		delete(a.titleJobs, chat.ID)
 	}
 	request := provider.Request{Model: chat.Model, ConversationID: chat.ID, Messages: history(chat), ReasoningEffort: chat.ReasoningEffort, ThinkingBudgetTokens: chat.ThinkingBudgetTokens}
+	if model, ok := a.modelForProvider(chat.ProviderID, chat.Model); ok {
+		request.NativeSearch = chat.NativeSearch && provider.SupportsNativeSearch(model)
+	}
 	replyID := newID()
 	chat.Messages = append(chat.Messages, store.Message{ID: replyID, Role: "assistant", ProviderID: chat.ProviderID, Model: chat.Model, CreatedAt: time.Now()})
 	a.streaming = true
@@ -354,7 +360,8 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 	}
 	var display, reasoning strings.Builder
 	stats := store.MessageStats{}
-	rounds := 0
+	rounds, toolRounds, searchContinuations := 0, 0, 0
+	var citations []provider.Citation
 	var transcript []json.RawMessage
 	appendWire := func(m provider.Message) {
 		req.Messages = append(req.Messages, m)
@@ -367,15 +374,16 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 		stats.DurationMS = time.Since(started).Milliseconds()
 		snapshot := stats
 		rawCopy := append([]json.RawMessage(nil), transcript...)
+		sources := append([]provider.Citation(nil), citations...)
 		a.update(func() {
 			if m := a.message(chatID, replyID); m != nil {
-				m.Reasoning, m.Stats = thoughts, &snapshot
+				m.Reasoning, m.Stats, m.Citations = thoughts, &snapshot, sources
 			}
 			a.recordReply(chatID, replyID, text, rawCopy)
 		})
 	}
 	defer publish()
-	for round := 0; round < 8; round++ {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -406,15 +414,19 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 		})
 		accumulateReplyStats(&stats, completion, rounds == 0, roundStart)
 		rounds++
+		citations = appendCitations(citations, completion.Citations)
 		if completion.Reasoning != "" {
 			reasoning.Reset()
 			reasoning.WriteString(reasoningPrefix)
 			reasoning.WriteString(completion.Reasoning)
 		}
 		if err != nil {
-			if completion.Content != "" {
+			if completion.Content != "" || completion.Replay != nil {
 				partial := completion.AssistantMessage()
 				// An interrupted tool request must never become executable history.
+				if len(partial.ToolCalls) > 0 {
+					partial.Replay = nil
+				}
 				partial.ToolCalls = nil
 				appendWire(partial)
 			}
@@ -427,8 +439,19 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 		appendWire(completion.AssistantMessage())
 		publish()
 		if len(completion.ToolCalls) == 0 {
-			return nil
+			if completion.StopReason != "pause_turn" {
+				return nil
+			}
+			searchContinuations++
+			if searchContinuations >= 8 {
+				return errors.New("Search paused too many times. Send a new message to continue.")
+			}
+			continue
 		}
+		if toolRounds >= 8 {
+			return errors.New("Stopped after 8 tool rounds. Send a new message to continue.")
+		}
+		toolRounds++
 		for _, call := range completion.ToolCalls {
 			tool, ok := tools[call.Name]
 			result := ""
@@ -486,7 +509,6 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 			reasoning.WriteString("\n\n")
 		}
 	}
-	return errors.New("Stopped after 8 tool rounds. Send a new message to continue.")
 }
 
 func truncateToolOutput(text string, maxBytes int) string {

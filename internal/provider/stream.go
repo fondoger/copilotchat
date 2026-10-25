@@ -56,7 +56,7 @@ func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return Completion{}, ResponseError(resp)
 	}
-	parser := streamParser{onEvent: onEvent, started: started, calls: make(map[int]*ToolCall), blocks: make(map[int]map[string]any)}
+	parser := streamParser{onEvent: onEvent, started: started, calls: make(map[int]*ToolCall), blocks: make(map[int]map[string]any), protocol: model.Endpoint}
 	if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 		if readErr != nil {
@@ -89,13 +89,20 @@ func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent 
 		err = ctx.Err()
 	}
 	result := parser.result()
+	if err != nil {
+		result.Replay = nil
+	}
 	if err == nil {
 		for _, call := range result.ToolCalls {
 			var args map[string]any
 			if call.ID == "" || call.Name == "" || json.Unmarshal([]byte(call.Arguments), &args) != nil || args == nil {
+				result.Replay = nil
 				return result, errors.New("Copilot returned an incomplete or invalid tool call")
 			}
 		}
+	}
+	if err == nil {
+		err = parser.nativeError
 	}
 	return result, err
 }
@@ -163,6 +170,13 @@ type streamParser struct {
 	done             bool
 	calls            map[int]*ToolCall
 	blocks           map[int]map[string]any
+	protocol         string
+	outputItems      map[int]json.RawMessage
+	outputAdded      map[int]bool
+	closedBlocks     map[int]bool
+	blockJSON        map[int]string
+	replayInvalid    bool
+	nativeError      error
 }
 
 func (p *streamParser) text(delta string) {
@@ -205,10 +219,14 @@ func (p *streamParser) result() Completion {
 		}
 		result.ToolCalls = append(result.ToolCalls, call)
 	}
+	result.Replay = p.replay()
 	return result
 }
 
 func (p *streamParser) call(index int) *ToolCall {
+	if p.calls == nil {
+		p.calls = make(map[int]*ToolCall)
+	}
 	if p.calls[index] == nil {
 		p.calls[index] = &ToolCall{}
 	}
@@ -280,6 +298,7 @@ func (p *streamParser) chat(data []byte) error {
 			call.Arguments += fragment.Function.Arguments
 		}
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			p.completion.StopReason = *choice.FinishReason
 			p.done = true
 			if *choice.FinishReason == "content_filter" {
 				return errors.New("Copilot stopped the response because of its content filter")
@@ -298,11 +317,13 @@ func (p *streamParser) responses(event string, data []byte) error {
 		Delta       string          `json:"delta"`
 		OutputIndex int             `json:"output_index"`
 		Item        json.RawMessage `json:"item"`
+		Annotation  map[string]any  `json:"annotation"`
 		Error       json.RawMessage `json:"error"`
 		Message     string          `json:"message"`
 		Response    struct {
-			Usage             *wireUsage      `json:"usage"`
-			Error             json.RawMessage `json:"error"`
+			Usage             *wireUsage        `json:"usage"`
+			Output            []json.RawMessage `json:"output"`
+			Error             json.RawMessage   `json:"error"`
 			IncompleteDetails struct {
 				Reason string `json:"reason"`
 			} `json:"incomplete_details"`
@@ -314,12 +335,15 @@ func (p *streamParser) responses(event string, data []byte) error {
 	if chunk.Type == "" {
 		chunk.Type = event
 	}
+	p.protocol = "/responses"
 	p.usage(chunk.Response.Usage, "/responses")
 	switch chunk.Type {
 	case "response.output_text.delta":
 		p.text(chunk.Delta)
 	case "response.reasoning_summary_text.delta":
 		p.reasoning(chunk.Delta)
+	case "response.output_text.annotation.added":
+		p.searchMetadata(chunk.Annotation)
 	case "response.output_item.added", "response.output_item.done":
 		var item struct {
 			Type      string `json:"type"`
@@ -330,6 +354,12 @@ func (p *streamParser) responses(event string, data []byte) error {
 		if err := json.Unmarshal(chunk.Item, &item); err != nil {
 			return err
 		}
+		if chunk.Type == "response.output_item.added" {
+			if p.outputAdded == nil {
+				p.outputAdded = make(map[int]bool)
+			}
+			p.outputAdded[chunk.OutputIndex] = true
+		}
 		if item.Type == "function_call" {
 			call := p.call(chunk.OutputIndex)
 			call.ID, call.Name = item.CallID, item.Name
@@ -337,12 +367,21 @@ func (p *streamParser) responses(event string, data []byte) error {
 				call.Arguments = item.Arguments
 			}
 		}
-		if item.Type == "reasoning" && chunk.Type == "response.output_item.done" {
-			p.completion.ProviderData = append(p.completion.ProviderData, append(json.RawMessage(nil), chunk.Item...))
+		if chunk.Type == "response.output_item.done" {
+			if err := p.responseItem(chunk.OutputIndex, chunk.Item); err != nil {
+				return err
+			}
 		}
 	case "response.function_call_arguments.delta":
 		p.call(chunk.OutputIndex).Arguments += chunk.Delta
 	case "response.completed":
+		for index, raw := range chunk.Response.Output {
+			if err := p.responseItem(index, raw); err != nil {
+				return err
+			}
+		}
+		p.responseVisibleFallback()
+		p.completion.StopReason = "completed"
 		p.done = true
 		return errStreamDone
 	case "response.incomplete":
@@ -370,12 +409,13 @@ func (p *streamParser) anthropic(event string, data []byte) error {
 		Index        int            `json:"index"`
 		ContentBlock map[string]any `json:"content_block"`
 		Delta        struct {
-			Type        string `json:"type"`
-			Text        string `json:"text"`
-			Thinking    string `json:"thinking"`
-			Signature   string `json:"signature"`
-			PartialJSON string `json:"partial_json"`
-			StopReason  string `json:"stop_reason"`
+			Type        string         `json:"type"`
+			Text        string         `json:"text"`
+			Thinking    string         `json:"thinking"`
+			Signature   string         `json:"signature"`
+			PartialJSON string         `json:"partial_json"`
+			StopReason  string         `json:"stop_reason"`
+			Citation    map[string]any `json:"citation"`
 		} `json:"delta"`
 		Error   json.RawMessage `json:"error"`
 		Usage   *wireUsage      `json:"usage"`
@@ -389,11 +429,18 @@ func (p *streamParser) anthropic(event string, data []byte) error {
 	if chunk.Type == "" {
 		chunk.Type = event
 	}
+	p.protocol = "/v1/messages"
 	p.usage(chunk.Message.Usage, "/v1/messages")
 	p.usage(chunk.Usage, "/v1/messages")
 	switch chunk.Type {
 	case "content_block_start":
 		block := chunk.ContentBlock
+		if block == nil {
+			return errors.New("Copilot returned an empty content block")
+		}
+		if p.blocks == nil {
+			p.blocks = make(map[int]map[string]any)
+		}
 		p.blocks[chunk.Index] = block
 		switch block["type"] {
 		case "text":
@@ -415,8 +462,24 @@ func (p *streamParser) anthropic(event string, data []byte) error {
 		switch chunk.Delta.Type {
 		case "text_delta":
 			p.text(chunk.Delta.Text)
+			p.appendBlockString(chunk.Index, "text", chunk.Delta.Text)
 		case "input_json_delta":
-			p.call(chunk.Index).Arguments += chunk.Delta.PartialJSON
+			block := p.blocks[chunk.Index]
+			if block == nil || (block["type"] != "tool_use" && block["type"] != "server_tool_use") {
+				return errors.New("Copilot returned tool input without a tool block")
+			}
+			if p.blockJSON == nil {
+				p.blockJSON = make(map[int]string)
+			}
+			p.blockJSON[chunk.Index] += chunk.Delta.PartialJSON
+			if block["type"] == "tool_use" {
+				p.call(chunk.Index).Arguments += chunk.Delta.PartialJSON
+			}
+		case "citations_delta":
+			if block := p.blocks[chunk.Index]; block != nil && chunk.Delta.Citation != nil {
+				citations, _ := block["citations"].([]any)
+				block["citations"] = append(citations, chunk.Delta.Citation)
+			}
 		case "thinking_delta":
 			p.reasoning(chunk.Delta.Thinking)
 			if block := p.blocks[chunk.Index]; block != nil {
@@ -430,11 +493,11 @@ func (p *streamParser) anthropic(event string, data []byte) error {
 			}
 		}
 	case "content_block_stop":
-		if block := p.blocks[chunk.Index]; block != nil && (block["type"] == "thinking" || block["type"] == "redacted_thinking") {
-			encoded, _ := json.Marshal(block)
-			p.completion.ProviderData = append(p.completion.ProviderData, encoded)
+		if err := p.closeBlock(chunk.Index); err != nil {
+			return err
 		}
 	case "message_delta":
+		p.completion.StopReason = chunk.Delta.StopReason
 		if chunk.Delta.StopReason == "max_tokens" {
 			return errors.New("Copilot reached the model's output limit; the response is incomplete")
 		}
@@ -469,8 +532,13 @@ func (p *streamParser) single(endpoint string, data []byte) error {
 				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
-		Output  []json.RawMessage `json:"output"`
-		Content []json.RawMessage `json:"content"`
+		Output            []json.RawMessage `json:"output"`
+		Content           []json.RawMessage `json:"content"`
+		StopReason        string            `json:"stop_reason"`
+		Status            string            `json:"status"`
+		IncompleteDetails struct {
+			Reason string `json:"reason"`
+		} `json:"incomplete_details"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
 		return err
@@ -478,7 +546,12 @@ func (p *streamParser) single(endpoint string, data []byte) error {
 	if err := streamError(result.Error); err != nil {
 		return err
 	}
+	p.protocol = endpoint
 	p.usage(result.Usage, endpoint)
+	p.completion.StopReason = result.StopReason
+	if result.Status == "failed" || result.Status == "incomplete" || result.StopReason == "max_tokens" {
+		return fmt.Errorf("Copilot response is incomplete: %s %s %s", result.Status, result.StopReason, result.IncompleteDetails.Reason)
+	}
 	if endpoint == "/chat/completions" {
 		if len(result.Choices) == 0 {
 			return errors.New("Copilot returned an empty completion")
@@ -500,49 +573,41 @@ func (p *streamParser) single(endpoint string, data []byte) error {
 		return errors.New("Copilot returned an empty completion")
 	}
 	for index, raw := range parts {
-		var part struct {
-			Type      string          `json:"type"`
-			Text      string          `json:"text"`
-			ID        string          `json:"id"`
-			CallID    string          `json:"call_id"`
-			Name      string          `json:"name"`
-			Arguments string          `json:"arguments"`
-			Input     json.RawMessage `json:"input"`
-			Thinking  string          `json:"thinking"`
-			Summary   []struct {
-				Text string `json:"text"`
-			} `json:"summary"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
+		if endpoint == "/responses" {
+			if err := p.responseItem(index, raw); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := json.Unmarshal(raw, &part); err != nil {
+		var block map[string]any
+		if err := json.Unmarshal(raw, &block); err != nil || block == nil {
+			return errors.New("invalid Copilot Messages content block")
+		}
+		if p.blocks == nil {
+			p.blocks = make(map[int]map[string]any)
+		}
+		p.blocks[index] = block
+		switch block["type"] {
+		case "text":
+			text, _ := block["text"].(string)
+			p.text(text)
+		case "thinking":
+			thinking, _ := block["thinking"].(string)
+			p.reasoning(thinking)
+		case "tool_use":
+			input, _ := json.Marshal(block["input"])
+			id, _ := block["id"].(string)
+			name, _ := block["name"].(string)
+			*p.call(index) = ToolCall{ID: id, Name: name, Arguments: string(input)}
+		}
+		if err := p.closeBlock(index); err != nil {
 			return err
 		}
-		switch part.Type {
-		case "text":
-			p.text(part.Text)
-		case "message":
-			for _, content := range part.Content {
-				if content.Type == "output_text" {
-					p.text(content.Text)
-				}
-			}
-		case "function_call":
-			*p.call(index) = ToolCall{ID: part.CallID, Name: part.Name, Arguments: part.Arguments}
-		case "tool_use":
-			*p.call(index) = ToolCall{ID: part.ID, Name: part.Name, Arguments: string(part.Input)}
-		case "reasoning", "thinking", "redacted_thinking":
-			p.completion.ProviderData = append(p.completion.ProviderData, raw)
-			if part.Type == "thinking" {
-				p.reasoning(part.Thinking)
-			} else if part.Type == "reasoning" {
-				for _, summary := range part.Summary {
-					p.reasoning(summary.Text)
-				}
-			}
-		}
 	}
+	if endpoint == "/responses" {
+		p.responseVisibleFallback()
+		p.completion.StopReason = result.Status
+	}
+	p.done = true
 	return nil
 }

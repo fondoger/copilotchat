@@ -32,6 +32,9 @@ func (a *app) loadM365Provider(p store.Provider, r *providerRuntime) {
 	if err != nil && !errors.Is(err, mygo.ErrSecretNotFound) {
 		r.credentialNotice = "Could not load Microsoft sign-in: " + err.Error()
 	}
+	if err == nil {
+		a.restoreProviderCatalog(p.ID, microsoftCatalogBinding(entry))
+	}
 }
 
 func (a *app) startM365Login(id, status string) (*providerRuntime, context.Context, context.CancelFunc, uint64, bool) {
@@ -91,8 +94,9 @@ func (a *app) finishM365Login(id string, epoch uint64, ctx context.Context, canc
 			return
 		}
 		a.cancelProviderModels(id)
-		r.client, r.m365Auth, r.models, r.modelsLoaded = client, source, nil, false
-		r.accountID = ""
+		a.invalidateProviderCatalog(id)
+		r.client, r.m365Auth = client, source
+		r.catalogBinding = microsoftCatalogBinding(entry)
 		r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 		r.status, r.credentialNotice = "Connected.", ""
 		if entry.Mode == "windows-wam" {

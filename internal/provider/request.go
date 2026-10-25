@@ -19,6 +19,9 @@ func RequestBody(request Request, model Model) (map[string]any, bool, error) {
 		return nil, false, errors.New("the conversation is empty")
 	}
 	body := map[string]any{"model": request.Model, "stream": true}
+	if request.NativeSearch && !SupportsNativeSearch(model) {
+		return nil, false, fmt.Errorf("%s does not support native web search", model.Name)
+	}
 	var messages []any
 	var systems []any
 	vision := false
@@ -38,6 +41,14 @@ func RequestBody(request Request, model Model) (map[string]any, bool, error) {
 		}
 		switch model.Endpoint {
 		case "/responses":
+			if message.Role == "assistant" && message.Replay != nil && message.Replay.Protocol == model.Endpoint {
+				parts, err := replayParts(message.Replay, model.Endpoint)
+				if err != nil {
+					return nil, false, err
+				}
+				messages = append(messages, parts...)
+				continue
+			}
 			if message.Role == "tool" {
 				messages = append(messages, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": text})
 				continue
@@ -78,7 +89,12 @@ func RequestBody(request Request, model Model) (map[string]any, bool, error) {
 			}
 			parts := make([]any, 0)
 			role := message.Role
-			if role == "tool" {
+			if message.Role == "assistant" && message.Replay != nil && message.Replay.Protocol == model.Endpoint {
+				parts, err = replayParts(message.Replay, model.Endpoint)
+				if err != nil {
+					return nil, false, err
+				}
+			} else if role == "tool" {
 				role = "user"
 				parts = append(parts, map[string]any{"type": "tool_result", "tool_use_id": message.ToolCallID, "content": text})
 			} else {
@@ -197,6 +213,22 @@ func RequestBody(request Request, model Model) (map[string]any, bool, error) {
 			default:
 				tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": schema}})
 			}
+		}
+		body["tools"] = tools
+	}
+	if request.NativeSearch {
+		tools, _ := body["tools"].([]any)
+		if model.Endpoint == "/v1/messages" {
+			for _, tool := range request.Tools {
+				if tool.Name == "web_search" {
+					return nil, false, errors.New("MCP tool name web_search conflicts with native web search")
+				}
+			}
+			tools = append(tools, map[string]any{"type": "web_search_20250305", "name": "web_search"})
+			body["tool_choice"] = map[string]any{"type": "auto"}
+		} else {
+			tools = append(tools, map[string]any{"type": "web_search"})
+			body["tool_choice"] = "auto"
 		}
 		body["tools"] = tools
 	}

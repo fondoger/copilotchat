@@ -273,6 +273,10 @@ func (a *app) finishNewChat() {
 	for i := range a.state.Conversations {
 		chat := &a.state.Conversations[i]
 		if a.reusableNewChat(chat) {
+			if chat.NativeSearch {
+				chat.NativeSearch = false
+				a.save()
+			}
 			a.finishSelectChat(chat.ID)
 			return
 		}

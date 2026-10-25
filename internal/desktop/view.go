@@ -145,6 +145,7 @@ func (a *app) messagesView(c *ui.Context, chat *store.Conversation) {
 						markdown.View(c, m.Content, &a.md)
 					}
 				})
+				a.messageCitations(c, m.Citations)
 				if m.Error != "" {
 					ui.Text(c, m.Error).FontSize(13).TextColor(c.Theme().Danger)
 				}
@@ -197,8 +198,9 @@ func (a *app) composerView(c *ui.Context) {
 				return false
 			})
 			ui.Row(c).Padding(8, 12).Gap(8).Children(func() {
-				composerIconButton(c, iAttach, "Add attachment").OnClick(a.pickAttachments)
+				composerButton(c, iAttach, "Add attachment", 18, "").OnClick(a.pickAttachments)
 				a.reasoningControl(c)
+				a.nativeSearchControl(c)
 				ui.Spacer(c)
 				if a.streaming {
 					composerSendButton(c, iStop, "Stop response").OnClick(a.stop)

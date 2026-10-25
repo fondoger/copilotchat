@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -30,7 +29,8 @@ type providerRuntime struct {
 	authCode                              github.DeviceCode
 	authCancel, modelsCancel              context.CancelFunc
 	status, credentialNotice, accountID   string
-	modelsLoaded                          bool
+	modelsLoaded                          bool // Successful live refresh during this process, not a disk-cache hit.
+	catalogBinding                        string
 	modelsAttemptedAt                     time.Time
 }
 
@@ -102,6 +102,8 @@ func (a *app) loadProviders() {
 		if err != nil {
 			r.client = nil
 			r.status = err.Error()
+		} else {
+			a.restoreProviderCatalog(p.ID, githubCatalogBinding(token))
 		}
 	}
 }
@@ -337,6 +339,7 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 		}
 		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
 		chat.ThinkingBudgetTokens, chat.WebKind = 0, ""
+		chat.NativeSearch = false
 		if web {
 			chat.WebKind = provider.Kind
 			chat.WebStarted = chat.WebStarted || a.draft != "" || len(a.attachments) != 0
@@ -457,7 +460,8 @@ func (a *app) removeProvider(id string) error {
 			// Microsoft sources are revoked before deleting their saved binding.
 			// A vault failure must not leave a dead source displayed as connected.
 			a.cancelProviderWork(id)
-			r.client, r.models, r.modelsLoaded = nil, nil, false
+			a.invalidateProviderCatalog(id)
+			r.client = nil
 			r.status = "Signed out for this session."
 			a.state.Settings.Providers[index].Login = ""
 			a.saveSettings()
@@ -466,6 +470,7 @@ func (a *app) removeProvider(id string) error {
 		return err
 	}
 	a.cancelProviderWork(id)
+	a.invalidateProviderCatalog(id)
 	a.state.Settings.Providers = slices.Delete(a.state.Settings.Providers, index, index+1)
 	delete(a.providers, id)
 	if a.state.Settings.ActiveProviderID == id {
@@ -524,7 +529,7 @@ func providerCatalogRefreshDue(p store.Provider, r *providerRuntime, now time.Ti
 	if !r.modelsAttemptedAt.IsZero() && now.Sub(r.modelsAttemptedAt) >= 0 && now.Sub(r.modelsAttemptedAt) < providerCatalogRetryInterval {
 		return false
 	}
-	return (!r.modelsLoaded && len(r.models) == 0) || p.ModelsRefreshedAt.IsZero() || now.Before(p.ModelsRefreshedAt) || now.Sub(p.ModelsRefreshedAt) >= providerCatalogRefreshInterval
+	return !r.modelsLoaded || p.ModelsRefreshedAt.IsZero() || now.Before(p.ModelsRefreshedAt) || now.Sub(p.ModelsRefreshedAt) >= providerCatalogRefreshInterval
 }
 
 func (a *app) beginProviderLogin(id string) {
@@ -598,8 +603,9 @@ func (a *app) beginProviderLogin(id string) {
 				return
 			}
 			a.cancelProviderModels(id)
-			r.client, r.models = client, nil
-			r.modelsLoaded = false
+			a.invalidateProviderCatalog(id)
+			r.client = client
+			r.catalogBinding = githubCatalogBinding([]byte(token))
 			r.authBusy, r.authCancel, r.authCode = false, nil, github.DeviceCode{}
 			r.status = "Connected."
 			r.credentialNotice = ""
@@ -659,8 +665,8 @@ func (a *app) signOutProvider(id string) {
 		return
 	}
 	a.cancelProviderWork(id)
-	r.client, r.models = nil, nil
-	r.modelsLoaded, r.accountID = false, ""
+	a.invalidateProviderCatalog(id)
+	r.client = nil
 	if p := a.provider(id); p != nil {
 		p.Login = ""
 	}
@@ -744,23 +750,7 @@ func (a *app) refreshProviderModels(id string) {
 			account, accountErr = client.Account(ctx)
 		}
 		a.update(func() {
-			if r.client != client || r.modelsEpoch != epoch || a.quitting || a.provider(id) == nil || a.provider(id).Disabled {
-				return
-			}
-			r.modelsBusy, r.modelsCancel = false, nil
-			if err != nil {
-				r.status = err.Error()
-				return
-			}
-			r.models = models
-			r.modelsLoaded = true
-			a.provider(id).ModelsRefreshedAt = time.Now()
-			r.status = fmt.Sprintf("Connected · %d models available", len(models))
-			a.updateProviderAccount(id, account, accountErr, false)
-			if available := a.providerModels(id); len(available) > 0 && a.state.Settings.ActiveProviderID == id && a.state.Settings.Model == "" {
-				a.state.Settings.Model = available[0].ID
-			}
-			a.saveSettings()
+			a.applyProviderModels(id, client, epoch, models, account, err, accountErr)
 		})
 	}()
 }

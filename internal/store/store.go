@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fondoger/copilotchat/internal/mcp"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/provider/microsoft"
 )
@@ -129,24 +130,26 @@ type Attachment struct {
 }
 
 type Message struct {
-	CreatedAt        time.Time         `json:"createdAt,omitempty"`
-	ProviderID       string            `json:"providerId,omitempty"`
-	Model            string            `json:"model,omitempty"`
-	Reasoning        string            `json:"reasoning,omitempty"`
-	Stats            *MessageStats     `json:"stats,omitempty"`
-	ID               string            `json:"id"`
-	Role             string            `json:"role"`
-	Content          string            `json:"content"`
-	Attachments      []Attachment      `json:"attachments,omitempty"`
-	Error            string            `json:"error,omitempty"`
-	ProviderMessages []json.RawMessage `json:"providerMessages,omitempty"`
-	ToolActivity     []string          `json:"toolActivity,omitempty"`
+	CreatedAt        time.Time           `json:"createdAt,omitempty"`
+	ProviderID       string              `json:"providerId,omitempty"`
+	Model            string              `json:"model,omitempty"`
+	Reasoning        string              `json:"reasoning,omitempty"`
+	Stats            *MessageStats       `json:"stats,omitempty"`
+	ID               string              `json:"id"`
+	Role             string              `json:"role"`
+	Content          string              `json:"content"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	Error            string              `json:"error,omitempty"`
+	ProviderMessages []json.RawMessage   `json:"providerMessages,omitempty"`
+	ToolActivity     []string            `json:"toolActivity,omitempty"`
+	Citations        []provider.Citation `json:"citations,omitempty"`
 }
 
 type Conversation struct {
 	WebKind              string    `json:"webKind,omitempty"`
 	WebURL               string    `json:"webUrl,omitempty"`
 	WebStarted           bool      `json:"webStarted,omitempty"`
+	NativeSearch         bool      `json:"nativeSearch,omitempty"`
 	TitleManual          bool      `json:"titleManual,omitempty"`
 	ProviderID           string    `json:"providerId"`
 	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`

@@ -94,7 +94,7 @@ func (a *app) saveMessageEdit() bool {
 	m.Content = a.editText
 	// The edited answer is the source of truth for future requests. The old
 	// provider transcript, signed reasoning and measurements describe old text.
-	m.ProviderMessages, m.Stats, m.ToolActivity = nil, nil, nil
+	m.ProviderMessages, m.Stats, m.ToolActivity, m.Citations = nil, nil, nil, nil
 	m.Reasoning, m.Error = "", ""
 	chat.UpdatedAt = time.Now()
 	a.editMessageID, a.editText, a.status = "", "", ""

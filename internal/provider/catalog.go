@@ -90,6 +90,11 @@ func (remote CatalogEntry) Model(endpoint string) Model {
 	if len(remote.Capabilities.Native) > 0 {
 		model.Capabilities, _ = json.Marshal(remote.Capabilities.Native)
 		var native struct {
+			ServerTools struct {
+				WebSearch struct {
+					Supported *bool `json:"supported"`
+				} `json:"web_search"`
+			} `json:"server_tools"`
 			ImageInput *struct{ Supported bool } `json:"image_input"`
 			PDFInput   *struct{ Supported bool } `json:"pdf_input"`
 			Thinking   *struct {
@@ -101,6 +106,9 @@ func (remote CatalogEntry) Model(endpoint string) Model {
 			}
 		}
 		_ = json.Unmarshal(model.Capabilities, &native)
+		if native.ServerTools.WebSearch.Supported != nil {
+			model.NativeSearch, model.NativeSearchKnown = *native.ServerTools.WebSearch.Supported, true
+		}
 		if native.ImageInput != nil {
 			model.Vision, model.VisionKnown = native.ImageInput.Supported, true
 		}

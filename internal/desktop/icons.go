@@ -30,23 +30,24 @@ func loadIcon(name string) *ui.SVG {
 }
 
 var (
-	iMenu        = loadIcon("tabler-menu-2")
-	iPanel       = loadIcon("chatwise-sidebar-open")
-	iPanelClosed = loadIcon("chatwise-sidebar-closed")
-	iNew         = loadIcon("custom-edit")
-	iChat        = loadIcon("copilot-mono")
-	iEmptyChat   = loadIcon("bi-chat-square-quote")
-	iSettings    = loadIcon("tabler-settings")
-	iSearch      = loadIcon("fe-search")
-	iAttach      = loadIcon("ri-attachment-2")
-	iArrow       = loadIcon("ri-arrow-up-line")
-	iStop        = loadIcon("bi-stop-fill")
-	iCopy        = loadIcon("mingcute-copy-2-line")
-	iRetry       = loadIcon("mingcute-refresh-3-line")
-	iMore        = loadIcon("tabler-dots")
-	iClose       = loadIcon("tabler-x")
-	iChevron     = loadIcon("tabler-chevron-right")
-	iStar        = loadIcon("tabler-star")
+	iMenu         = loadIcon("tabler-menu-2")
+	iPanel        = loadIcon("chatwise-sidebar-open")
+	iPanelClosed  = loadIcon("chatwise-sidebar-closed")
+	iNew          = loadIcon("custom-edit")
+	iChat         = loadIcon("copilot-mono")
+	iEmptyChat    = loadIcon("bi-chat-square-quote")
+	iSettings     = loadIcon("tabler-settings")
+	iSearch       = loadIcon("fe-search")
+	iNativeSearch = loadIcon("lucide-globe")
+	iAttach       = loadIcon("ri-attachment-2")
+	iArrow        = loadIcon("ri-arrow-up-line")
+	iStop         = loadIcon("bi-stop-fill")
+	iCopy         = loadIcon("mingcute-copy-2-line")
+	iRetry        = loadIcon("mingcute-refresh-3-line")
+	iMore         = loadIcon("tabler-dots")
+	iClose        = loadIcon("tabler-x")
+	iChevron      = loadIcon("tabler-chevron-right")
+	iStar         = loadIcon("tabler-star")
 )
 
 func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
@@ -61,16 +62,24 @@ func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 	return b.Children(func() { ui.Icon(c, icon).Size(17.04, 17.04) })
 }
 
-func composerIconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
+func composerButton(c *ui.Context, icon *ui.SVG, label string, iconSize float32, text string) ui.Element {
 	ink, hover := ui.Hex("#52525b"), ui.Hex("#e4e4e7")
 	if c.Theme().Dark {
 		ink, hover = ui.Hex("#e4e4e7"), ui.Hex("#52525b")
 	}
-	b := ui.ButtonBase(c).Label(label).Tooltip(label).Size(24, 24).Padding(0).Radius(6).Background(ui.Transparent).TextColor(ink)
+	b := ui.ButtonBase(c).Label(label).Tooltip(label).MinWidth(24).Height(24).Padding(0, 3).Gap(4).Radius(6).Background(ui.Transparent).TextColor(ink)
+	if text != "" {
+		b.PaddingX(6)
+	}
 	if b.Hovered() {
 		b.Background(hover)
 	}
-	return b.Children(func() { ui.Icon(c, icon).Size(18, 18) })
+	return b.Children(func() {
+		ui.Icon(c, icon).Size(iconSize, iconSize)
+		if text != "" {
+			ui.Text(c, text).FontSize(12)
+		}
+	})
 }
 
 func trayPNG() []byte {

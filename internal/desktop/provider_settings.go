@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -49,9 +48,8 @@ func (a *app) autosaveProviderForm(id string, form *providerForm) {
 			form.Error = "Could not remove the previous domain's saved sign-in: " + err.Error()
 			return
 		}
+		a.invalidateProviderCatalog(id)
 		p.Login, r.credentialNotice = "", ""
-		p.ModelsRefreshedAt = time.Time{}
-		r.models, r.modelsLoaded = nil, false
 	}
 	form.Error = ""
 	if p.Name == name && p.Host == host {
