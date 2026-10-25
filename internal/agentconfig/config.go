@@ -23,17 +23,17 @@ var ClaudeModelVariables = []string{
 	"ANTHROPIC_DEFAULT_SONNET_MODEL",
 	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
-	"CLAUDE_CODE_AUTO_MODE_MODEL",
 }
 
 type Options struct {
-	Model                provider.Model
-	Models               []localproxy.Model
-	Agent, BaseURL, Key  string
-	CatalogPath          string
-	ClaudeDefaults       map[string]provider.Model
-	ClaudePermissionMode string
-	RemoteCompaction     bool
+	Model                 provider.Model
+	Models                []localproxy.Model
+	Agent, BaseURL, Key   string
+	CatalogPath           string
+	ClaudeDefaults        map[string]provider.Model
+	ClaudePermissionMode  string
+	ClaudeClassifierModel localproxy.Model
+	RemoteCompaction      bool
 }
 
 func Compatible(model provider.Model, agent string) bool {
@@ -110,6 +110,12 @@ func Generate(o Options) (string, error) {
 				}
 			}
 			env[key] = claudeConfigModelID(model.ID, upstreamID)
+		}
+		if alias := localproxy.ClassifierModelID(o.ClaudeClassifierModel); alias != "" {
+			if !Compatible(o.ClaudeClassifierModel.Model, ClaudeCode) {
+				return "", errors.New("classifier model does not support the Messages protocol")
+			}
+			env["CLAUDE_CODE_AUTO_MODE_MODEL"] = claudeConfigModelID(alias, o.ClaudeClassifierModel.Model.ID)
 		}
 		options := []map[string]string{}
 		settings := map[string]any{}

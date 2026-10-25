@@ -81,15 +81,15 @@ type ForwardModelRef struct {
 
 // ID remains stable across renames; Name is the profile's public URL segment.
 type ForwardProfile struct {
-	ID                           string                     `json:"id"`
-	Name                         string                     `json:"name"`
-	Models                       []ForwardModel             `json:"models"`
-	Agent                        string                     `json:"agent,omitempty"`
-	ClaudeDefaults               map[string]ForwardModelRef `json:"claudeDefaults,omitempty"`
-	ClaudePermissionMode         string                     `json:"claudePermissionMode,omitempty"`
-	ClaudeDesktopClassifierModel ForwardModelRef            `json:"claudeDesktopClassifierModel,omitempty"`
-	CodexModel                   ForwardModelRef            `json:"codexModel,omitempty"`
-	CodexRemoteCompaction        bool                       `json:"codexRemoteCompaction,omitempty"`
+	ID                    string                     `json:"id"`
+	Name                  string                     `json:"name"`
+	Models                []ForwardModel             `json:"models"`
+	Agent                 string                     `json:"agent,omitempty"`
+	ClaudeDefaults        map[string]ForwardModelRef `json:"claudeDefaults,omitempty"`
+	ClaudePermissionMode  string                     `json:"claudePermissionMode,omitempty"`
+	ClaudeClassifierModel ForwardModelRef            `json:"claudeClassifierModel,omitempty"`
+	CodexModel            ForwardModelRef            `json:"codexModel,omitempty"`
+	CodexRemoteCompaction bool                       `json:"codexRemoteCompaction,omitempty"`
 }
 
 type Provider struct {

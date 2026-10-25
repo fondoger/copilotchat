@@ -144,6 +144,12 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 	if a.storage != nil {
 		o.CatalogPath = a.storage.AgentCatalogPath(p.ID)
 	}
+	if (agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop) && p.ClaudeClassifierModel.ModelID != "" {
+		o.ClaudeClassifierModel = a.classifierModel(p)
+		if !agentconfig.Compatible(o.ClaudeClassifierModel.Model, agent) {
+			return "", fmt.Errorf("Security classifier model is unavailable. Choose another model or Not set")
+		}
+	}
 	if agent == agentconfig.ClaudeCode {
 		o.ClaudePermissionMode = p.ClaudePermissionMode
 		o.ClaudeDefaults = map[string]provider.Model{}
@@ -157,12 +163,6 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 				return "", fmt.Errorf("%s is unavailable. Choose another model or Not set", key)
 			}
 			o.ClaudeDefaults[key] = model
-		}
-	} else if agent == agentconfig.ClaudeDesktop {
-		if ref := p.ClaudeDesktopClassifierModel; ref.ModelID != "" {
-			if _, ok := agentModelByRef(models, ref); !ok {
-				return "", fmt.Errorf("Security classifier model is unavailable. Choose another model or Not set")
-			}
 		}
 	} else if agent == agentconfig.Codex {
 		if err := a.forwardCatalogErrors[p.ID]; err != "" {
@@ -260,9 +260,6 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 							ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 								ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
 									ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).MinWidth(0)
-									if key == "CLAUDE_CODE_AUTO_MODE_MODEL" {
-										classifierInfo(c, codeClassifierHint)
-									}
 								})
 								ui.Column(c).Width(250).Shrink(0).Children(func() {
 									a.agentModelSelect(c, p, "Choose "+key, p.ClaudeDefaults[key], models, true, func(ref store.ForwardModelRef) {
@@ -291,18 +288,6 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 					}, func() { s.notice = ""; a.saveSettings() })
 				})
 			})
-		} else if agent == agentconfig.ClaudeDesktop {
-			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "Default Auto Mode Security Classifier Model").FontSize(12).MinWidth(0)
-					classifierInfo(c, desktopClassifierHint)
-				})
-				ui.Column(c).Width(250).Shrink(0).Children(func() {
-					a.agentModelSelect(c, p, "Desktop security classifier model", p.ClaudeDesktopClassifierModel, models, true, func(ref store.ForwardModelRef) {
-						p.ClaudeDesktopClassifierModel = ref
-					})
-				})
-			})
 		} else if agent == agentconfig.Codex {
 			ref := p.CodexModel
 			if ref.ModelID == "" && len(models) > 0 {
@@ -319,6 +304,24 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 				ui.Switch(c.Key("remote-compaction"), &p.CodexRemoteCompaction).Label("Enable remote compaction").OnChange(func() { s.notice = ""; a.saveSettings() })
 			})
 			ui.Text(c, "Uses provider name OpenAI when enabled; Copilot Chat Proxy otherwise.").FontSize(11).TextColor(t.TextMuted)
+		}
+		if agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop {
+			label, hint := "Security classifier model for auto mode", desktopClassifierHint
+			if agent == agentconfig.ClaudeCode {
+				label += " (CLAUDE_CODE_AUTO_MODE_MODEL)"
+				hint = codeClassifierHint
+			}
+			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, label).FontSize(12).MinWidth(0)
+					classifierInfo(c, hint)
+				})
+				ui.Column(c).Width(250).Shrink(0).Children(func() {
+					a.agentModelSelect(c, p, "Choose security classifier model", p.ClaudeClassifierModel, a.classifierModels(p), true, func(ref store.ForwardModelRef) {
+						p.ClaudeClassifierModel = ref
+					})
+				})
+			})
 		}
 		config, err := a.agentConfiguration(p, agent)
 		file := "~/.claude/settings.json"

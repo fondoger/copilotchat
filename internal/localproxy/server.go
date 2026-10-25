@@ -32,15 +32,10 @@ type Target struct {
 	Client provider.RawClient
 }
 
-type ModelRef struct {
-	ProviderID string
-	ModelID    string
-}
-
 type Profile struct {
-	ID                           string
-	Models                       []Model
-	ClaudeDesktopClassifierModel ModelRef
+	ID                    string
+	Models                []Model
+	ClaudeClassifierModel Model
 }
 
 type profileEntry struct {
@@ -79,6 +74,14 @@ func BaseURL(port int, profile string) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/%s", port, url.PathEscape(profile))
 }
 
+func cloneForwardModel(model Model) Model {
+	model.Model.Endpoints = slices.Clone(model.Model.Endpoints)
+	model.Model.ThinkingEfforts = slices.Clone(model.Model.ThinkingEfforts)
+	model.Model.Capabilities = slices.Clone(model.Model.Capabilities)
+	model.Routes = slices.Clone(model.Routes)
+	return model
+}
+
 // Update receives UI-owned snapshots. Replacing, disabling, signing out or
 // deleting an account cancels its in-flight requests as well as future access.
 func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) {
@@ -114,15 +117,12 @@ func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) 
 		models := []Model{}
 		for _, model := range profile.Models {
 			if model.ID != "" && model.Model.ID != "" && s.targets[model.ProviderID] != nil {
-				model.Model.Endpoints = slices.Clone(model.Model.Endpoints)
-				model.Model.ThinkingEfforts = slices.Clone(model.Model.ThinkingEfforts)
-				model.Model.Capabilities = slices.Clone(model.Model.Capabilities)
-				model.Routes = slices.Clone(model.Routes)
-				models = append(models, model)
+				models = append(models, cloneForwardModel(model))
 			}
 		}
 		// Keep caller's persisted provider order for ambiguous short IDs.
 		profile.Models = models
+		profile.ClaudeClassifierModel = cloneForwardModel(profile.ClaudeClassifierModel)
 		if old := s.profiles[name]; old != nil {
 			old.Profile = profile
 		} else {
@@ -315,22 +315,23 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	// Re-read after receiving the body so a removed/renamed profile or model
 	// cannot start a new request using an obsolete snapshot.
 	models = nil
-	var classifier ModelRef
+	var classifier Model
 	if current := s.profiles[profileName]; current != nil && current.ID == profileID {
 		models = current.Models
-		if classifierRequest {
-			classifier = current.ClaudeDesktopClassifierModel
+		classifier = current.ClaudeClassifierModel
+	}
+	overrideClassifier := endpoint == "/v1/messages" && classifier.Model.ID != "" && (classifierRequest || routeModelID == ClassifierModelID(classifier))
+	if overrideClassifier {
+		models = nil // Never fall back to an ordinary route for a configured classifier.
+		if item := s.targets[classifier.ProviderID]; item != nil && supportsMessages(classifier.Model) {
+			model, target, providerCtx = classifier, item.Target, item.ctx
 		}
 	}
-	overrideClassifier := classifier.ModelID != ""
 	desktopModels := clientModelIDs(models, desktop)
 	for i, candidate := range models {
 		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
 		matchesDesktop := desktop && desktopModels[i].ID == routeModelID
 		matches := candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop
-		if overrideClassifier {
-			matches = candidate.ProviderID == classifier.ProviderID && candidate.Model.ID == classifier.ModelID
-		}
 		if matches && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx

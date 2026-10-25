@@ -118,34 +118,53 @@ func TestClaudePermissionMode(t *testing.T) {
 	}
 }
 
-func TestClaudeAutoModeModel(t *testing.T) {
+func TestClaudeClassifierModel(t *testing.T) {
 	for _, test := range []struct {
-		id, upstream, want string
+		upstream, endpoint, suffix string
 	}{
 		{"", "", ""},
-		{"work/claude-fixture", "claude-fixture", "work/claude-fixture"},
-		{"work/claude-user/gpt-fixture", "gpt-fixture", "work/claude-user/gpt-fixture[1m]"},
-		{"work/gpt-fixture[1m]", "gpt-fixture", "work/gpt-fixture[1m]"},
+		{"claude-fixture", "/v1/messages", ""},
+		{"gpt-fixture", "/responses", "[1m]"},
+		{"gpt-fixture[1m]", "/responses", "[1m]"},
 	} {
-		t.Run("model="+test.id, func(t *testing.T) {
-			model := provider.Model{ID: test.id, Endpoint: "/responses"}
+		t.Run("model="+test.upstream, func(t *testing.T) {
+			classifier := localproxy.Model{ProviderID: "work", ID: "work/claude-user/selected", Model: provider.Model{ID: test.upstream, Endpoint: test.endpoint}}
 			text, err := Generate(Options{
 				Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
-				ClaudeDefaults: map[string]provider.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": model},
-				Models:         []localproxy.Model{{ID: test.id, Model: provider.Model{ID: test.upstream, Endpoint: "/responses"}}},
+				ClaudeClassifierModel: classifier,
+				// Obsolete ordinary defaults must not select the classifier.
+				ClaudeDefaults: map[string]provider.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": {ID: "legacy", Endpoint: "/chat/completions"}},
+				Models:         []localproxy.Model{{ID: "work/chat", Model: provider.Model{ID: "chat", Endpoint: "/responses"}}},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			var config struct{ Env map[string]string }
+			var config struct {
+				Env           map[string]string
+				ModelPicker   struct{ Options []struct{ Model string } }
+				ModelSettings map[string]any
+			}
 			if err := json.Unmarshal([]byte(text), &config); err != nil {
 				t.Fatal(err)
 			}
+			want := localproxy.ClassifierModelID(classifier)
+			if want != "" {
+				want += test.suffix
+			}
 			got, present := config.Env["CLAUDE_CODE_AUTO_MODE_MODEL"]
-			if got != test.want || present != (test.id != "") {
-				t.Fatal("auto mode model must use the default model ID rules", text)
+			if got != want || present != (test.upstream != "") {
+				t.Fatal("classifier must use its private alias and actual upstream context rules", text)
+			}
+			if len(config.ModelPicker.Options) != 1 || config.ModelPicker.Options[0].Model != "work/chat[1m]" || len(config.ModelSettings) != 1 || config.ModelSettings["work/chat"] == nil {
+				t.Fatal("classifier leaked into the ordinary model catalog", text)
 			}
 		})
+	}
+	if _, err := Generate(Options{
+		Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
+		ClaudeClassifierModel: localproxy.Model{Model: provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}},
+	}); err == nil {
+		t.Fatal("incompatible classifier allowed")
 	}
 }
 

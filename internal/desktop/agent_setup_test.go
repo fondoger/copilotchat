@@ -62,9 +62,10 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	}
 	agentSetupScreenshot(t, tester, "agent-setup-defaults")
 	settingsClick(t, tester, agentconfig.ClaudeDesktop)
-	settingsClick(t, tester, "Desktop security classifier model")
-	settingsClick(t, tester, "Select Desktop security classifier model github-copilot/gpt-fixture")
-	if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeDesktopClassifierModel.ModelID != "gpt-fixture" {
+	settingsClick(t, tester, "Share github.com gpt-fixture")
+	settingsClick(t, tester, "Choose security classifier model")
+	settingsClick(t, tester, "Select Choose security classifier model github-copilot/gpt-fixture")
+	if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeClassifierModel.ModelID != "gpt-fixture" {
 		t.Fatal("Desktop classifier selection was not persisted")
 	}
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeDesktop)
@@ -74,6 +75,16 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	if _, ok := tester.Find("Model defaults"); ok {
 		t.Fatal("CLI defaults shown in Desktop setup")
 	}
+	settingsClick(t, tester, agentconfig.ClaudeCode)
+	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeCode)
+	if configErr != nil || !strings.Contains(configText, "copilotchat-classifier-") || strings.Contains(configText, "github-copilot/gpt-fixture") {
+		t.Fatal("shared disabled classifier was not generated separately", configText, configErr)
+	}
+	if len(a.forwardingModels(a.selectedForwardProfile())) != 1 {
+		t.Fatal("classifier selection enabled ordinary sharing")
+	}
+	settingsClick(t, tester, agentconfig.ClaudeDesktop)
+	settingsClick(t, tester, "Share github.com gpt-fixture")
 	settingsClick(t, tester, agentconfig.Codex)
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.Codex)
 	if !tester.HasText("gpt-fixture") || configErr != nil || !strings.Contains(configText, "name = \"Copilot Chat Proxy\"") {
@@ -109,8 +120,7 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 		"ANTHROPIC_DEFAULT_SONNET_MODEL": {ProviderID: "work", ModelID: "gpt-5.5"},
 	}
 	p.CodexModel = p.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"]
-	p.ClaudeDefaults["CLAUDE_CODE_AUTO_MODE_MODEL"] = p.CodexModel
-	p.ClaudeDesktopClassifierModel = p.CodexModel
+	p.ClaudeClassifierModel = p.CodexModel
 	p.ClaudePermissionMode = "auto"
 	p.CodexRemoteCompaction = true
 	a.setForwardEnabled(p, 0, false)
@@ -125,7 +135,7 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	copy := a.selectedForwardProfile()
 	copy.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"] = store.ForwardModelRef{ProviderID: store.DefaultProviderID, ModelID: "gpt-5.5"}
 	copy.CodexRemoteCompaction = false
-	copy.ClaudeDesktopClassifierModel = store.ForwardModelRef{}
+	copy.ClaudeClassifierModel = store.ForwardModelRef{}
 	copy.ClaudePermissionMode = "default"
 	a.saveSettings()
 	a.state = settingsSavedState(t, a)
@@ -134,11 +144,11 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	if p.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"].ProviderID != "work" || p.CodexModel.ProviderID != "work" || !p.CodexRemoteCompaction {
 		t.Fatal("duplicated profile choices were shared or not persisted")
 	}
-	if p.ClaudeDesktopClassifierModel.ProviderID != "work" || p.ClaudePermissionMode != "auto" {
+	if p.ClaudeClassifierModel.ProviderID != "work" || p.ClaudePermissionMode != "auto" {
 		t.Fatal("classifier or permission mode lost across profile duplication")
 	}
 	a.setForwardEnabled(p, 1, false)
-	for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.ClaudeDesktop, agentconfig.Codex} {
+	for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.Codex} {
 		if _, err := a.agentConfiguration(p, agent); err == nil {
 			t.Fatal("disabled explicit model silently replaced", agent)
 		}

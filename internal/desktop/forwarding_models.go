@@ -5,7 +5,9 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/agentconfig"
 	"github.com/fondoger/copilotchat/internal/localproxy"
+	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -69,12 +71,23 @@ func (a *app) forwardingModelStatus(m store.ForwardModel) string {
 }
 
 func (a *app) forwardingModels(profile *store.ForwardProfile) []localproxy.Model {
+	return a.profileForwardingModels(profile, true)
+}
+
+func (a *app) classifierModels(profile *store.ForwardProfile) []localproxy.Model {
+	models := a.profileForwardingModels(profile, false)
+	return slices.DeleteFunc(models, func(m localproxy.Model) bool {
+		return !agentconfig.Compatible(m.Model, agentconfig.ClaudeCode)
+	})
+}
+
+func (a *app) profileForwardingModels(profile *store.ForwardProfile, enabledOnly bool) []localproxy.Model {
 	var models []localproxy.Model
 	if profile == nil {
 		return nil
 	}
 	for _, m := range profile.Models {
-		if !m.Enabled || a.forwardingModelStatus(m) != "" {
+		if (enabledOnly && !m.Enabled) || a.forwardingModelStatus(m) != "" {
 			continue
 		}
 		model, _ := a.modelForProvider(m.ProviderID, m.ModelID)
@@ -89,6 +102,18 @@ func (a *app) forwardingModels(profile *store.ForwardProfile) []localproxy.Model
 		identities = append(identities, localproxy.ProviderIdentity{ID: p.ID, Kind: kind, Host: p.Host, Name: p.Name, Login: p.Login, AccountID: a.providerState(p.ID).accountID})
 	}
 	return localproxy.NameModels(models, identities)
+}
+
+func (a *app) classifierModel(profile *store.ForwardProfile) localproxy.Model {
+	ref := profile.ClaudeClassifierModel
+	for _, model := range a.classifierModels(profile) {
+		if sharedModelRef(model) == ref {
+			return model
+		}
+	}
+	// Preserve the selected identity when offline, but no protocol capabilities:
+	// future requests fail rather than silently using a different model/account.
+	return localproxy.Model{ProviderID: ref.ProviderID, Model: provider.Model{ID: ref.ModelID}}
 }
 
 func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfile) {

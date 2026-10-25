@@ -1,6 +1,19 @@
 package localproxy
 
-import "encoding/json"
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+)
+
+// ClassifierModelID is a purpose-specific route, not a catalog entry. Only the
+// currently configured classifier can be reached through this stable account ID.
+func ClassifierModelID(model Model) string {
+	if model.Model.ID == "" {
+		return ""
+	}
+	return fmt.Sprintf("copilotchat-classifier-%x", sha256.Sum256([]byte(model.ProviderID+"\x00"+model.Model.ID)))
+}
 
 // This fingerprint only selects a route; the caller must also authenticate with
 // the Desktop key. Check before protocol conversion removes cache markers.
