@@ -3,6 +3,8 @@
 参考文档：
 - 3P Inference json配置Reference：https://claude.com/docs/third-party/claude-desktop/configuration
 
+## 模型配置
+
 - 黑名单关键词: gpt、openai、codex、gemini、deepseek、qwen、glm...
 - 必须包含的关键词之一: claude、sonnet、opus、haiku、fable、mythos、anthropic
 - 通过模型校验仅代表模型会可用，但是如果不匹配已知的自家模型，则无法展示**推理强度选择器**. /v1/models API返回的effort无法控制实际展示的档位。
@@ -18,3 +20,7 @@ Copilot Chat 的 Desktop 专用模型 ID：
 - 非 Claude 模型始终使用 `mythos-<数字编码>`，不再根据推理档位或窗口选择前缀。真实名称仍通过 `display_name` 展示，API 仍报告实际窗口和推理能力。
 - Desktop 可能仍展示上游不支持的档位。转发前，未支持的 `max` 降到实际最高档；未支持的 `xhigh` 降到 `high`，依次类推。
 - 数字编码按账号和模型身份确定性生成，无需独立映射文件，并兼容旧编码请求。
+
+## 其他配置
+
+- Tool按需加载: Claude Desktop接入官方订阅时，默认启用 `toolSearchEnabled`，此时仅把tool名字加入上下文，不会加载全部工具。当确认后端实际接入的model支持tool search功能时可以开启这个选项，可节省大量token。
