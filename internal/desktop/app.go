@@ -85,17 +85,21 @@ type app struct {
 	forwardCatalogErrors             map[string]string
 }
 
-func Run(dataDir string) error {
-	mygo.App.SetName("Copilot Chat")
+func Run(dataDir string, dev bool) error {
+	appName := "Copilot Chat"
+	if dev {
+		appName += " Dev"
+	}
+	mygo.App.SetName(appName)
 	mygo.App.SetVersion(version)
-	// Plain Go builds and packaged builds must use the same own-app account.
-	mygo.Secrets = mygo.Secrets.Service("Copilot Chat")
+	// Plain Go builds and packaged builds use the same account, except in dev mode.
+	mygo.Secrets = mygo.Secrets.Service(appName)
 	if dataDir == "" {
 		root, err := os.UserConfigDir()
 		if err != nil {
 			return err
 		}
-		dataDir = filepath.Join(root, "Copilot Chat")
+		dataDir = filepath.Join(root, appName)
 	}
 	s, err := store.New(dataDir)
 	if err != nil {
@@ -104,6 +108,9 @@ func Run(dataDir string) error {
 	state, loadErr := s.Load()
 	if loadErr != nil {
 		return fmt.Errorf("load conversations (original file preserved): %w", loadErr)
+	}
+	if dev && (state.Settings.LocalPort == localproxy.DefaultPort || state.Settings.LocalPort < 1024 || state.Settings.LocalPort > 65535) {
+		state.Settings.LocalPort = localproxy.DefaultPort + 1
 	}
 	a := &app{storage: s, state: state, dataDir: dataDir, settingsPage: "General"}
 	if !mygo.App.RequestSingleInstanceLock() {
@@ -143,7 +150,7 @@ func Run(dataDir string) error {
 	mygo.App.WhenReady(func() {
 		a.applyAppearance()
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title: "Copilot Chat", Width: 1060, Height: 720, MinWidth: 720, MinHeight: 480,
+			Title: appName, Width: 1060, Height: 720, MinWidth: 720, MinHeight: 480,
 			TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 50, StateKey: "main", Content: ui.View(a.view),
 		})
 		a.win.Invalidate()
@@ -169,7 +176,9 @@ func Run(dataDir string) error {
 			a.win.Hide()
 		}
 		a.startProviderRefreshLoop()
-		a.startUpdates()
+		if !dev {
+			a.startUpdates()
+		}
 	})
 	mygo.App.OnQuit(func() {
 		if a.tray != nil {

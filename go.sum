@@ -1,7 +1,7 @@
 github.com/ebitengine/purego v0.11.1 h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6XeQ/0=
 github.com/ebitengine/purego v0.11.1/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
-github.com/egoist/mygo v0.5.5 h1:3pvlEwumsck/L99cbDpay/Eqcf51B7zhKNXekiodLOw=
-github.com/egoist/mygo v0.5.5/go.mod h1:daHGetyAlBkHhIZOOIcAI7C82yLUY7HgeT2+Z6w2VPU=
+github.com/egoist/mygo v0.6.4-0.20261025072146-6255ea40139d h1:4xL8XucurpKzMQSYJGLOgPSNfcpZgpXRAI28limc2Jk=
+github.com/egoist/mygo v0.6.4-0.20261025072146-6255ea40139d/go.mod h1:dVav53PwF2xEotjf4oA5lTY2Jp2exgzyjLhbSXhbMwE=
 github.com/fondoger/GoVisual/v2 v2.0.2-0.20261022121931-1d5fe49983b1 h1:sCvG+FxeJnQoOr2t9oqgsSQH8DlzsQ3kkoDxUwSkZsk=
 github.com/fondoger/GoVisual/v2 v2.0.2-0.20261022121931-1d5fe49983b1/go.mod h1:m4fcgx8qbbGzEDZXzvqV4rhlTOg+rhNMv1phxB73HYs=
 github.com/go-text/typesetting v0.3.5 h1:XZPUooClHY0Vf/rFyUyuPRNEkawARaFzLMQcXLSEyPk=
@@ -14,5 +14,7 @@ github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdD
 github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 golang.org/x/image v0.46.0 h1:b1+oYj0Jbp6K5MDT4i4/eZpYlk3V8SJhhDKh6LBHAyQ=
 golang.org/x/image v0.46.0/go.mod h1:3B3W05VGVQyuXucLINLjXKrqISASfi4Xj+iCVkLMwew=
+golang.org/x/net v0.59.0 h1:5zfYln+w5XCxwrnMMJPufRgNoXEaGxl0wo5GqPXyues=
+golang.org/x/net v0.59.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
 golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
 golang.org/x/text v0.43.0/go.mod h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=

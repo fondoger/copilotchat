@@ -18,13 +18,15 @@
 
 ## 从源码运行
 
-需要 Go 1.27.1 或更新版本。
+需要 Go 1.27.3 或更新版本。
 
 ```sh
 git clone https://github.com/fondoger/copilotchat.git
 cd copilotchat
 go run .
 ```
+
+`go run .` 默认启动独立的 Copilot Chat Dev，隔离数据与登录状态，Gateway 默认端口为 `39322`（正式版为 `39321`），可与正式版同时运行。
 
 ## 文档
 

@@ -204,8 +204,8 @@ func (a *app) currentWebChatView(p *webChatView) bool {
 }
 
 // Authentication may navigate to another HTTPS origin, but never to a native
-// protocol, local resource, privileged page, or loopback service. Popups reuse
-// this owned view rather than launching the external browser.
+// protocol, local resource, privileged page, or loopback service. Login popups
+// retain their opener without receiving the chat preload or bridge trust.
 func (a *app) newWebChatView(owner *mygo.Window, providerID, chatID, target string) *webChatView {
 	provider := a.provider(providerID)
 	kind := ""
@@ -299,16 +299,7 @@ func (a *app) newWebChatView(owner *mygo.Window, providerID, chatID, target stri
 	)
 	page.SetPermissionHandler(func(mygo.PermissionRequest) bool { return false })
 	page.OnWillDownload(func(e *mygo.DownloadEvent) { e.PreventDefault() })
-	page.SetWindowOpenHandler(func(request mygo.WindowOpenRequest) *mygo.WindowOptions {
-		if webNavigationURL(p.kind, request.URL) {
-			a.update(func() {
-				if a.currentWebChatView(p) && a.webChatRouteAllowed(p, request.URL) {
-					_ = page.LoadURL(request.URL)
-				}
-			})
-		}
-		return nil
-	})
+	a.setupWebChatPopups(p, page)
 	p.off = append(p.off, page.OnWillNavigate(func(e *mygo.NavigateEvent) {
 		if !webNavigationURL(p.kind, e.URL) {
 			e.PreventDefault()

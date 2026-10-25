@@ -4,7 +4,7 @@ The source repository is [fondoger/copilotchat](https://github.com/fondoger/copi
 
 ## Requirements
 
-- Go 1.27.1 or newer, as declared by `go.mod`. Go's automatic toolchain selection can download the required version.
+- Go 1.27.3 or newer, as declared by `go.mod`. Go's automatic toolchain selection can download the required version.
 - PowerShell 7 (`pwsh`) for the shared packaging script on Windows and macOS.
 - A host matching the target operating system and architecture for the complete test and package process. MyGo uses a pure-Go native backend; no Node.js runtime is needed by the application.
 - Network access for Go modules and any packaging tools that MyGo needs to download. Windows packaging uses NSIS; macOS packaging uses the system disk-image and signing tools.

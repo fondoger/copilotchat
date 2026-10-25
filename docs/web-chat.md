@@ -14,6 +14,8 @@ Settings → Providers 支持以下网页站点，各站点使用独立的 Provi
 
 在 Settings → Providers 添加站点，保留或修改 Provider name，并在下方完整网页中自行登录。然后在聊天顶栏的 Web Chat 分组选择站点，通过 Copilot Chat 的 New Chat 开始会话。聊天页隐藏网站侧栏和部分顶栏，输入、回复、模型及附件操作仍由网站处理。
 
+登录弹窗使用独立的原生 WebView 窗口，在 Windows/macOS 保留 `window.opener`、`postMessage` 和网站自行关闭弹窗的能力，不再把 popup URL 加载到原聊天页。弹窗共享当前实例的浏览器登录存储，不注入聊天脚本或授予桥接信任；导航仍限制为对应站点与已允许的认证来源，销毁对应 WebView 时一并关闭弹窗。
+
 登录状态由系统 WebView 的持久化浏览器存储管理，设置页与聊天页共享，不会把 Cookie 或网页凭据复制到 `state.json`。Claude Desktop 内置浏览器是另一份浏览器环境，其登录不会自动复制到本应用。同站点的多个 Provider 共用登录，不做独立账号隔离；删除或禁用 Provider 不清除共享登录。`--data-dir` 只切换应用设置与会话目录，不隔离浏览器登录。
 
 ## 会话与草稿
