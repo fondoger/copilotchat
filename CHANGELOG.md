@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8
+
+- Improve multi-selection appearance and animate favorite conversation movement.
+- Allow disabled web providers to reopen existing conversations.
+
 ## 0.5.6
 
 - Add five web chat providers with shared sessions, drafts, and dedicated provider icons.
