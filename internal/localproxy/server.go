@@ -32,9 +32,15 @@ type Target struct {
 	Client provider.RawClient
 }
 
+type ModelRef struct {
+	ProviderID string
+	ModelID    string
+}
+
 type Profile struct {
-	ID     string
-	Models []Model
+	ID                           string
+	Models                       []Model
+	ClaudeDesktopClassifierModel ModelRef
 }
 
 type profileEntry struct {
@@ -301,6 +307,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	// Claude client hints and the legacy Desktop discovery prefix are never upstream IDs.
 	routeModelID := strings.TrimSuffix(envelope.Model, "[1m]")
 	routeModelID = strings.TrimPrefix(routeModelID, "claude-desktop/")
+	classifierRequest := desktop && endpoint == "/v1/messages" && isDesktopClassifierRequest(body)
 	s.mu.RLock()
 	var model Model
 	var target Target
@@ -308,14 +315,23 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	// Re-read after receiving the body so a removed/renamed profile or model
 	// cannot start a new request using an obsolete snapshot.
 	models = nil
+	var classifier ModelRef
 	if current := s.profiles[profileName]; current != nil && current.ID == profileID {
 		models = current.Models
+		if classifierRequest {
+			classifier = current.ClaudeDesktopClassifierModel
+		}
 	}
+	overrideClassifier := classifier.ModelID != ""
 	desktopModels := clientModelIDs(models, desktop)
 	for i, candidate := range models {
 		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
 		matchesDesktop := desktop && desktopModels[i].ID == routeModelID
-		if (candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop) && compatible {
+		matches := candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop
+		if overrideClassifier {
+			matches = candidate.ProviderID == classifier.ProviderID && candidate.Model.ID == classifier.ModelID
+		}
+		if matches && compatible {
 			if item := s.targets[candidate.ProviderID]; item != nil {
 				model, target, providerCtx = candidate, item.Target, item.ctx
 			}
@@ -323,7 +339,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Published IDs take priority over compatibility aliases.
-	if desktop && providerCtx == nil {
+	if desktop && !overrideClassifier && providerCtx == nil {
 		for _, candidate := range models {
 			compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
 			if compatible && claudeDesktopModelAliasMatches(candidate, routeModelID) {

@@ -23,15 +23,17 @@ var ClaudeModelVariables = []string{
 	"ANTHROPIC_DEFAULT_SONNET_MODEL",
 	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
+	"CLAUDE_CODE_AUTO_MODE_MODEL",
 }
 
 type Options struct {
-	Model               provider.Model
-	Models              []localproxy.Model
-	Agent, BaseURL, Key string
-	CatalogPath         string
-	ClaudeDefaults      map[string]provider.Model
-	RemoteCompaction    bool
+	Model                provider.Model
+	Models               []localproxy.Model
+	Agent, BaseURL, Key  string
+	CatalogPath          string
+	ClaudeDefaults       map[string]provider.Model
+	ClaudePermissionMode string
+	RemoteCompaction     bool
 }
 
 func Compatible(model provider.Model, agent string) bool {
@@ -131,9 +133,17 @@ func Generate(o Options) (string, error) {
 			}
 			options = append(options, row)
 		}
-		data, err := json.MarshalIndent(map[string]any{"env": env,
+		config := map[string]any{"env": env,
 			"modelPicker":   map[string]any{"options": options, "replaceBuiltInOptions": true},
-			"modelSettings": settings}, "", "  ")
+			"modelSettings": settings}
+		switch o.ClaudePermissionMode {
+		case "":
+		case "default", "auto", "acceptEdits", "plan", "dontAsk", "bypassPermissions":
+			config["permissions"] = map[string]string{"defaultMode": o.ClaudePermissionMode}
+		default:
+			return "", fmt.Errorf("invalid Claude Code permission mode: %q", o.ClaudePermissionMode)
+		}
+		data, err := json.MarshalIndent(config, "", "  ")
 		return string(data) + "\n", err
 	}
 	if o.CatalogPath == "" {

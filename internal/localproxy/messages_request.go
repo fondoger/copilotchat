@@ -59,8 +59,8 @@ func restoreReasoning(signature string) (object, error) {
 }
 
 // messagesToResponses translates the common client-side Messages contract.
-// Anthropic cache_control has no Responses equivalent: that service caches
-// prefixes automatically. Never insert timestamps or random input into prompts.
+// Explicit cache boundaries retain their content-block positions. Never insert
+// timestamps or random input into prompts.
 func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error) {
 	src, err := decodeObject(body)
 	if err != nil {
@@ -70,15 +70,38 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	if len(array(src["messages"])) == 0 {
 		return nil, false, errors.New("messages must be a non-empty array")
 	}
-	dst := object{"model": model.ID, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
-	if system := src["system"]; system != nil {
-		instructions, err := systemText(system)
-		if err != nil {
-			return nil, false, err
-		}
-		dst["instructions"] = instructions
+	cache, err := newBridgeCache(src, true)
+	if err != nil {
+		return nil, false, err
 	}
+	if err := cache.validateMessages(src); err != nil {
+		return nil, false, err
+	}
+	dst := object{"model": model.ID, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
 	input := []any{}
+	if system := src["system"]; system != nil {
+		if hasCacheMarker(array(system), "cache_control") {
+			parts := []any{}
+			for _, value := range array(system) {
+				block := obj(value)
+				if text(block["type"]) != "text" {
+					return nil, false, errors.New("only text system blocks can be converted")
+				}
+				part, err := responsePart(block, "developer")
+				if err != nil {
+					return nil, false, err
+				}
+				parts = append(parts, part)
+			}
+			input = append(input, object{"role": "developer", "content": parts})
+		} else {
+			instructions, err := systemText(system)
+			if err != nil {
+				return nil, false, err
+			}
+			dst["instructions"] = instructions
+		}
+	}
 	for index, value := range array(src["messages"]) {
 		message := obj(value)
 		role := text(message["role"])
@@ -251,6 +274,9 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	if text(format["type"]) == "json_schema" {
 		dst["text"] = object{"format": object{"type": "json_schema", "name": "response", "schema": format["schema"], "strict": true}}
 	}
+	if err := cache.apply(dst); err != nil {
+		return nil, false, err
+	}
 	encoded, err := json.Marshal(dst)
 	return encoded, stream, err
 }
@@ -274,6 +300,14 @@ func systemText(v any) (string, error) {
 }
 
 func responsePart(b object, role string) (object, error) {
+	part, err := responseContentPart(b, role)
+	if err == nil {
+		responseCachePart(b, part)
+	}
+	return part, err
+}
+
+func responseContentPart(b object, role string) (object, error) {
 	switch text(b["type"]) {
 	case "text":
 		kind := "input_text"
@@ -311,6 +345,29 @@ func responsePart(b object, role string) (object, error) {
 }
 
 func toolOutput(block object) (any, error) {
+	output, err := responseToolOutput(block)
+	if err != nil {
+		return nil, err
+	}
+	if _, marked := block["cache_control"]; !marked {
+		return output, nil
+	}
+	if s, ok := output.(string); ok {
+		output = []any{object{"type": "input_text", "text": s}}
+	}
+	parts := array(output)
+	if len(parts) == 0 {
+		return nil, errors.New("cached tool result needs non-empty text")
+	}
+	last := obj(parts[len(parts)-1])
+	if last["type"] != "input_text" || text(last["text"]) == "" {
+		return nil, errors.New("tool result cache breakpoint requires a final non-empty text block")
+	}
+	responseCachePart(block, last)
+	return output, nil
+}
+
+func responseToolOutput(block object) (any, error) {
 	errorResult, _ := block["is_error"].(bool)
 	if s, ok := block["content"].(string); ok {
 		if errorResult {

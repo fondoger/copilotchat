@@ -20,6 +20,32 @@ func applyClaudeCode(path string, data []byte) (ApplyResult, error) {
 		return result, err
 	}
 	owned := ownedConfiguration(doc)
+	permissions := jsonObject{}
+	if raw, ok := doc["permissions"]; ok {
+		permissions, err = decodeJSON(raw)
+		if err != nil {
+			return result, fmt.Errorf("parse Claude Code permissions: %w", err)
+		}
+	}
+	var defaultMode json.RawMessage
+	if raw, ok := generated["permissions"]; ok {
+		generatedPermissions, err := decodeJSON(raw)
+		if err != nil {
+			return result, fmt.Errorf("parse generated Claude Code permissions: %w", err)
+		}
+		defaultMode = generatedPermissions["defaultMode"]
+	}
+	if defaultMode != nil {
+		permissions["defaultMode"] = defaultMode
+		doc["permissions"] = jsonValue(permissions)
+	} else if _, ok := permissions["defaultMode"]; ok {
+		delete(permissions, "defaultMode")
+		if len(permissions) == 0 {
+			delete(doc, "permissions")
+		} else {
+			doc["permissions"] = jsonValue(permissions)
+		}
+	}
 	// These are complete replacements, including env. Retaining an old model
 	// override or authentication variable can silently bypass the gateway.
 	for _, key := range []string{"env", "modelPicker", "modelSettings"} {

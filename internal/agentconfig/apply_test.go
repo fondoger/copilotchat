@@ -91,6 +91,90 @@ func TestApplyClaudeCodeReplacesOwnedFieldsAndBacksUp(t *testing.T) {
 	}
 }
 
+func TestApplyClaudeCodePermissionModePreservesOtherPermissions(t *testing.T) {
+	for _, test := range []struct {
+		name, original, removed string
+	}{
+		{"absent", `{}`, `{}`},
+		{"empty", `{"permissions":{}}`, `{"permissions":{}}`},
+		{"mode only", `{"permissions":{"defaultMode":"plan"}}`, `{}`},
+		{"unrelated", `{"permissions":{"allow":[],"unknown":{}}}`, `{"permissions":{"allow":[],"unknown":{}}}`},
+		{"rules", `{"permissions":{"defaultMode":"plan","allow":["Read"],"deny":["Bash"],"ask":["Write"],"additionalDirectories":["../shared"],"unknown":{"enabled":true,"limit":9007199254740993},"empty":{}}}`,
+			`{"permissions":{"allow":["Read"],"deny":["Bash"],"ask":["Write"],"additionalDirectories":["../shared"],"unknown":{"enabled":true,"limit":9007199254740993},"empty":{}}}`},
+	} {
+		for _, mode := range []string{"", "auto"} {
+			t.Run(test.name+"/mode="+mode, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "settings.json")
+				fixtureFile(t, path, test.original)
+				generated, err := decodeJSON(generatedApplyConfig(t, ClaudeCode))
+				if err != nil {
+					t.Fatal(err)
+				}
+				want, err := decodeJSON([]byte(test.removed))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode != "" {
+					// Only defaultMode is managed, even if generated input has other members.
+					generated["permissions"] = jsonValue(map[string]any{"defaultMode": mode, "allow": []string{"overwrite"}, "injected": true})
+					permissions := jsonObject{}
+					if raw, ok := want["permissions"]; ok {
+						permissions, err = decodeJSON(raw)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					permissions["defaultMode"] = jsonValue(mode)
+					want["permissions"] = jsonValue(permissions)
+				}
+				for range 2 {
+					if _, err := applyClaudeCode(path, jsonValue(generated)); err != nil {
+						t.Fatal(err)
+					}
+					got := fixtureJSON(t, path)
+					var gotPermissions, wantPermissions jsonObject
+					_ = json.Unmarshal(got["permissions"], &gotPermissions)
+					_ = json.Unmarshal(want["permissions"], &wantPermissions)
+					if !bytes.Equal(jsonValue(gotPermissions), jsonValue(wantPermissions)) {
+						t.Fatalf("permissions changed beyond defaultMode: got %s, want %s", got["permissions"], want["permissions"])
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestApplyClaudeCodeRejectsMalformedPermissions(t *testing.T) {
+	for _, source := range []string{"existing", "generated"} {
+		for _, value := range []string{`null`, `[]`, `"auto"`, `true`, `42`} {
+			t.Run(source+"/"+value, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "settings.json")
+				original := `{"permissions":{"defaultMode":"plan","allow":["Read"]}}`
+				generated, err := decodeJSON(generatedApplyConfig(t, ClaudeCode))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if source == "existing" {
+					original = `{"permissions":` + value + `}`
+				} else {
+					generated["permissions"] = json.RawMessage(value)
+				}
+				fixtureFile(t, path, original)
+				if _, err := applyClaudeCode(path, jsonValue(generated)); err == nil {
+					t.Fatal("malformed permissions accepted")
+				}
+				if string(readFixture(t, path)) != original {
+					t.Fatal("malformed permissions caused a configuration write")
+				}
+				files, err := filepath.Glob(filepath.Join(filepath.Dir(path), "*"))
+				if err != nil || len(files) != 1 {
+					t.Fatal("malformed permissions caused a backup", files, err)
+				}
+			})
+		}
+	}
+}
+
 func TestApplyClaudeCodePreservesOnlyMatchingDefault(t *testing.T) {
 	for _, model := range []string{"github-copilot/gpt-fixture[1m]", "github-copilot/gpt-fixture", "sonnet"} {
 		t.Run(model, func(t *testing.T) {

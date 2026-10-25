@@ -150,6 +150,13 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 	if src["background"] == true || text(src["truncation"]) == "auto" {
 		return fail(errors.New("background execution and automatic truncation are not supported by the Messages bridge"))
 	}
+	cache, err := newBridgeCache(src, false)
+	if err != nil {
+		return fail(err)
+	}
+	if err := cache.validateResponses(src); err != nil {
+		return fail(err)
+	}
 	dst := object{"model": model.ID, "stream": stream}
 	budget := number(src["max_output_tokens"])
 	if src["max_output_tokens"] != nil && budget <= 0 {
@@ -382,18 +389,26 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 				if len(messages) > 0 {
 					return fail(errors.New("turn-local system/developer messages cannot be represented faithfully by Messages; use instructions"))
 				}
-				blocks, err := anthropicContent(item["content"], "assistant")
+				blocks, err := anthropicContent(item["content"], "assistant", cache)
 				if err != nil {
 					return fail(err)
 				}
-				instruction, err := systemText(blocks)
-				if err != nil {
-					return fail(err)
+				if hasCacheMarker(blocks, "cache_control") || array(dst["system"]) != nil {
+					previous := array(dst["system"])
+					if s, ok := dst["system"].(string); ok && s != "" {
+						previous = []any{object{"type": "text", "text": s}}
+					}
+					dst["system"] = append(previous, blocks...)
+				} else {
+					instruction, err := systemText(blocks)
+					if err != nil {
+						return fail(err)
+					}
+					if previous := text(dst["system"]); previous != "" {
+						instruction = previous + "\n\n" + instruction
+					}
+					dst["system"] = instruction
 				}
-				if previous := text(dst["system"]); previous != "" {
-					instruction = previous + "\n\n" + instruction
-				}
-				dst["system"] = instruction
 				continue
 			}
 			if role != "user" && role != "assistant" {
@@ -402,7 +417,7 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 			if role == "user" && len(pending) > 0 {
 				return fail(errors.New("user message precedes pending tool results"))
 			}
-			content, err := anthropicContent(item["content"], role)
+			content, err := anthropicContent(item["content"], role, cache)
 			if err != nil {
 				return fail(err)
 			}
@@ -435,12 +450,20 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 			delete(pending, id)
 			result := item["output"]
 			if _, ok := result.(string); !ok {
-				result, err = anthropicContent(result, "user")
+				result, err = anthropicContent(result, "user", cache)
 				if err != nil {
 					return fail(err)
 				}
 			}
-			appendBlocks("user", []any{object{"type": "tool_result", "tool_use_id": id, "content": result}})
+			block := object{"type": "tool_result", "tool_use_id": id, "content": result}
+			if parts := array(result); len(parts) > 0 {
+				last := obj(parts[len(parts)-1])
+				if marker, exists := last["cache_control"]; exists {
+					block["cache_control"] = marker
+					delete(last, "cache_control")
+				}
+			}
+			appendBlocks("user", []any{block})
 		case "web_search_call":
 			return fail(errors.New("web search history requires its Anthropic replay envelope"))
 		default:
@@ -468,11 +491,14 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 		return fail(errors.New("pending Anthropic searches require the web_search tool"))
 	}
 	dst["messages"] = messages
+	if err := cache.apply(dst); err != nil {
+		return fail(err)
+	}
 	data, err := json.Marshal(dst)
 	return data, stream, bridge, err
 }
 
-func anthropicContent(value any, role string) ([]any, error) {
+func anthropicContent(value any, role string, cache *bridgeCache) ([]any, error) {
 	if s, ok := value.(string); ok {
 		return []any{object{"type": "text", "text": s}}, nil
 	}
@@ -508,6 +534,13 @@ func anthropicContent(value any, role string) ([]any, error) {
 			}
 		default:
 			return nil, fmt.Errorf("Responses content %q cannot be converted to Messages", text(p["type"]))
+		}
+		if marker, exists := p["prompt_cache_breakpoint"]; exists {
+			converted, err := cacheMarker(marker, false, cache.ttl)
+			if err != nil {
+				return nil, err
+			}
+			obj(blocks[len(blocks)-1])["cache_control"] = converted
 		}
 	}
 	return blocks, nil

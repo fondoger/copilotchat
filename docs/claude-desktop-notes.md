@@ -1,4 +1,4 @@
-本文档记录 Claude Desktop 第三方网关模式的模型识别行为。
+本文档记录 Claude Desktop (CCD) 第三方网关模式的模型识别行为。
 
 参考文档：
 - 3P Inference json配置Reference：https://claude.com/docs/third-party/claude-desktop/configuration
@@ -18,9 +18,10 @@ Copilot Chat 的 Desktop 专用模型 ID：
 - 原始 ID 含 `claude` 时，将 `.` 替换成 `-`，默认不加数字编码，例如 `claude-opus-4.6` → `claude-opus-4-6`。
 - 在当前 Profile 中出现同名 Claude 模型时，按已保存的模型顺序，第一个保留上述名称，其余使用 `mythos-<数字编码>`。归一化后同名的 ID 也按重复处理。目录日期排序和分页不改变这个分配。
 - 非 Claude 模型始终使用 `mythos-<数字编码>`，不再根据推理档位或窗口选择前缀。真实名称仍通过 `display_name` 展示，API 仍报告实际窗口和推理能力。
-- Desktop 可能仍展示上游不支持的档位。转发前，未支持的 `max` 降到实际最高档；未支持的 `xhigh` 降到 `high`，依次类推。
+- CCD可能仍展示上游不支持的档位。转发前，未支持的 `max` 降到实际最高档；未支持的 `xhigh` 降到 `high`，依次类推。
 - 数字编码按账号和模型身份确定性生成，无需独立映射文件，并兼容旧编码请求。
 
-## 其他配置
+## 其他特殊细节
 
-- Tool按需加载: Claude Desktop接入官方订阅时，默认启用 `toolSearchEnabled`，此时仅把tool名字加入上下文，不会加载全部工具。当确认后端实际接入的model支持tool search功能时可以开启这个选项，可节省大量token。
+- Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。可通过 `toolSearchEnabled` 启用。
+- CCD Auto模式下, 会额外调用 LLM API 对请求进行安全分级，默认使用Sonnet模型且不可配置。可在LLM Gateway识别该类请求并配置性价比模型。(官方订阅的安全检查请求免费，第三方可能产生额外 token 费用)

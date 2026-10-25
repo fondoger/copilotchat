@@ -25,6 +25,18 @@ type agentSetupState struct {
 
 type setupOption struct{ id, label string }
 
+var classifierInfoIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg>`))
+
+const classifierCostHint = "Used only in Auto mode to judge whether potentially high-risk actions are safe. A small, fast model here keeps the safety check cheap next to the editor; a Sonnet-level model is usually a good fit. Safety checks are free with an official Claude subscription, but LLM Gateway calls may incur additional token charges. Manual mode avoids classifier calls by asking for approval; Bypass permissions also avoids them but disables this safety check."
+
+const codeClassifierHint = "https://claude.com/resources/articles/auto-mode-default-in-claude-code\n\n" + classifierCostHint
+
+const desktopClassifierHint = classifierCostHint + "\n\nClaude Desktop's classifier model ID cannot be configured. LLM Gateway maps matching security-check requests to this model. If Not set, Desktop may fall back to the main model when its classifier model is unavailable, which can cost more if the main model is expensive."
+
+func classifierInfo(c *ui.Context, hint string) {
+	ui.Icon(c, classifierInfoIcon).Size(14, 14).Shrink(0).TextColor(c.Theme().TextMuted).Label("About Auto mode security checks").Tooltip(hint)
+}
+
 func setupSelect(c *ui.Context, key, label string, value *string, options []setupOption, changed func()) {
 	text := "Choose " + label
 	for _, option := range options {
@@ -133,6 +145,7 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 		o.CatalogPath = a.storage.AgentCatalogPath(p.ID)
 	}
 	if agent == agentconfig.ClaudeCode {
+		o.ClaudePermissionMode = p.ClaudePermissionMode
 		o.ClaudeDefaults = map[string]provider.Model{}
 		for _, key := range agentconfig.ClaudeModelVariables {
 			ref := p.ClaudeDefaults[key]
@@ -144,6 +157,12 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 				return "", fmt.Errorf("%s is unavailable. Choose another model or Not set", key)
 			}
 			o.ClaudeDefaults[key] = model
+		}
+	} else if agent == agentconfig.ClaudeDesktop {
+		if ref := p.ClaudeDesktopClassifierModel; ref.ModelID != "" {
+			if _, ok := agentModelByRef(models, ref); !ok {
+				return "", fmt.Errorf("Security classifier model is unavailable. Choose another model or Not set")
+			}
 		}
 	} else if agent == agentconfig.Codex {
 		if err := a.forwardCatalogErrors[p.ID]; err != "" {
@@ -234,12 +253,17 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
 						for _, key := range agentconfig.ClaudeModelVariables {
 							prefix := "ANTHROPIC_DEFAULT_"
-							if key == "CLAUDE_CODE_SUBAGENT_MODEL" {
+							if strings.HasPrefix(key, "CLAUDE_CODE_") {
 								prefix = "CLAUDE_CODE_"
 							}
 							keyword := strings.TrimSuffix(strings.TrimPrefix(key, prefix), "_MODEL")
 							ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
-								ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).Grow(1).MinWidth(0)
+								ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
+									ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).MinWidth(0)
+									if key == "CLAUDE_CODE_AUTO_MODE_MODEL" {
+										classifierInfo(c, codeClassifierHint)
+									}
+								})
 								ui.Column(c).Width(250).Shrink(0).Children(func() {
 									a.agentModelSelect(c, p, "Choose "+key, p.ClaudeDefaults[key], models, true, func(ref store.ForwardModelRef) {
 										if p.ClaudeDefaults == nil {
@@ -255,6 +279,27 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 							})
 						}
 						ui.Text(c, "Optional. Not set leaves the variable out of your configuration.").FontSize(11).TextColor(t.TextMuted)
+					})
+				})
+			})
+			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Default permission mode").FontSize(12).Grow(1)
+				ui.Column(c).Width(250).Children(func() {
+					setupSelect(c, p.ID+"-permission-mode", "Choose default permission mode", &p.ClaudePermissionMode, []setupOption{
+						{"", "Not set"}, {"default", "Manual"}, {"auto", "Auto"}, {"acceptEdits", "Accept edits"},
+						{"plan", "Plan"}, {"dontAsk", "Don't ask"}, {"bypassPermissions", "Bypass permissions"},
+					}, func() { s.notice = ""; a.saveSettings() })
+				})
+			})
+		} else if agent == agentconfig.ClaudeDesktop {
+			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, "Default Auto Mode Security Classifier Model").FontSize(12).MinWidth(0)
+					classifierInfo(c, desktopClassifierHint)
+				})
+				ui.Column(c).Width(250).Shrink(0).Children(func() {
+					a.agentModelSelect(c, p, "Desktop security classifier model", p.ClaudeDesktopClassifierModel, models, true, func(ref store.ForwardModelRef) {
+						p.ClaudeDesktopClassifierModel = ref
 					})
 				})
 			})
@@ -277,7 +322,7 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 		}
 		config, err := a.agentConfiguration(p, agent)
 		file := "~/.claude/settings.json"
-		instructions := "Merge env, modelPicker and modelSettings into settings.json, then restart Claude Code. Choose a model with /model."
+		instructions := "Merge env, modelPicker and modelSettings into settings.json, and merge permissions.defaultMode without replacing other permission rules. Not set omits the mode; Apply removes any existing defaultMode. Restart Claude Code, then choose a model with /model."
 		if agent == agentconfig.ClaudeDesktop {
 			file = "Claude Desktop gateway configuration (JSON)"
 			instructions = "Apply this JSON to Claude Desktop's gateway configuration, then restart Claude Desktop. Models are discovered from this profile's API."

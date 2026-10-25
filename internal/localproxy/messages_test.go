@@ -31,13 +31,18 @@ func TestMessagesRequestConversionPreservesToolsAndImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := parsed(t, string(encoded))
-	if text(o["model"]) != "gpt-6.1-sol" || text(o["instructions"]) != "first\n\nsecond" || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
+	if text(o["model"]) != "gpt-6.1-sol" || o["instructions"] != nil || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
 		t.Fatal(string(encoded))
 	}
 	input := array(o["input"])
-	if len(input) != 4 {
+	if len(input) != 5 || obj(input[0])["role"] != "developer" {
 		t.Fatal(string(encoded))
 	}
+	system := array(obj(input[0])["content"])
+	if text(obj(system[0])["text"]) != "first" || obj(obj(system[0])["prompt_cache_breakpoint"])["mode"] != "explicit" || text(obj(system[1])["text"]) != "second" || obj(system[1])["prompt_cache_breakpoint"] != nil {
+		t.Fatal("system cache boundary lost", system)
+	}
+	input = input[1:]
 	parts := array(obj(input[0])["content"])
 	if text(obj(parts[1])["image_url"]) != "data:image/png;base64,AAAA" || text(obj(parts[2])["file_url"]) != "https://example.com/file.pdf" {
 		t.Fatal(parts)
@@ -109,7 +114,7 @@ func TestMessagesRequestConversionPreservesTurnInstructions(t *testing.T) {
 	got := parsed(t, string(encoded))
 	want := parsed(t, `{"input":[
 		{"role":"user","content":[{"type":"input_text","text":"Read the file"}]},
-		{"role":"system","content":[{"type":"input_text","text":"# Environment"}]},
+		{"role":"system","content":[{"type":"input_text","text":"# Environment","prompt_cache_breakpoint":{"mode":"explicit"}}]},
 		{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"},
 		{"type":"function_call_output","call_id":"c1","output":"File contents"},
 		{"role":"system","content":[{"type":"input_text","text":"Remember the instructions"}]},

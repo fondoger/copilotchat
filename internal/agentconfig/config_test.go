@@ -79,6 +79,70 @@ func TestClaudeDefaultsAreOptionalAndProtocolChecked(t *testing.T) {
 	}
 }
 
+func TestClaudePermissionMode(t *testing.T) {
+	for _, mode := range []string{"", "default", "auto", "acceptEdits", "plan", "dontAsk", "bypassPermissions", "invalid", "Auto", " auto "} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			text, err := Generate(Options{
+				Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
+				ClaudePermissionMode: mode,
+			})
+			if mode == "invalid" || mode == "Auto" || mode == " auto " {
+				if err == nil {
+					t.Fatal("invalid permission mode accepted", text)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config struct {
+				Permissions map[string]string `json:"permissions"`
+			}
+			if err := json.Unmarshal([]byte(text), &config); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "" {
+				if config.Permissions != nil {
+					t.Fatal("unconfigured permissions must be omitted", text)
+				}
+			} else if len(config.Permissions) != 1 || config.Permissions["defaultMode"] != mode {
+				t.Fatal("permission mode was not generated as permissions.defaultMode", text)
+			}
+		})
+	}
+}
+
+func TestClaudeAutoModeModel(t *testing.T) {
+	for _, test := range []struct {
+		id, upstream, want string
+	}{
+		{"", "", ""},
+		{"work/claude-fixture", "claude-fixture", "work/claude-fixture"},
+		{"work/claude-user/gpt-fixture", "gpt-fixture", "work/claude-user/gpt-fixture[1m]"},
+		{"work/gpt-fixture[1m]", "gpt-fixture", "work/gpt-fixture[1m]"},
+	} {
+		t.Run("model="+test.id, func(t *testing.T) {
+			model := provider.Model{ID: test.id, Endpoint: "/responses"}
+			text, err := Generate(Options{
+				Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
+				ClaudeDefaults: map[string]provider.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": model},
+				Models:         []localproxy.Model{{ID: test.id, Model: provider.Model{ID: test.upstream, Endpoint: "/responses"}}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config struct{ Env map[string]string }
+			if err := json.Unmarshal([]byte(text), &config); err != nil {
+				t.Fatal(err)
+			}
+			got, present := config.Env["CLAUDE_CODE_AUTO_MODE_MODEL"]
+			if got != test.want || present != (test.id != "") {
+				t.Fatal("auto mode model must use the default model ID rules", text)
+			}
+		})
+	}
+}
+
 func TestCodexRemoteCompactionControlsProviderName(t *testing.T) {
 	o := Options{Agent: Codex, BaseURL: localproxy.BaseURL(39321, "codex"), Key: "copilotchat", CatalogPath: "/tmp/catalog.json", Model: provider.Model{ID: "gpt-fixture", Endpoint: "/responses"}}
 	for _, enabled := range []bool{false, true} {

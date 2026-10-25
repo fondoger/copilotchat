@@ -15,7 +15,7 @@ func TestMessagesSearchToolConversion(t *testing.T) {
 	for _, choice := range []string{
 		`{"type":"auto"}`, `{"type":"any"}`, `{"type":"tool","name":"web_search"}`, `{"type":"tool","name":"read"}`,
 	} {
-		body := `{"messages":[{"role":"user","content":"Search"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":2,"cache_control":{"type":"ephemeral"}},{"name":"read","input_schema":{"type":"object"}}],"tool_choice":` + choice + `}`
+		body := `{"messages":[{"role":"user","content":"Search"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":2},{"name":"read","input_schema":{"type":"object"}}],"tool_choice":` + choice + `}`
 		data, _, err := messagesToResponses([]byte(body), provider.Model{ID: "gpt-6.1-sol"})
 		if err != nil {
 			t.Fatal(err)
