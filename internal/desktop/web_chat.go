@@ -167,19 +167,40 @@ func (a *app) isWebChat(chat *store.Conversation) bool {
 	return p != nil && store.IsWebProvider(p.Kind)
 }
 
+// A disabled provider can resume a bound local conversation, but cannot open a
+// new chat or a settings sign-in view. Removed or repurposed providers never own
+// historical views, even when the conversation still has its saved web identity.
+func (a *app) webProviderAvailable(providerID string, chat *store.Conversation) bool {
+	provider := a.provider(providerID)
+	if provider == nil || !store.IsWebProvider(provider.Kind) {
+		return false
+	}
+	if chat != nil && (chat.ProviderID != providerID || a.webChatKind(chat) != provider.Kind) {
+		return false
+	}
+	if !provider.Disabled {
+		return true
+	}
+	if chat == nil {
+		return false
+	}
+	_, resumable := store.WebConversationURL(provider.Kind, chat.WebURL)
+	return resumable
+}
+
 func (a *app) currentWebChatView(p *webChatView) bool {
 	if p == nil || a.quitting {
 		return false
 	}
 	provider := a.provider(p.providerID)
-	if provider == nil || provider.Disabled || !store.IsWebProvider(provider.Kind) || (p.kind != "" && p.kind != provider.Kind) {
+	if provider == nil || (p.kind != "" && p.kind != provider.Kind) {
 		return false
 	}
 	if p.chatID == "" {
-		return a.webSettings == p && a.settingsWin == p.owner && a.settingsPage == "Providers" && a.providerSettingsID == p.providerID
+		return a.webProviderAvailable(p.providerID, nil) && a.webSettings == p && a.settingsWin == p.owner && a.settingsPage == "Providers" && a.providerSettingsID == p.providerID
 	}
 	chat := a.conversation(p.chatID)
-	return a.webChat == p && a.win == p.owner && a.state.ActiveID == p.chatID && chat != nil && chat.ProviderID == p.providerID && a.isWebChat(chat)
+	return chat != nil && a.webProviderAvailable(p.providerID, chat) && a.webChat == p && a.win == p.owner && a.state.ActiveID == p.chatID
 }
 
 // Authentication may navigate to another HTTPS origin, but never to a native

@@ -11,9 +11,9 @@ func (a *app) webChatContent(c *ui.Context, chat *store.Conversation) {
 		return
 	}
 	provider := a.provider(chat.ProviderID)
-	if provider == nil || !store.IsWebProvider(provider.Kind) || provider.Disabled {
+	if !a.webProviderAvailable(chat.ProviderID, chat) {
 		a.closeWebChat()
-		ui.Text(c, "This web provider is disabled or was removed. Enable it in Settings to open this chat.").Padding(16).TextColor(c.Theme().Danger)
+		ui.Text(c, "This web conversation is unavailable. Check its provider in Settings.").Padding(16).TextColor(c.Theme().Danger)
 		return
 	}
 	if p := a.webChat; p != nil && (!a.currentWebChatView(p) || p.chatID != chat.ID || (p.view != nil && p.view.IsDestroyed())) {
@@ -59,7 +59,7 @@ func (a *app) webChatContent(c *ui.Context, chat *store.Conversation) {
 
 func (a *app) webProviderView(c *ui.Context, providerID string) {
 	provider := a.provider(providerID)
-	if provider == nil || provider.Disabled || !store.IsWebProvider(provider.Kind) {
+	if !a.webProviderAvailable(providerID, nil) {
 		a.closeWebSettings()
 		ui.Text(c, "Enable this web provider to sign in.").TextColor(c.Theme().TextMuted)
 		return

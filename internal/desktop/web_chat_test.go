@@ -21,6 +21,73 @@ func doubaoTestApp() (*app, *webChatView) {
 	return a, p
 }
 
+func TestDisabledWebProvidersResumeOnlyBoundLocalHistory(t *testing.T) {
+	sites := []struct{ kind, remote string }{{store.ProviderKindDoubao, store.DoubaoChatURL + "/123"}}
+	for _, site := range webSiteFixtures {
+		sites = append(sites, struct{ kind, remote string }{site.kind, site.remote})
+	}
+	for _, site := range sites {
+		t.Run(site.kind, func(t *testing.T) {
+			a, p := doubaoTestApp()
+			a.state.Settings.Providers[0].Kind = site.kind
+			chat := a.current()
+			chat.WebKind, chat.WebURL = site.kind, site.remote
+			p.kind = site.kind
+			destroyed := false
+			p.off = []func(){func() { destroyed = true }}
+			a.setProviderEnabled(p.providerID, false)
+			if !destroyed || a.webChat != nil {
+				t.Fatal("disabling provider did not release the current view")
+			}
+
+			// Reopening a saved conversation after disable creates a fresh owner.
+			p = &webChatView{chatID: chat.ID, providerID: chat.ProviderID, kind: site.kind}
+			a.webChat = p
+			ui.NewTester(func(c *ui.Context) { a.webChatContent(c, chat) }, 900, 620).Frame()
+			if a.webChat != p || !a.currentWebChatView(p) {
+				t.Fatal("disabled provider rejected its historical conversation")
+			}
+			a.applyWebChatSnapshot(p, webChatSnapshot{URL: site.remote, Title: "Resumed history"})
+			if chat.Title != "Resumed history" || chat.WebURL != site.remote {
+				t.Fatal("resumed history could not publish its title without changing identity")
+			}
+			if !a.webChatRouteAllowed(p, site.remote) {
+				t.Fatal("resumed history cannot navigate to its own conversation")
+			}
+
+			// Disabling must not permit signing in through the settings view.
+			settings := &webChatView{providerID: chat.ProviderID, kind: site.kind}
+			a.webSettings, a.providerSettingsID, a.settingsPage = settings, chat.ProviderID, "Providers"
+			if a.currentWebChatView(settings) {
+				t.Fatal("disabled provider retained settings ownership")
+			}
+			ui.NewTester(func(c *ui.Context) { a.webProviderView(c, chat.ProviderID) }, 900, 620).Frame()
+			if a.webSettings != nil {
+				t.Fatal("disabled provider kept its settings sign-in view")
+			}
+
+			for _, invalid := range []string{"", "https://attacker.invalid/chat/123"} {
+				chat.WebURL = invalid
+				a.webChat = p
+				a.applyWebChatSnapshot(p, webChatSnapshot{URL: site.remote, CreatedURL: site.remote, Title: "New chat"})
+				ui.NewTester(func(c *ui.Context) { a.webChatContent(c, chat) }, 900, 620).Frame()
+				if a.webChat != nil || chat.WebURL != invalid || chat.Title != "Resumed history" {
+					t.Fatal("disabled provider opened or bound an unresumable chat")
+				}
+			}
+
+			chat.WebURL = site.remote
+			a.state.Settings.Providers = nil
+			a.webChat = p
+			a.applyWebChatSnapshot(p, webChatSnapshot{URL: site.remote, Title: "Removed provider"})
+			ui.NewTester(func(c *ui.Context) { a.webChatContent(c, chat) }, 900, 620).Frame()
+			if a.webChat != nil || chat.Title != "Resumed history" {
+				t.Fatal("removed provider reopened or modified history")
+			}
+		})
+	}
+}
+
 func TestWebNavigationAbortDoesNotMaskLoadFailures(t *testing.T) {
 	for _, tc := range []struct {
 		platform string
