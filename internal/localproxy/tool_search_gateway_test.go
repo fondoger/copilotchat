@@ -23,8 +23,9 @@ func TestToolDiscoveryThroughGateway(t *testing.T) {
 					src := parsed(t, string(r.Body))
 					tools := array(src["tools"])
 					nameKey := "name"
-					// Every target gets only the schema for search initially, then discovered
-					// schemas on subsequent requests, never a native tool_search declaration.
+					if native && step > 0 {
+						tools = append(tools, array(obj(array(obj(array(src["input"])[2])["tools"])[0])["tools"])...)
+					}
 					if step == 0 && len(tools) != 1 || step > 0 && len(tools) != 3 {
 						t.Errorf("unexpected loaded tools: %s", r.Body)
 					}
@@ -43,11 +44,17 @@ func TestToolDiscoveryThroughGateway(t *testing.T) {
 						}
 						encoded, _ := json.Marshal(args)
 						item = object{"type": "function_call", "id": "fc_" + callID, "call_id": callID, "name": name, "arguments": string(encoded), "status": "completed"}
+						if step > 0 {
+							item["namespace"] = "crm"
+						}
 					} else {
 						if r.Endpoint != "/v1/messages" {
 							t.Errorf("wrong bridge endpoint: %s", r.Endpoint)
 						}
 						item = object{"type": "tool_use", "id": callID, "name": name, "input": args}
+					}
+					if native && step == 0 {
+						item = object{"type": "tool_search_call", "execution": "client", "id": "tsc_" + callID, "call_id": callID, "arguments": args, "status": "completed"}
 					}
 					step++
 					result := object{"id": "r", "object": "response", "status": "completed", "output": []any{item}}
@@ -165,7 +172,7 @@ func TestToolDiscoveryAuxiliaryHistoryAndNativeMessages(t *testing.T) {
 		}
 		req := <-calls
 		src := parsed(t, string(req.Body))
-		if req.Endpoint != endpoint || src["tools"] != nil || obj(array(src["input"])[1])["type"] != "function_call" {
+		if req.Endpoint != endpoint || src["tools"] != nil || obj(array(src["input"])[1])["type"] != "tool_search_call" {
 			t.Fatal(req.Endpoint, string(req.Body))
 		}
 	}

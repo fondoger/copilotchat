@@ -131,7 +131,7 @@ func responseTool(item object) (object, error) {
 	return object{"type": "tool_use", "id": item["call_id"], "name": item["name"], "input": input}, nil
 }
 
-func responsesToMessage(response object, model string) (object, error) {
+func responsesToMessage(response object, model string, context *messagesSearchContext) (object, error) {
 	if err := terminalError(response); err != nil {
 		return nil, err
 	}
@@ -141,9 +141,19 @@ func responsesToMessage(response object, model string) (object, error) {
 	content := []any{}
 	tools := false
 	var sources responseSources
-	for _, value := range array(response["output"]) {
+	search := nativeResponseState{context: context}
+	for index, value := range array(response["output"]) {
 		item := obj(value)
 		switch text(item["type"]) {
+		case "tool_search_call", "tool_search_output":
+			blocks, err := search.item(index, item, true)
+			if err != nil {
+				return nil, err
+			}
+			content = append(content, blocks...)
+			if search.context.mode == "client" {
+				tools = true
+			}
 		case "web_search_call":
 			// Search and page opens are executed by the provider, not the client.
 		case "message":
@@ -156,6 +166,14 @@ func responsesToMessage(response object, model string) (object, error) {
 				content = append(content, object{"type": "text", "text": value})
 			}
 		case "function_call":
+			if item["namespace"] != nil {
+				blocks, err := messagesNamespacedTool(item)
+				if err != nil {
+					return nil, err
+				}
+				content, tools = append(content, blocks...), true
+				continue
+			}
 			block, err := responseTool(item)
 			if err != nil {
 				return nil, err
@@ -169,6 +187,9 @@ func responsesToMessage(response object, model string) (object, error) {
 			return nil, fmt.Errorf("Responses output item %q cannot be converted", text(item["type"]))
 		}
 	}
+	if search.pending != nil {
+		return nil, errors.New("Responses hosted search call has no output")
+	}
 	if attribution := sources.text(); attribution != "" {
 		content = append(content, object{"type": "text", "text": attribution})
 	}
@@ -180,7 +201,7 @@ func responsesToMessage(response object, model string) (object, error) {
 		"stop_reason": stopReason(response, tools), "stop_sequence": nil, "usage": messagesUsage(response)}, nil
 }
 
-func writeMessagesResponse(w http.ResponseWriter, response *http.Response, model string, stream bool) {
+func writeMessagesResponse(w http.ResponseWriter, response *http.Response, model string, stream bool, context *messagesSearchContext) {
 	w.Header().Set("Cache-Control", "no-store")
 	if response.StatusCode >= 400 {
 		data, _ := io.ReadAll(io.LimitReader(response.Body, MaxBody))
@@ -194,7 +215,7 @@ func writeMessagesResponse(w http.ResponseWriter, response *http.Response, model
 	}
 	if strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
 		if stream {
-			s := newMessagesStream(w, model)
+			s := newMessagesStream(w, model, context)
 			if err := readResponseEvents(response.Body, s.event); err != nil && !s.finished {
 				s.fail(err)
 			}
@@ -220,7 +241,7 @@ func writeMessagesResponse(w http.ResponseWriter, response *http.Response, model
 			apiError(w, 502, "Responses stream did not return a complete response")
 			return
 		}
-		writeMessageJSON(w, terminal, model, false)
+		writeMessageJSON(w, terminal, model, false, context)
 		return
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, MaxBody+1))
@@ -233,17 +254,17 @@ func writeMessagesResponse(w http.ResponseWriter, response *http.Response, model
 		apiError(w, 502, "Provider returned invalid Responses JSON")
 		return
 	}
-	writeMessageJSON(w, parsed, model, stream)
+	writeMessageJSON(w, parsed, model, stream, context)
 }
 
-func writeMessageJSON(w http.ResponseWriter, response object, model string, stream bool) {
-	message, err := responsesToMessage(response, model)
+func writeMessageJSON(w http.ResponseWriter, response object, model string, stream bool, context *messagesSearchContext) {
+	message, err := responsesToMessage(response, model, context)
 	if err != nil {
 		apiError(w, 502, err.Error())
 		return
 	}
 	if stream {
-		s := newMessagesStream(w, model)
+		s := newMessagesStream(w, model, context)
 		if err := s.complete(response); err != nil {
 			s.fail(err)
 		}
@@ -313,10 +334,11 @@ type messagesStream struct {
 	blocks                   []*messageBlock
 	byKey                    map[string]*messageBlock
 	sources                  responseSources
+	search                   nativeResponseState
 }
 
-func newMessagesStream(w http.ResponseWriter, model string) *messagesStream {
-	return &messagesStream{w: w, model: model, byKey: map[string]*messageBlock{}}
+func newMessagesStream(w http.ResponseWriter, model string, context *messagesSearchContext) *messagesStream {
+	return &messagesStream{w: w, model: model, byKey: map[string]*messageBlock{}, search: nativeResponseState{context: context}}
 }
 
 func (s *messagesStream) send(kind string, value object) error {
@@ -395,9 +417,17 @@ func blockKey(output, part int) string { return fmt.Sprintf("text:%d:%d", output
 
 func (s *messagesStream) item(index int, item object, done bool) error {
 	switch text(item["type"]) {
+	case "tool_search_call", "tool_search_output":
+		return s.searchItem(index, item, done)
 	case "web_search_call":
 		return nil
 	case "function_call":
+		if item["namespace"] != nil {
+			return s.namespacedTool(index, item, done)
+		}
+		if old := s.search.completedItems[index]; old != nil && old["type"] == "function_call" {
+			return errors.New("Responses terminal function call lost its namespace")
+		}
 		if !done && (text(item["call_id"]) == "" || text(item["name"]) == "") {
 			return nil
 		}
@@ -480,6 +510,9 @@ func (s *messagesStream) complete(response object) error {
 		if err := s.item(i, obj(value), true); err != nil {
 			return err
 		}
+	}
+	if s.search.pending != nil {
+		return errors.New("Responses hosted search call has no output")
 	}
 	// A separate block avoids changing text already streamed and reconciled by fill.
 	if attribution := s.sources.text(); attribution != "" {

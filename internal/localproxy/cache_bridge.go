@@ -281,6 +281,27 @@ func hasCacheMarker(blocks []any, key string) bool {
 	return false
 }
 
+// Ordinary Responses conversations use implicit caching. Remove source
+// markers before conversion so a moving tail marker cannot change wire shapes.
+// Validation runs first, including unsupported markers on omitted tools.
+func removeMessagesCacheMarkers(src object) {
+	delete(src, "cache_control")
+	for _, value := range array(src["system"]) {
+		delete(obj(value), "cache_control")
+	}
+	for _, value := range array(src["messages"]) {
+		for _, value := range array(obj(value)["content"]) {
+			block := obj(value)
+			delete(block, "cache_control")
+			if block["type"] == "tool_result" {
+				for _, value := range array(block["content"]) {
+					delete(obj(value), "cache_control")
+				}
+			}
+		}
+	}
+}
+
 func responseCachePart(src, dst object) {
 	if marker, exists := src["cache_control"]; exists {
 		// The request-level pass already validated placement, TTL and write limits.

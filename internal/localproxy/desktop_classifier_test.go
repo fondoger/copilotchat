@@ -65,11 +65,16 @@ func TestDesktopClassifierRouting(t *testing.T) {
 							}
 						} else if raw.Endpoint != "/responses" || !strings.Contains(string(raw.Body), `"input"`) {
 							t.Fatalf("missing Responses conversion: %s", raw.Body)
-						} else if strings.Contains(test.system, `"ephemeral"`) {
+						} else if strings.Contains(test.system, `"ephemeral"`) && test.key == ClaudeDesktopKey && test.stops == `["</severity>"]` {
 							converted := parsed(t, string(raw.Body))
 							system := array(obj(array(converted["input"])[0])["content"])
 							if len(system) != 2 || obj(obj(system[1])["prompt_cache_breakpoint"])["mode"] != "explicit" || obj(converted["prompt_cache_options"])["mode"] != "explicit" {
 								t.Fatalf("classifier cache boundary lost: %s", raw.Body)
+							}
+						}
+						if endpoint == "/responses" && !(strings.Contains(test.system, `"ephemeral"`) && test.key == ClaudeDesktopKey && test.stops == `["</severity>"]`) {
+							if strings.Contains(string(raw.Body), "prompt_cache_breakpoint") || obj(parsed(t, string(raw.Body))["prompt_cache_options"])["mode"] == "explicit" {
+								t.Fatalf("ordinary request used explicit caching: %s", raw.Body)
 							}
 						}
 						result := response(`{"id":"check","type":"message","role":"assistant","content":[{"type":"text","text":"<severity>0</severity>"}],"stop_reason":"end_turn","usage":{}}`)

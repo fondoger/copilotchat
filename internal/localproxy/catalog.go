@@ -40,7 +40,7 @@ func CodexCatalog(models []Model) []byte {
 			"shell_type": "shell_command", "visibility": "list", "supported_in_api": true,
 			"priority": len(data), "support_verbosity": false,
 			"supports_parallel_tool_calls":         m.Tools,
-			"supports_search_tool":                 m.Tools,
+			"supports_search_tool":                 m.Tools && (!supports(m, "/responses") || usesNativeToolSearch(m.ID)),
 			"base_instructions":                    codexPrompt,
 			"supports_reasoning_summary_parameter": m.Reasoning,
 			"truncation_policy":                    map[string]any{"mode": "bytes", "limit": 10000},

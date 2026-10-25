@@ -5,9 +5,8 @@ import (
 	"fmt"
 )
 
-// resolveMessagesTools expands client-side tool references before cache
-// validation. Keep src.tools intact: even tools omitted upstream must not hide
-// cache markers that the bridge cannot represent.
+// Resolve references before cache validation, leaving src.tools intact so
+// omitted definitions cannot hide unsupported cache markers.
 func resolveMessagesTools(src object) ([]any, error) {
 	definitions := map[string]object{}
 	for _, value := range array(src["tools"]) {

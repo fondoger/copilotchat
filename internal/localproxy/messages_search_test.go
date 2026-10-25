@@ -89,7 +89,7 @@ func TestSearchAnswersSourcesAndFollowUp(t *testing.T) {
 					res.Body = io.NopCloser(strings.NewReader(sse(`{"type":"response.completed","response":` + searchReply + `}`)))
 				}
 				w := httptest.NewRecorder()
-				writeMessagesResponse(w, res, "gpt", stream)
+				writeMessagesResponse(w, res, "gpt", stream, nil)
 				content := []any{}
 				reason := ""
 				if !stream {
@@ -153,13 +153,13 @@ func TestSearchAnswersSourcesAndFollowUp(t *testing.T) {
 func TestSearchWithClientToolAndFailure(t *testing.T) {
 	reply := parsed(t, searchReply)
 	reply["output"] = append(array(reply["output"]), object{"type": "function_call", "call_id": "c1", "name": "read", "arguments": "{}"})
-	message, err := responsesToMessage(reply, "gpt")
+	message, err := responsesToMessage(reply, "gpt", nil)
 	if err != nil || message["stop_reason"] != "tool_use" {
 		t.Fatal(message, err)
 	}
 	encoded, _ := json.Marshal(reply)
 	w := httptest.NewRecorder()
-	writeMessagesResponse(w, response(sse(`{"type":"response.completed","response":`+string(encoded)+`}`)), "gpt", true)
+	writeMessagesResponse(w, response(sse(`{"type":"response.completed","response":`+string(encoded)+`}`)), "gpt", true, nil)
 	if strings.Contains(w.Body.String(), "event: error") || !strings.Contains(w.Body.String(), `"stop_reason":"tool_use"`) || strings.Count(w.Body.String(), `"type":"tool_use"`) != 1 {
 		t.Fatal(w.Body.String())
 	}
@@ -169,7 +169,7 @@ func TestSearchWithClientToolAndFailure(t *testing.T) {
 			upstream += sse(terminal)
 		}
 		w := httptest.NewRecorder()
-		writeMessagesResponse(w, response(upstream), "gpt", true)
+		writeMessagesResponse(w, response(upstream), "gpt", true, nil)
 		if !strings.Contains(w.Body.String(), "event: error") || strings.Contains(w.Body.String(), "event: message_stop") {
 			t.Fatal("failed search reported as successful", w.Body.String())
 		}

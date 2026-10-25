@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+func usesNativeToolSearch(modelID string) bool {
+	return strings.Contains(strings.ToLower(modelID), "gpt")
+}
+
+type toolSearchOptions struct {
+	replay bool
+	native bool
+}
+
 type toolIdentity struct {
 	namespace, name, kind string
 }
@@ -98,7 +107,10 @@ func searchIdentity() toolIdentity { return toolIdentity{name: "tool_search", ki
 // state is reconstructed from the request; the client retains execution/permissions.
 // Replay is validated before touching visible items, whose original shapes are
 // part of the Anthropic envelope's match key.
-func normalizeResponsesTools(src object, replay bool) (*toolSearchContext, error) {
+func normalizeResponsesTools(src object, options toolSearchOptions) (*toolSearchContext, error) {
+	if options.native {
+		return nil, nil // Native Responses owns client/server discovery and namespace replay.
+	}
 	original := array(src["input"])
 	relevant, searchDeclared := false, false
 	for _, v := range array(src["tools"]) {
@@ -121,7 +133,7 @@ func normalizeResponsesTools(src object, replay bool) (*toolSearchContext, error
 		c = newToolSearchContext()
 	}
 	input := original
-	if replay && input != nil {
+	if options.replay && input != nil {
 		var err error
 		input, err = restoreAnthropicInput(input)
 		if err != nil {
@@ -291,10 +303,10 @@ func normalizeResponsesTools(src object, replay bool) (*toolSearchContext, error
 			t["name"] = c.names[d.id]
 		}
 		delete(t, "defer_loading")
+		available[text(t["name"])] = true
 		if !seen[d.id] {
 			tools = append(tools, t)
 			seen[d.id] = true
-			available[text(t["name"])] = true
 		}
 		return nil
 	}
@@ -340,6 +352,7 @@ func normalizeResponsesTools(src object, replay bool) (*toolSearchContext, error
 			loadedNames := []string{}
 			for _, d := range definitions {
 				loadedNames = append(loadedNames, c.names[d.id])
+
 			}
 			data, _ := json.Marshal(loadedNames)
 			mapped = object{"type": "function_call_output", "call_id": item["call_id"], "output": "Tools loaded by client search: " + string(data)}
@@ -353,6 +366,7 @@ func normalizeResponsesTools(src object, replay bool) (*toolSearchContext, error
 			delete(mapped, "namespace")
 		}
 		converted = append(converted, mapped)
+
 	}
 	if original != nil {
 		src["input"] = converted

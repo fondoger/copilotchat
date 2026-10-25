@@ -1,8 +1,8 @@
 # 显式缓存转换
 
-OpenAI 新版 Responses（官方文档为 GPT-5.6 及之后的模型）支持 `prompt_cache_options` 和内容块上的 `prompt_cache_breakpoint`；Anthropic 使用 `cache_control`。较早的 OpenAI 模型只有隐式缓存。本网关按调用方的缓存配置直接转换，不用模型 ID 白名单拦截；Copilot 等第三方网关是否接受、实际是否命中需要观察上游，不能假定所有上游都会忽略不支持的字段。上游 400 保留原错误，不静默去掉字段后重试。
+OpenAI 新版 Responses（官方文档为 GPT-5.6 及之后的模型）支持 `prompt_cache_options` 和内容块上的 `prompt_cache_breakpoint`；Anthropic 使用 `cache_control`。较早的 OpenAI 模型只有隐式缓存。本网关仅对 Auto 模式安全 classifier 的 Messages → Responses 请求转换显式断点，包括 classifier 专用路由和 Desktop 安全检测请求；普通对话使用 implicit 缓存，移除客户端标记，不生成内容块断点，避免每轮尾部标记迁移改变历史结构。原生协议请求保持透传。显式转换不用模型 ID 白名单拦截；Copilot 等第三方网关是否接受、实际是否命中需要观察上游，不能假定所有上游都会忽略不支持的字段。上游 400 保留原错误，不静默去掉字段后重试。
 
-### 转换规则
+### classifier 显式转换与反向桥接规则
 
 - Messages → Responses：system 中有显式断点时，保留每个文本块，转换为开头 developer 消息的 `input_text`，不再合并成顶层 `instructions`。user、轮次内 system/developer 文本块的断点也保留在原位置。工具定义及其顺序保持不变，属于后续 system 断点覆盖的前缀。
 - `cache_control: {"type":"ephemeral"}` → `prompt_cache_breakpoint: {"mode":"explicit"}`。只有显式断点时，生成 `prompt_cache_options: {"mode":"explicit"}`；Anthropic 顶层自动 `cache_control` 转为 `mode: "implicit"`，可以和显式断点组合。

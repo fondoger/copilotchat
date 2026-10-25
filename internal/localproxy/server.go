@@ -368,13 +368,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	reverse := endpoint == "/responses" && !supports(model.Model, "/responses")
 	var bridge *responsesBridge
 	var toolSearch *toolSearchContext
+	var messagesSearch *messagesSearchContext
 	countTokens := endpoint == "/v1/messages/count_tokens"
 	if desktop && !countTokens {
 		body = normalizeDesktopEffort(body, model.Model)
 	}
 	stream := false
 	if converted && !countTokens {
-		body, stream, err = messagesToResponses(body, model.Model)
+		body, stream, messagesSearch, err = convertMessagesRequest(body, model.Model, overrideClassifier || classifierRequest)
 		if err != nil {
 			apiError(w, 400, err.Error())
 			return
@@ -395,7 +396,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 400, decodeErr.Error())
 			return
 		}
-		toolSearch, err = normalizeResponsesTools(fields, false)
+		toolSearch, err = normalizeResponsesTools(fields, toolSearchOptions{native: usesNativeToolSearch(model.Model.ID)})
 		if err != nil {
 			apiError(w, 400, err.Error())
 			return
@@ -489,7 +490,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if converted {
-		writeMessagesResponse(w, response, envelope.Model, stream)
+		writeMessagesResponse(w, response, envelope.Model, stream, messagesSearch)
 		return
 	}
 	if reverse {

@@ -40,7 +40,7 @@ func encodedDiscovery(t *testing.T, value any) []byte {
 
 func TestCodexDiscoveryLoadingAndNamespace(t *testing.T) {
 	src := object{"input": "hello", "tools": []any{discoveryTool(), object{"type": "function", "name": "lookup", "parameters": object{"type": "object"}}, object{"type": "namespace", "name": "crm", "tools": []any{object{"type": "function", "name": "hidden", "defer_loading": true, "parameters": object{"type": "object"}}}}}}
-	c, err := normalizeResponsesTools(src, false)
+	c, err := normalizeResponsesTools(src, toolSearchOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestCodexDiscoveryLoadingAndNamespace(t *testing.T) {
 	}
 
 	src = object{"input": searchHistory(), "tools": []any{discoveryTool(), object{"type": "function", "name": "lookup", "parameters": object{"type": "object"}}}}
-	c, err = normalizeResponsesTools(src, false)
+	c, err = normalizeResponsesTools(src, toolSearchOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestCodexDiscoveryHistoryWithoutDeclaration(t *testing.T) {
 		if withTools {
 			src["tools"] = []any{}
 		}
-		c, err := normalizeResponsesTools(src, false)
+		c, err := normalizeResponsesTools(src, toolSearchOptions{})
 		if err != nil || c == nil {
 			t.Fatal(c, err)
 		}
@@ -115,7 +115,7 @@ func TestCodexDiscoveryRejectsInvalidHistory(t *testing.T) {
 	}
 	for _, input := range cases {
 		src := parsed(t, input)
-		if _, err := normalizeResponsesTools(src, false); err == nil {
+		if _, err := normalizeResponsesTools(src, toolSearchOptions{}); err == nil {
 			t.Fatal("accepted invalid discovery", input)
 		}
 	}
@@ -190,7 +190,7 @@ func TestCodexDiscoveryChoiceAndLatestSchema(t *testing.T) {
 			choice = object{"type": "allowed_tools", "mode": "auto", "tools": []any{choice}}
 		}
 		src := object{"input": history, "tools": []any{discoveryTool()}, "tool_choice": choice}
-		_, err := normalizeResponsesTools(src, false)
+		_, err := normalizeResponsesTools(src, toolSearchOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -207,11 +207,11 @@ func TestCodexDiscoveryChoiceAndLatestSchema(t *testing.T) {
 		}
 	}
 	src := object{"input": "hi", "tools": []any{discoveryTool()}, "conversation": "conv1"}
-	if _, err := normalizeResponsesTools(src, false); err == nil {
+	if _, err := normalizeResponsesTools(src, toolSearchOptions{}); err == nil {
 		t.Fatal("accepted stateful conversation")
 	}
 	src = object{"input": "hi", "tools": []any{discoveryTool(), discoveredTools()[0]}, "tool_choice": object{"type": "function", "namespace": "crm", "name": "lookup"}}
-	if _, err := normalizeResponsesTools(src, false); err == nil {
+	if _, err := normalizeResponsesTools(src, toolSearchOptions{}); err == nil {
 		t.Fatal("selected undiscovered deferred tool")
 	}
 }
@@ -226,7 +226,7 @@ func TestCodexDiscoveryNamespacedCustomAndSearchCollision(t *testing.T) {
 	}
 	src := object{"input": "hi", "tools": []any{discoveryTool(), namespace("a"), namespace(longNamespace), object{"type": "function", "name": "tool_search", "parameters": object{"type": "object"}}},
 		"tool_choice": object{"type": "custom", "namespace": longNamespace, "name": "patch"}}
-	c, err := normalizeResponsesTools(src, false)
+	c, err := normalizeResponsesTools(src, toolSearchOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

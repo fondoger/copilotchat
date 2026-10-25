@@ -31,18 +31,13 @@ func TestMessagesRequestConversionPreservesToolsAndImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := parsed(t, string(encoded))
-	if text(o["model"]) != "gpt-6.1-sol" || o["instructions"] != nil || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
+	if text(o["model"]) != "gpt-6.1-sol" || o["instructions"] != "first\n\nsecond" || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
 		t.Fatal(string(encoded))
 	}
 	input := array(o["input"])
-	if len(input) != 5 || obj(input[0])["role"] != "developer" {
+	if len(input) != 4 || obj(o["prompt_cache_options"])["mode"] != "implicit" || strings.Contains(string(encoded), "prompt_cache_breakpoint") {
 		t.Fatal(string(encoded))
 	}
-	system := array(obj(input[0])["content"])
-	if text(obj(system[0])["text"]) != "first" || obj(obj(system[0])["prompt_cache_breakpoint"])["mode"] != "explicit" || text(obj(system[1])["text"]) != "second" || obj(system[1])["prompt_cache_breakpoint"] != nil {
-		t.Fatal("system cache boundary lost", system)
-	}
-	input = input[1:]
 	parts := array(obj(input[0])["content"])
 	if text(obj(parts[1])["image_url"]) != "data:image/png;base64,AAAA" || text(obj(parts[2])["file_url"]) != "https://example.com/file.pdf" {
 		t.Fatal(parts)
@@ -67,7 +62,7 @@ const responsesReply = `{"id":"resp_fixture","status":"completed","output":[{"ty
 
 func TestResponsesReplyAndReasoningRoundTrip(t *testing.T) {
 	response := parsed(t, responsesReply)
-	message, err := responsesToMessage(response, "github-copilot/gpt-6.1-sol")
+	message, err := responsesToMessage(response, "github-copilot/gpt-6.1-sol", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +109,7 @@ func TestMessagesRequestConversionPreservesTurnInstructions(t *testing.T) {
 	got := parsed(t, string(encoded))
 	want := parsed(t, `{"input":[
 		{"role":"user","content":[{"type":"input_text","text":"Read the file"}]},
-		{"role":"system","content":[{"type":"input_text","text":"# Environment","prompt_cache_breakpoint":{"mode":"explicit"}}]},
+		{"role":"system","content":[{"type":"input_text","text":"# Environment"}]},
 		{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"},
 		{"type":"function_call_output","call_id":"c1","output":"File contents"},
 		{"role":"system","content":[{"type":"input_text","text":"Remember the instructions"}]},
@@ -242,7 +237,7 @@ func TestResponsesStreamAndJSONFallback(t *testing.T) {
 				res.Body = io.NopCloser(strings.NewReader(responsesReply))
 			}
 			w := httptest.NewRecorder()
-			writeMessagesResponse(w, res, "github-copilot/gpt-6.1-sol", true)
+			writeMessagesResponse(w, res, "github-copilot/gpt-6.1-sol", true, nil)
 			var events []object
 			if err := readResponseEvents(strings.NewReader(w.Body.String()), func(e object) error { events = append(events, e); return nil }); err != nil {
 				t.Fatal(err)
@@ -291,7 +286,7 @@ func TestResponsesFailuresAreNotSuccessfulEmptyReplies(t *testing.T) {
 		sse(`{"type":"response.completed","response":{"status":"completed"}}`),
 	} {
 		w := httptest.NewRecorder()
-		writeMessagesResponse(w, response(body), "public", true)
+		writeMessagesResponse(w, response(body), "public", true, nil)
 		if !strings.Contains(w.Body.String(), "event: error") || strings.Contains(w.Body.String(), "event: message_stop") {
 			t.Fatal(w.Body.String())
 		}
@@ -299,14 +294,14 @@ func TestResponsesFailuresAreNotSuccessfulEmptyReplies(t *testing.T) {
 	res := response(`{"status":"failed","error":{"message":"quota exceeded"}}`)
 	res.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	writeMessagesResponse(w, res, "public", false)
+	writeMessagesResponse(w, res, "public", false, nil)
 	if w.Code != 502 || !strings.Contains(w.Body.String(), "quota exceeded") {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	res.StatusCode = 429
 	res.Body = io.NopCloser(strings.NewReader(`{"error":{"message":"slow down"}}`))
 	w = httptest.NewRecorder()
-	writeMessagesResponse(w, res, "public", true)
+	writeMessagesResponse(w, res, "public", true, nil)
 	if w.Code != 429 || !strings.Contains(w.Body.String(), "slow down") || w.Header().Get("Content-Type") != "application/json" {
 		t.Fatal(w)
 	}
@@ -323,14 +318,14 @@ func TestStreamLateToolArgumentsAndMultipleThinkingParts(t *testing.T) {
 		`{"type":"response.completed","response":{"status":"completed","output":[{"type":"reasoning","id":"rs_late","summary":[{"type":"summary_text","text":"First"},{"type":"summary_text","text":"Second"}],"encrypted_content":"opaque"},{"type":"function_call","id":"fc_late","call_id":"call_late","name":"read","arguments":"{\"x\":42}"}]}}`,
 	)
 	w := httptest.NewRecorder()
-	writeMessagesResponse(w, response(upstream), "public", true)
+	writeMessagesResponse(w, response(upstream), "public", true, nil)
 	if strings.Contains(w.Body.String(), "event: error") || !strings.Contains(w.Body.String(), `"id":"call_late"`) || !strings.Contains(w.Body.String(), `"partial_json":"{\"x\":42}"`) || !strings.Contains(w.Body.String(), "event: message_stop") {
 		t.Fatal(w.Body.String())
 	}
 	// Non-streaming callers receive a JSON message even when the provider
 	// responds with SSE. The terminal event must finish without waiting for EOF.
 	w = httptest.NewRecorder()
-	writeMessagesResponse(w, response(upstream), "public", false)
+	writeMessagesResponse(w, response(upstream), "public", false, nil)
 	message := parsed(t, w.Body.String())
 	if message["stop_reason"] != "tool_use" || text(obj(array(message["content"])[0])["thinking"]) != "First\nSecond" {
 		t.Fatal(w.Body.String())

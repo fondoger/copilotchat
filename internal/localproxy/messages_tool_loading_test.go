@@ -50,8 +50,8 @@ func TestMessagesDeferredToolsLoadFromReferences(t *testing.T) {
 			t.Fatal("reference was not replaced in place with loading information", output)
 		}
 	}
-	if !reflect.DeepEqual(obj(output[4])["prompt_cache_breakpoint"], object{"mode": "explicit", "ttl": "12h"}) {
-		t.Fatal("tool result cache boundary lost", output)
+	if obj(output[4])["prompt_cache_breakpoint"] != nil {
+		t.Fatal("ordinary request retained an explicit boundary", output)
 	}
 	if strings.Contains(string(encoded), "DeferredToolPlaceholder") || strings.Contains(string(encoded), "tool_reference") || strings.Contains(string(encoded), "defer_loading") {
 		t.Fatal("internal loading protocol leaked", string(encoded))
@@ -102,8 +102,8 @@ func TestMessagesToolLoadingLeavesOrdinaryResultsUnchanged(t *testing.T) {
 	body := `{"stream":true,"tools":[{"name":"find","description":"An ordinary tool","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"ordinary","is_error":true,"cache_control":{"type":"ephemeral"},"content":[{"type":"text","text":"first"},{"type":"image","source":{"type":"url","url":"https://example.com/result.png"}},{"type":"text","text":"last"}]}]}]}`
 	src := parsed(t, body)
 	original := parsed(t, body)
-	tools, err := resolveMessagesTools(src)
-	if err != nil || !reflect.DeepEqual(src, original) || !reflect.DeepEqual(tools, original["tools"]) {
+	loading, err := resolveMessagesTools(src)
+	if err != nil || !reflect.DeepEqual(src, original) || !reflect.DeepEqual(loading, original["tools"]) {
 		t.Fatal("ordinary request mutated by loading pass", src, err)
 	}
 	encoded, stream, err := messagesToResponses([]byte(body), provider.Model{ID: "test"})
@@ -111,7 +111,7 @@ func TestMessagesToolLoadingLeavesOrdinaryResultsUnchanged(t *testing.T) {
 		t.Fatal("ordinary result rejected", string(encoded), err)
 	}
 	output := array(obj(array(parsed(t, string(encoded))["input"])[0])["output"])
-	if len(output) != 4 || obj(output[0])["text"] != "[Tool error]" || obj(output[1])["text"] != "first" || obj(output[2])["image_url"] != "https://example.com/result.png" || obj(output[3])["text"] != "last" || obj(obj(output[3])["prompt_cache_breakpoint"])["mode"] != "explicit" {
+	if len(output) != 4 || obj(output[0])["text"] != "[Tool error]" || obj(output[1])["text"] != "first" || obj(output[2])["image_url"] != "https://example.com/result.png" || obj(output[3])["text"] != "last" || obj(output[3])["prompt_cache_breakpoint"] != nil {
 		t.Fatal("ordinary mixed result/cache boundary changed", output)
 	}
 }

@@ -163,7 +163,7 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 	if err := cache.validateResponses(src); err != nil {
 		return fail(err)
 	}
-	bridge.tools, err = normalizeResponsesTools(src, true)
+	bridge.tools, err = normalizeResponsesTools(src, toolSearchOptions{replay: true})
 	if err != nil {
 		return fail(err)
 	}

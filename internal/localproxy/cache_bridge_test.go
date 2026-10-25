@@ -9,6 +9,30 @@ import (
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
+func TestImplicitCacheKeepsToolResultShapeAcrossTurns(t *testing.T) {
+	src := parsed(t, `{"system":[{"type":"text","text":"rules","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"r","content":"result","cache_control":{"type":"ephemeral"}}]}]}`)
+	convert := func() object {
+		data, _, err := messagesToResponses(encodedDiscovery(t, src), provider.Model{ID: "gpt-test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "prompt_cache_breakpoint") {
+			t.Fatal(string(data))
+		}
+		return parsed(t, string(data))
+	}
+	first := convert()
+	if obj(first["prompt_cache_options"])["mode"] != "implicit" || obj(array(first["input"])[0])["output"] != "result" {
+		t.Fatal(first)
+	}
+	delete(obj(array(obj(array(src["messages"])[0])["content"])[0]), "cache_control")
+	src["messages"] = append(array(src["messages"]), object{"role": "user", "content": []any{object{"type": "text", "text": "next", "cache_control": object{"type": "ephemeral"}}}})
+	next := convert()
+	if !reflect.DeepEqual(first["instructions"], next["instructions"]) || !reflect.DeepEqual(first["input"], array(next["input"])[:1]) {
+		t.Fatal("moving cache marker changed prefix", next)
+	}
+}
+
 func TestCacheBridgeStableClassifierPrefix(t *testing.T) {
 	for _, ttl := range []string{"", "5m", "1h"} {
 		t.Run(ttl, func(t *testing.T) {
@@ -22,7 +46,7 @@ func TestCacheBridgeStableClassifierPrefix(t *testing.T) {
 				object{"type": "text", "text": "uncached suffix"},
 			}, "messages": []any{object{"role": "user", "content": "operation A"}}, "stop_sequences": []any{"</severity>"}}
 			encoded, _ := json.Marshal(src)
-			forward, _, err := messagesToResponses(encoded, provider.Model{ID: "gpt-unlisted"})
+			forward, _, err := messagesToResponsesWithCache(encoded, provider.Model{ID: "gpt-unlisted"}, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -41,7 +65,7 @@ func TestCacheBridgeStableClassifierPrefix(t *testing.T) {
 			}
 			obj(array(src["messages"])[0])["content"] = "operation B"
 			encoded, _ = json.Marshal(src)
-			next, _, err := messagesToResponses(encoded, provider.Model{ID: "gpt-unlisted"})
+			next, _, err := messagesToResponsesWithCache(encoded, provider.Model{ID: "gpt-unlisted"}, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +92,7 @@ func TestCacheBridgeStableClassifierPrefix(t *testing.T) {
 
 func TestCacheBridgeTextAndToolResults(t *testing.T) {
 	src := `{"messages":[{"role":"user","content":[{"type":"text","text":"stable","cache_control":{"type":"ephemeral"}},{"type":"text","text":"variable"}]},{"role":"assistant","content":[{"type":"tool_use","id":"call","name":"read","input":{"cache_control":"ordinary argument"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call","content":"result","cache_control":{"type":"ephemeral"}}]}]}`
-	encoded, _, err := messagesToResponses([]byte(src), provider.Model{ID: "gpt"})
+	encoded, _, err := messagesToResponsesWithCache([]byte(src), provider.Model{ID: "gpt"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +124,7 @@ func TestCacheBridgeAutomaticPolicies(t *testing.T) {
 			obj(src["cache_control"])["ttl"] = ttl
 		}
 		body, _ := json.Marshal(src)
-		encoded, _, err := messagesToResponses(body, provider.Model{ID: "gpt"})
+		encoded, _, err := messagesToResponsesWithCache(body, provider.Model{ID: "gpt"}, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -117,7 +141,7 @@ func TestCacheBridgeAutomaticPolicies(t *testing.T) {
 		}
 	}
 	src := `{"cache_control":{"type":"ephemeral"},"system":[{"type":"text","text":"prefix","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":"hi"}]}`
-	encoded, _, err := messagesToResponses([]byte(src), provider.Model{ID: "gpt"})
+	encoded, _, err := messagesToResponsesWithCache([]byte(src), provider.Model{ID: "gpt"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +172,7 @@ func TestCacheBridgeAutomaticFinalBreakpoint(t *testing.T) {
 	}
 	src := object{"cache_control": object{"type": "ephemeral"}, "messages": []any{object{"role": "user", "content": blocks}}}
 	body, _ := json.Marshal(src)
-	forward, _, err := messagesToResponses(body, provider.Model{ID: "gpt"})
+	forward, _, err := messagesToResponsesWithCache(body, provider.Model{ID: "gpt"}, true)
 	if err != nil {
 		t.Fatal("automatic cache should share final explicit slot", err)
 	}
@@ -158,13 +182,13 @@ func TestCacheBridgeAutomaticFinalBreakpoint(t *testing.T) {
 	// A different lifetime at the automatic endpoint cannot be represented.
 	src["cache_control"] = object{"type": "ephemeral", "ttl": "1h"}
 	body, _ = json.Marshal(src)
-	if _, _, err := messagesToResponses(body, provider.Model{ID: "gpt"}); err == nil {
+	if _, _, err := messagesToResponsesWithCache(body, provider.Model{ID: "gpt"}, true); err == nil {
 		t.Fatal("accepted conflicting final cache TTL")
 	}
 }
 
 func TestCacheBridgeLeavesUnflaggedRequestsAlone(t *testing.T) {
-	forward, _, err := messagesToResponses([]byte(`{"system":[{"type":"text","text":"a"},{"type":"text","text":"b"}],"messages":[{"role":"user","content":"hi"}]}`), provider.Model{ID: "gpt"})
+	forward, _, err := messagesToResponsesWithCache([]byte(`{"system":[{"type":"text","text":"a"},{"type":"text","text":"b"}],"messages":[{"role":"user","content":"hi"}]}`), provider.Model{ID: "gpt"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +218,7 @@ func TestCacheBridgeRejectsUnrepresentableControls(t *testing.T) {
 		`{"system":[{"type":"text","text":"a","cache_control":{"type":"ephemeral"}},{"type":"text","text":"b","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":"hi"}]}`,
 	}
 	for _, body := range messages {
-		if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "gpt"}); err == nil {
+		if _, _, err := messagesToResponsesWithCache([]byte(body), provider.Model{ID: "gpt"}, true); err == nil {
 			t.Fatal("accepted unsupported cache intent", body)
 		}
 	}
@@ -220,7 +244,7 @@ func TestCacheBridgeRejectsUnrepresentableControls(t *testing.T) {
 			blocks = append(blocks, object{"type": "text", "text": "prefix", "cache_control": object{"type": "ephemeral"}})
 		}
 		body, _ := json.Marshal(object{"system": blocks, "messages": []any{object{"role": "user", "content": "hi"}}})
-		converted, _, err := messagesToResponses(body, provider.Model{ID: "gpt"})
+		converted, _, err := messagesToResponsesWithCache(body, provider.Model{ID: "gpt"}, true)
 		if count == 5 {
 			if err == nil {
 				t.Fatal("accepted five writes")

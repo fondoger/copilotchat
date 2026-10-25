@@ -59,30 +59,53 @@ func restoreReasoning(signature string) (object, error) {
 }
 
 // messagesToResponses translates the common client-side Messages contract.
-// Explicit cache boundaries retain their content-block positions. Never insert
-// timestamps or random input into prompts.
+// Ordinary conversations use implicit caching; classifier routes opt into
+// explicit boundaries. Never insert timestamps or random input into prompts.
 func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error) {
+	return messagesToResponsesWithCache(body, model, false)
+}
+
+func messagesToResponsesWithCache(body []byte, model provider.Model, explicit bool) ([]byte, bool, error) {
+	encoded, stream, _, err := convertMessagesRequest(body, model, explicit)
+	return encoded, stream, err
+}
+
+func convertMessagesRequest(body []byte, model provider.Model, explicit bool) ([]byte, bool, *messagesSearchContext, error) {
 	src, err := decodeObject(body)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	stream, _ := src["stream"].(bool)
 	if len(array(src["messages"])) == 0 {
-		return nil, false, errors.New("messages must be a non-empty array")
+		return nil, false, nil, errors.New("messages must be a non-empty array")
 	}
 	if err := validateMessagesBridgeFeatures(src); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
-	loadedTools, err := resolveMessagesTools(src)
+	searchContext, err := detectMessagesSearch(src, model)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
+	}
+	if err := restoreMessagesSearchReplay(src); err != nil {
+		return nil, false, nil, err
+	}
+	var original object
+	if searchContext != nil {
+		original = copyMessagesObject(src)
+	}
+	loading, err := resolveMessagesTools(src)
+	if err != nil {
+		return nil, false, nil, err
 	}
 	cache, err := newBridgeCache(src, true)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if err := cache.validateMessages(src); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
+	}
+	if !explicit {
+		removeMessagesCacheMarkers(src)
 	}
 	dst := object{"model": model.ID, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
 	input := []any{}
@@ -92,11 +115,11 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			for _, value := range array(system) {
 				block := obj(value)
 				if text(block["type"]) != "text" {
-					return nil, false, errors.New("only text system blocks can be converted")
+					return nil, false, nil, errors.New("only text system blocks can be converted")
 				}
 				part, err := responsePart(block, "developer")
 				if err != nil {
-					return nil, false, err
+					return nil, false, nil, err
 				}
 				parts = append(parts, part)
 			}
@@ -104,7 +127,7 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 		} else {
 			instructions, err := systemText(system)
 			if err != nil {
-				return nil, false, err
+				return nil, false, nil, err
 			}
 			dst["instructions"] = instructions
 		}
@@ -115,7 +138,7 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 		switch role {
 		case "user", "assistant", "system", "developer":
 		default:
-			return nil, false, fmt.Errorf("messages[%d].role %q is unsupported; expected user, assistant, system or developer", index, role)
+			return nil, false, nil, fmt.Errorf("messages[%d].role %q is unsupported; expected user, assistant, system or developer", index, role)
 		}
 		instruction := role == "system" || role == "developer"
 		parts := []any{}
@@ -130,7 +153,7 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			content = []any{object{"type": "text", "text": s}}
 		}
 		if array(content) == nil {
-			return nil, false, errors.New("message content must be text or an array")
+			return nil, false, nil, errors.New("message content must be text or an array")
 		}
 		for _, value := range array(content) {
 			block := obj(value)
@@ -139,7 +162,7 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 				// messages between turns. Keep its priority and original position
 				// so adding a turn doesn't rewrite the cached instruction prefix.
 				if text(block["type"]) != "text" {
-					return nil, false, fmt.Errorf("messages[%d]: only text blocks are supported for role %q", index, role)
+					return nil, false, nil, fmt.Errorf("messages[%d]: only text blocks are supported for role %q", index, role)
 				}
 				if text(block["text"]) == "" {
 					continue // An effort-only system message has no prompt content.
@@ -149,13 +172,21 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			case "text", "image", "document":
 				part, err := responsePart(block, role)
 				if err != nil {
-					return nil, false, err
+					return nil, false, nil, err
 				}
 				parts = append(parts, part)
+			case "responses_search_replay":
+				flush()
+				if searchContext == nil {
+					return nil, false, nil, errors.New("native search replay requires its search declaration and a GPT Responses target")
+				}
+				input = append(input, array(block["items"])...)
+			case "server_tool_use", "tool_search_tool_result":
+				return nil, false, nil, errors.New("hosted tool search history requires its intact gateway replay marker")
 			case "tool_use":
 				flush()
 				if role != "assistant" || text(block["id"]) == "" || text(block["name"]) == "" {
-					return nil, false, errors.New("invalid tool_use block")
+					return nil, false, nil, errors.New("invalid tool_use block")
 				}
 				args := block["input"]
 				if args == nil {
@@ -166,24 +197,24 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			case "tool_result":
 				flush()
 				if text(block["tool_use_id"]) == "" {
-					return nil, false, errors.New("tool_result needs tool_use_id")
+					return nil, false, nil, errors.New("tool_result needs tool_use_id")
 				}
 				output, err := toolOutput(block)
 				if err != nil {
-					return nil, false, err
+					return nil, false, nil, err
 				}
 				input = append(input, object{"type": "function_call_output", "call_id": block["tool_use_id"], "output": output})
 			case "thinking", "redacted_thinking":
 				flush()
 				item, err := restoreReasoning(text(block["signature"]))
 				if err != nil {
-					return nil, false, err
+					return nil, false, nil, err
 				}
 				if item != nil {
 					input = append(input, item)
 				}
 			default:
-				return nil, false, fmt.Errorf("Messages content block %q cannot be converted to Responses", text(block["type"]))
+				return nil, false, nil, fmt.Errorf("Messages content block %q cannot be converted to Responses", text(block["type"]))
 			}
 		}
 		flush()
@@ -209,29 +240,37 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	}
 	tools := []any{}
 	search := false
+	loadedTools := loading
+	if searchContext != nil && searchContext.mode == "server" {
+		loadedTools = array(src["tools"])
+	}
 	for _, value := range loadedTools {
 		tool := obj(value)
 		if tool["allowed_callers"] != nil {
-			return nil, false, errors.New("tool allowed_callers is not supported by the Responses bridge")
+			return nil, false, nil, errors.New("tool allowed_callers is not supported by the Responses bridge")
 		}
 		kind := text(tool["type"])
+		if searchContext != nil && searchContext.mode == "server" && tool["name"] == searchContext.name {
+			tools = append(tools, object{"type": "function", "name": tool["name"]}) // Replaced by the native declaration below.
+			continue
+		}
 		if kind == "web_search_20250305" {
 			if text(tool["name"]) != "web_search" {
-				return nil, false, errors.New("web_search_20250305 requires the name web_search")
+				return nil, false, nil, errors.New("web_search_20250305 requires the name web_search")
 			}
 			for key, value := range tool {
 				if key == "max_uses" && value != nil {
 					limit, ok := value.(json.Number)
 					n, err := limit.Int64()
 					if !ok || err != nil || n <= 0 {
-						return nil, false, errors.New("web_search max_uses must be a positive integer")
+						return nil, false, nil, errors.New("web_search max_uses must be a positive integer")
 					}
 					// Responses limits all built-in tool calls, not just searches.
 					dst["max_tool_calls"] = limit
 					continue
 				}
 				if key != "type" && key != "name" && key != "cache_control" && value != nil {
-					return nil, false, fmt.Errorf("web_search option %q is not supported by the Responses bridge", key)
+					return nil, false, nil, fmt.Errorf("web_search option %q is not supported by the Responses bridge", key)
 				}
 			}
 			tools = append(tools, object{"type": "web_search"})
@@ -239,10 +278,10 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			continue
 		}
 		if kind != "" && kind != "custom" {
-			return nil, false, fmt.Errorf("server tool %q is not supported by the Responses bridge; use client-side tools", kind)
+			return nil, false, nil, fmt.Errorf("server tool %q is not supported by the Responses bridge; use client-side tools", kind)
 		}
 		if text(tool["name"]) == "" {
-			return nil, false, errors.New("tool name is required")
+			return nil, false, nil, errors.New("tool name is required")
 		}
 		schema := tool["input_schema"]
 		if schema == nil {
@@ -253,11 +292,11 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 			var ok bool
 			strict, ok = value.(bool)
 			if !ok {
-				return nil, false, errors.New("tool strict must be a boolean")
+				return nil, false, nil, errors.New("tool strict must be a boolean")
 			}
 		}
 		if strict && !model.StructuredOutputs {
-			return nil, false, errors.New("model does not advertise strict tool schemas")
+			return nil, false, nil, errors.New("model does not advertise strict tool schemas")
 		}
 		mapped := object{"type": "function", "name": tool["name"], "parameters": schema, "strict": strict}
 		if v, ok := tool["description"]; ok {
@@ -282,7 +321,7 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 				dst["tool_choice"] = object{"type": "function", "name": choice["name"]}
 			}
 		default:
-			return nil, false, errors.New("unsupported tool_choice")
+			return nil, false, nil, errors.New("unsupported tool_choice")
 		}
 		if disabled, ok := choice["disable_parallel_tool_use"].(bool); ok {
 			dst["parallel_tool_calls"] = !disabled
@@ -295,11 +334,18 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	if text(format["type"]) == "json_schema" {
 		dst["text"] = object{"format": object{"type": "json_schema", "name": "response", "schema": format["schema"], "strict": true}}
 	}
-	if err := cache.apply(dst); err != nil {
-		return nil, false, err
+	if err := searchContext.request(dst, original); err != nil {
+		return nil, false, nil, err
+	}
+	if explicit {
+		if err := cache.apply(dst); err != nil {
+			return nil, false, nil, err
+		}
+	} else if cache.count > 0 || cache.configured {
+		dst["prompt_cache_options"] = object{"mode": "implicit"}
 	}
 	encoded, err := json.Marshal(dst)
-	return encoded, stream, err
+	return encoded, stream, searchContext, err
 }
 
 func systemText(v any) (string, error) {
