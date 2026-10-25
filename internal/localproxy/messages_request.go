@@ -70,6 +70,13 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	if len(array(src["messages"])) == 0 {
 		return nil, false, errors.New("messages must be a non-empty array")
 	}
+	if err := validateMessagesBridgeFeatures(src); err != nil {
+		return nil, false, err
+	}
+	loadedTools, err := resolveMessagesTools(src)
+	if err != nil {
+		return nil, false, err
+	}
 	cache, err := newBridgeCache(src, true)
 	if err != nil {
 		return nil, false, err
@@ -202,8 +209,11 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 	}
 	tools := []any{}
 	search := false
-	for _, value := range array(src["tools"]) {
+	for _, value := range loadedTools {
 		tool := obj(value)
+		if tool["allowed_callers"] != nil {
+			return nil, false, errors.New("tool allowed_callers is not supported by the Responses bridge")
+		}
 		kind := text(tool["type"])
 		if kind == "web_search_20250305" {
 			if text(tool["name"]) != "web_search" {
@@ -238,7 +248,18 @@ func messagesToResponses(body []byte, model provider.Model) ([]byte, bool, error
 		if schema == nil {
 			schema = object{"type": "object", "properties": object{}}
 		}
-		mapped := object{"type": "function", "name": tool["name"], "parameters": schema, "strict": false}
+		strict := false
+		if value, exists := tool["strict"]; exists {
+			var ok bool
+			strict, ok = value.(bool)
+			if !ok {
+				return nil, false, errors.New("tool strict must be a boolean")
+			}
+		}
+		if strict && !model.StructuredOutputs {
+			return nil, false, errors.New("model does not advertise strict tool schemas")
+		}
+		mapped := object{"type": "function", "name": tool["name"], "parameters": schema, "strict": strict}
 		if v, ok := tool["description"]; ok {
 			mapped["description"] = v
 		}

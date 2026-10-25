@@ -87,13 +87,13 @@ func responsesBlockItem(block object, responseID string, index int, bridge *resp
 			if !ok || len(input) != 1 {
 				return nil, errors.New("Anthropic custom tool input must contain only a string input")
 			}
-			return object{"type": "custom_tool_call", "id": "ctc_" + id, "call_id": id, "name": name, "input": value, "status": "completed"}, nil
+			return bridge.restoreToolItem(object{"type": "custom_tool_call", "id": "ctc_" + id, "call_id": id, "name": name, "input": value, "status": "completed"})
 		}
 		encoded, err := json.Marshal(input)
 		if err != nil {
 			return nil, err
 		}
-		return object{"type": "function_call", "id": "fc_" + id, "call_id": id, "name": name, "arguments": string(encoded), "status": "completed"}, nil
+		return bridge.restoreToolItem(object{"type": "function_call", "id": "fc_" + id, "call_id": id, "name": name, "arguments": string(encoded), "status": "completed"})
 	case "server_tool_use":
 		if text(block["name"]) != "web_search" {
 			return nil, fmt.Errorf("Anthropic server tool %q cannot be converted", text(block["name"]))
@@ -364,7 +364,11 @@ func (s *responsesStream) startBlock(index int, source object) error {
 		if custom {
 			kind, field, prefix = "custom_tool_call", "input", "ctc_"
 		}
-		return s.addItem(b, object{"type": kind, "id": prefix + text(block["id"]), "call_id": block["id"], "name": block["name"], field: "", "status": "in_progress"})
+		item, err := s.bridge.restoreToolItem(object{"type": kind, "id": prefix + text(block["id"]), "call_id": block["id"], "name": block["name"], field: "", "status": "in_progress"})
+		if err != nil {
+			return err
+		}
+		return s.addItem(b, item)
 	case "server_tool_use":
 		if text(block["name"]) != "web_search" || text(block["id"]) == "" {
 			return errors.New("Anthropic stream sent unsupported server tool")

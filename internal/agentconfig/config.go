@@ -79,6 +79,7 @@ func Generate(o Options) (string, error) {
 			"disableDeploymentModeChooser":    true,
 			"sshHostAllowlist":                []string{"*"},
 			"builtinBrowserEnabled":           true,
+			"toolSearchEnabled":               true,
 		}, "", "  ")
 		return string(data) + "\n", err
 	}
@@ -91,7 +92,7 @@ func Generate(o Options) (string, error) {
 			"ANTHROPIC_AUTH_TOKEN":                       o.Key,
 			"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
 			"DISABLE_LOGIN_COMMAND":                      "1",
-			"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":     "1",
+			"ENABLE_TOOL_SEARCH":                         "true",
 		}
 		for _, key := range ClaudeModelVariables {
 			model := o.ClaudeDefaults[key]

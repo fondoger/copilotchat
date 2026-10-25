@@ -24,6 +24,12 @@ func TestLocalAgentConfiguration(t *testing.T) {
 	if _, ok := config.Env["ANTHROPIC_MODEL"]; ok {
 		t.Fatal("optional model forced")
 	}
+	if config.Env["ENABLE_TOOL_SEARCH"] != "true" {
+		t.Fatal("client-side tool search must be enabled", config.Env)
+	}
+	if _, exists := config.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"]; exists {
+		t.Fatal("experimental features must not be globally disabled", config.Env)
+	}
 	for _, disallowed := range []string{"apiKeyHelper", "CUSTOM_HEADERS", "powershell", "TTL_MS", "data-dir"} {
 		if strings.Contains(text, disallowed) {
 			t.Fatal(disallowed)

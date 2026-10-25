@@ -366,6 +366,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	converted := protocol == "/v1/messages" && !supports(model.Model, "/v1/messages")
 	reverse := endpoint == "/responses" && !supports(model.Model, "/responses")
 	var bridge *responsesBridge
+	var toolSearch *toolSearchContext
 	countTokens := endpoint == "/v1/messages/count_tokens"
 	if desktop && !countTokens {
 		body = normalizeDesktopEffort(body, model.Model)
@@ -386,6 +387,25 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		endpoint = "/v1/messages"
+	}
+	if protocol == "/responses" && !reverse {
+		fields, decodeErr := decodeObject(body)
+		if decodeErr != nil {
+			apiError(w, 400, decodeErr.Error())
+			return
+		}
+		toolSearch, err = normalizeResponsesTools(fields, false)
+		if err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		if toolSearch != nil {
+			body, err = json.Marshal(fields)
+			if err != nil {
+				apiError(w, 400, err.Error())
+				return
+			}
+		}
 	}
 	agent := false
 	vision := hasImages(envelope.Input)
@@ -417,7 +437,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.Unmarshal(envelope.Input, &input) == nil && len(input) > 0 {
 		last := input[len(input)-1]
-		agent = last.Type == "function_call_output" || last.Type == "custom_tool_call_output" || last.Role == "assistant" || last.Role == "tool"
+		agent = last.Type == "function_call_output" || last.Type == "custom_tool_call_output" || last.Type == "tool_search_output" || last.Role == "assistant" || last.Role == "tool"
 	}
 	if endpoint == "/responses/compact" {
 		agent = true
@@ -473,6 +493,10 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if reverse {
 		writeResponsesResponse(w, response, envelope.Model, stream, bridge)
+		return
+	}
+	if toolSearch != nil {
+		writeToolSearchResponse(w, response, toolSearch)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

@@ -15,6 +15,7 @@ import (
 type responsesBridge struct {
 	custom          map[string]bool
 	pendingSearches map[string]bool
+	tools           *toolSearchContext
 }
 
 func updatePendingSearches(pending map[string]bool, block object) error {
@@ -77,9 +78,14 @@ func replayItem(value any) any {
 		if err != nil {
 			return nil
 		}
-		return object{"type": kind, "call_id": item["call_id"], "name": item["name"], "arguments": args}
+		return object{"type": kind, "call_id": item["call_id"], "namespace": text(item["namespace"]), "name": item["name"], "arguments": args}
+	case "tool_search_call":
+		if text(item["execution"]) != "client" || obj(item["arguments"]) == nil {
+			return nil
+		}
+		return object{"type": kind, "call_id": item["call_id"], "execution": item["execution"], "arguments": item["arguments"]}
 	case "custom_tool_call":
-		return object{"type": kind, "call_id": item["call_id"], "name": item["name"], "input": item["input"]}
+		return object{"type": kind, "call_id": item["call_id"], "namespace": text(item["namespace"]), "name": item["name"], "input": item["input"]}
 	case "web_search_call":
 		return object{"type": kind, "id": item["id"], "action": item["action"]}
 	default:
@@ -155,6 +161,10 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 		return fail(err)
 	}
 	if err := cache.validateResponses(src); err != nil {
+		return fail(err)
+	}
+	bridge.tools, err = normalizeResponsesTools(src, true)
+	if err != nil {
 		return fail(err)
 	}
 	dst := object{"model": model.ID, "stream": stream}
@@ -339,10 +349,6 @@ func responsesToMessages(body []byte, model provider.Model) ([]byte, bool, *resp
 	}
 	if input == nil {
 		return fail(errors.New("input must be text or an array"))
-	}
-	input, err = restoreAnthropicInput(input)
-	if err != nil {
-		return fail(err)
 	}
 	messages := []any{}
 	appendBlocks := func(role string, blocks []any) {

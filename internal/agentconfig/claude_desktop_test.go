@@ -21,6 +21,9 @@ func TestClaudeDesktopConfiguration(t *testing.T) {
 		got["inferenceProvider"] != "gateway" || got["inferenceCredentialKind"] != "static" {
 		t.Fatal(config)
 	}
+	if got["toolSearchEnabled"] != true {
+		t.Fatal("Desktop tool search must be enabled", config)
+	}
 	for _, endpoint := range []string{"/v1/messages", "/responses"} {
 		if !Compatible(provider.Model{Endpoint: endpoint}, ClaudeDesktop) {
 			t.Fatal("Desktop cannot use Messages bridge", endpoint)
