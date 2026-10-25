@@ -23,5 +23,5 @@ Copilot Chat 的 Desktop 专用模型 ID：
 
 ## 其他特殊细节
 
-- Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。Gateway 生成配置包含 `toolSearchEnabled:true`；需 Apply 后重启，可手动设置 `false` 关闭。普通客户端工具搜索在跨协议时由网关转换，原生 Messages 保持透传。未实测 Desktop Chat/Cowork 各 surface 的独立 wire 行为，不能仅凭开关已生成就认定全部生效；[工具搜索桥接与限制](openai-to-anthropic-notes.md#客户端工具按需加载)。
+- Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。已通过 `toolSearchEnabled` 启用，实测启用后47.8k->24.6k，降幅约 48%。详见: [客户端工具按需加载](details/client-tool-search.md)
 - CCD Auto模式下, 会额外调用 LLM API 对请求进行安全分级，默认使用Sonnet模型且不可配置。可在LLM Gateway识别该类请求并配置性价比模型。(官方订阅的安全检查请求免费，第三方可能产生额外 token 费用)

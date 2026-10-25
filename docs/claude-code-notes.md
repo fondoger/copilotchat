@@ -13,4 +13,4 @@ Notes:
 - CC不支持为**未知模型**指定Context Window大小。所有未知模型只能使用 200K(默认) 或者 1M (通过`[1m]`后缀开启)。使用 `[1m]`后缀 + per model的`autoCompactWindow`参数，可以控制实际使用的Context Window大小。
 - 优先使用 modelPicker + replaceBuiltInOptions 配置模型选择器。
 - 启用Auto权限模式时，CC会额外调用LLM API对请求安全分级，可通过`CLAUDE_CODE_AUTO_MODE_MODEL`。(官方订阅的安全检查请求免费，第三方可能产生额外 token 费用)
-- Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。可通过 `ENABLE_TOOL_SEARCH` 启用。
+- Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。已通过 `ENABLE_TOOL_SEARCH` 启用。详见: [客户端工具按需加载](details/client-tool-search.md)
