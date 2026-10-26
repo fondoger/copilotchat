@@ -11,8 +11,8 @@ import (
 	"github.com/doganarif/govisual/v2"
 )
 
-const Version = "0.5.8"
-const UserAgent = "CopilotChatNative/0.5.8"
+const Version = "0.5.9"
+const UserAgent = "CopilotChatNative/0.5.9"
 
 // NewHTTPClient never follows redirects carrying account credentials.
 func NewHTTPClient() *http.Client {
