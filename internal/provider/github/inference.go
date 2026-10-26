@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
@@ -19,7 +20,7 @@ func (c *Client) PrepareInference(ctx context.Context, request provider.Request,
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", provider.UserAgent)
+	req.Header.Set("User-Agent", appinfo.UserAgent())
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("Openai-Intent", "conversation-edits")
 	req.Header.Set("X-Interaction-Type", "conversation-agent")

@@ -33,13 +33,6 @@ function Get-ReleaseConfig {
     if ($config.version -notmatch '^\d+\.\d+\.\d+$') {
         throw 'mygo.json version must be a stable major.minor.patch release.'
     }
-    $appSource = Get-ReleaseSource 'internal/desktop/app.go' $sourceCommit
-    $appVersion = [regex]::Match($appSource, 'const version = "([^"]+)"').Groups[1].Value
-    $clientSource = Get-ReleaseSource 'internal/provider/http.go' $sourceCommit
-    $clientVersion = [regex]::Match($clientSource, 'CopilotChatNative/([^"\s]+)').Groups[1].Value
-    if ($appVersion -ne $config.version -or $clientVersion -ne $config.version) {
-        throw "Version mismatch: mygo.json=$($config.version), desktop=$appVersion, user agent=$clientVersion."
-    }
     if ($ExpectedTag -and $ExpectedTag -cne "v$($config.version)") {
         throw "Tag $ExpectedTag does not match mygo.json version $($config.version)."
     }

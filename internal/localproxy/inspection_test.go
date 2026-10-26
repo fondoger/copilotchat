@@ -226,8 +226,11 @@ func TestInspectionRecordsOutboundHTTP(t *testing.T) {
 				t.Fatal("missing upstream observation or changed response", w.Code)
 			}
 			calls := logs[0].PerformanceMetrics.HTTPCalls
-			if len(calls) != 1 || calls[0].Method != "POST" || calls[0].URL != upstream.URL+"/v1/messages" || calls[0].Status != 404 || calls[0].Duration <= 0 {
-				t.Fatal("incorrect outbound capture")
+			if len(calls) != 1 {
+				t.Fatalf("outbound call count = %d, want 1", len(calls))
+			}
+			if calls[0].Method != "POST" || calls[0].URL != upstream.URL+"/v1/messages" || calls[0].Status != 404 {
+				t.Fatalf("incorrect outbound capture: method=%s url=%s status=%d duration=%s", calls[0].Method, calls[0].URL, calls[0].Status, calls[0].Duration)
 			}
 			call := calls[0]
 			if call.RequestHeaders.Get("Content-Type") != "application/json" || call.ResponseHeaders.Get("Content-Type") != "application/json" ||

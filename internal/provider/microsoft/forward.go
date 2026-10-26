@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
@@ -16,7 +17,7 @@ func serviceHeaders(h http.Header, conversation string, agent bool) {
 	h.Set("X-ClientFeature", "LlmApiProxy")
 	h.Set("X-ClientScenario", "Code")
 	h.Set("X-Llm-Api-Version", "2026-09-28")
-	h.Set("X-ClientVersion", provider.Version)
+	h.Set("X-ClientVersion", appinfo.Version())
 	h.Set("X-ClientCorrelationId", provider.RequestID())
 	h.Set("X-ClientCallId", provider.RequestID())
 	if conversation != "" {

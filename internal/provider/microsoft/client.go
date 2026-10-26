@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
@@ -104,7 +105,7 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body any, toke
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", provider.UserAgent)
+	req.Header.Set("User-Agent", appinfo.UserAgent())
 	serviceHeaders(req.Header, "", false)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -133,7 +134,7 @@ func (c *Client) PrepareInference(ctx context.Context, request provider.Request,
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", provider.UserAgent)
+	req.Header.Set("User-Agent", appinfo.UserAgent())
 	conversation := request.ConversationID
 	if conversation == "" {
 		conversation = provider.RequestID()

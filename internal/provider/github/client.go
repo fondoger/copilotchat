@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
@@ -169,7 +170,7 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body any, toke
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", provider.UserAgent)
+	req.Header.Set("User-Agent", appinfo.UserAgent())
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
