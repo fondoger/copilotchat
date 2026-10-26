@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/store"
 )
@@ -419,7 +420,7 @@ func (a *app) showDocumentation() {
 
 func (a *app) showAbout() {
 	parent := a.win
-	detail := fmt.Sprintf("Version %s\n%s/%s\n\nNative Go + MyGo chat client for GitHub Copilot and Microsoft 365 Copilot.\nInterface reference: ChatWise, used with the owner's permission.", version, runtime.GOOS, runtime.GOARCH)
+	detail := fmt.Sprintf("Version %s\n%s/%s\n\nNative Go + MyGo chat client for GitHub Copilot and Microsoft 365 Copilot.\nInterface reference: ChatWise, used with the owner's permission.", appinfo.Version(), runtime.GOOS, runtime.GOARCH)
 	go func() {
 		_, _ = mygo.Dialog.Message(mygo.MessageOptions{Parent: parent, Type: mygo.MessageInfo, Title: "About Copilot Chat", Message: "Copilot Chat", Detail: detail})
 	}()

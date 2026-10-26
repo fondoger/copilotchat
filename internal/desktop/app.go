@@ -19,8 +19,6 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-const version = "0.5.9"
-
 type toolApproval struct {
 	Server, Name, Arguments string
 	Reply                   chan bool
@@ -91,7 +89,6 @@ func Run(dataDir string, dev bool) error {
 		appName += " Dev"
 	}
 	mygo.App.SetName(appName)
-	mygo.App.SetVersion(version)
 	// Plain Go builds and packaged builds use the same account, except in dev mode.
 	mygo.Secrets = mygo.Secrets.Service(appName)
 	if dataDir == "" {

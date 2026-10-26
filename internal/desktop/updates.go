@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 )
 
@@ -133,7 +134,7 @@ func (a *app) updateSettings(c *ui.Context) {
 		if !a.state.Settings.LastUpdateCheck.IsZero() {
 			lastCheck = "Last checked: " + a.state.Settings.LastUpdateCheck.Local().Format("2006-01-02 15:04")
 		}
-		settingsRow(c, "Version "+version, lastCheck, func() {
+		settingsRow(c, "Version "+appinfo.Version(), lastCheck, func() {
 			ui.Button(c.Key("check-updates"), "Check for updates").Height(28).
 				Disabled(snapshot.Phase == appupdate.Checking || snapshot.Phase == appupdate.Downloading || snapshot.Phase == appupdate.Ready).
 				OnClick(a.checkForUpdates)

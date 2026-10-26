@@ -21,6 +21,8 @@ go vet ./...
 
 `go run . --data-dir <directory>` selects a separate settings and conversation directory. It still uses the same application namespace in the system credential store.
 
+Plain `go run` and `go build` report version `dev`; MyGo builds obtain the version from `mygo.json` automatically.
+
 Network protocol tests use local mock servers and synthetic credentials. UI tests use MyGo's software renderer and temporary settings, so they do not require a Copilot account or modify normal application data.
 
 ## Package a target
@@ -76,7 +78,7 @@ Windows x64 has been exercised in a native desktop session. Windows ARM64 and bo
 
 [GitHub Actions](https://github.com/fondoger/copilotchat/actions) runs the test, vet, and package pipeline for four native runner targets on pushes to `main`, pull requests, and manual dispatches. The release workflow uses the same target matrix for version tags.
 
-To publish a release, keep the application version in `internal/desktop/app.go`, the request User-Agent in `internal/provider/http.go`, and `mygo.json` consistent. Update any versioned download references in the README, then commit the release source before creating the tag:
+To publish a release, update the version in `mygo.json`, the single source for the packaged application's version and request headers. Update any versioned download references in the README, then commit the release source before creating the matching tag:
 
 ```sh
 git tag v0.5.1

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.10
+
+- Use `mygo.json` as the single version source for the application and provider request headers, with `dev` for plain Go development builds.
+- Simplify release validation to check the tag against `mygo.json` without parsing Go source files.
+
 ## 0.5.8
 
 - Improve multi-selection appearance and animate favorite conversation movement.
