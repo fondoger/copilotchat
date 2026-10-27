@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/doganarif/govisual/v2"
-	"github.com/egoist/mygo/netproxy"
 )
 
 // NewHTTPClient never follows redirects carrying account credentials.
 func NewHTTPClient() *http.Client {
-	transport := netproxy.Transport().Clone()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 30 * time.Second
 	return &http.Client{Transport: govisual.WrapTransport(transport,
 		govisual.WithTransportBodyLogging(true),

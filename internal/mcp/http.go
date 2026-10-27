@@ -16,8 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/egoist/mygo/netproxy"
 )
 
 type httpTransport struct {
@@ -40,7 +38,7 @@ func newHTTPTransport(config Config) (*httpTransport, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &httpTransport{url: u.String(), lifetime: ctx, cancel: cancel}
 	t.client = &http.Client{
-		Transport: netproxy.Transport().Clone(),
+		Transport: http.DefaultTransport.(*http.Transport).Clone(),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Session headers must never be forwarded to another origin.
 			if req.URL.Scheme != u.Scheme || req.URL.Host != u.Host {

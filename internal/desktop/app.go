@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/fondoger/copilotchat/internal/appupdate"
@@ -82,6 +84,10 @@ type app struct {
 	confirmForwarding                func(string, string, string) bool
 	forwardCatalogs                  map[string][32]byte
 	forwardCatalogErrors             map[string]string
+}
+
+func init() {
+	http.DefaultTransport = netproxy.Transport()
 }
 
 func Run(dataDir string, dev bool) error {
