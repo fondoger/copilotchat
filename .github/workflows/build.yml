@@ -3,6 +3,10 @@ name: Build desktop packages
 on:
   workflow_call:
     inputs:
+      source-ref:
+        type: string
+        required: false
+        default: ''
       release-tag:
         type: string
         required: false
@@ -19,37 +23,67 @@ permissions:
   contents: read
 
 jobs:
-  package:
-    name: ${{ matrix.name }}
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      platforms: ${{ steps.platforms.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: platforms
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          . ./scripts/release-common.ps1
+          $version = if ($env:RELEASE_TAG) { Get-ReleaseVersion $env:RELEASE_TAG } else { (Get-ReleaseConfig).version }
+          $matrix = @{ include = @(Get-ReleasePlatforms $version) } | ConvertTo-Json -Depth 5 -Compress
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  test:
+    name: Test ${{ matrix.name }}
+    needs: matrix
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
+    timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            runner: windows-2022
-            platform: windows/amd64
-            id: windows-x64
-          - name: Windows ARM64
-            runner: windows-11-arm
-            platform: windows/arm64
-            id: windows-arm64
-          - name: macOS Intel
-            runner: macos-15-intel
-            platform: darwin/amd64
-            id: macos-x64
-          - name: macOS Apple silicon
-            runner: macos-15
-            platform: darwin/arm64
-            id: macos-arm64
+      matrix: ${{ fromJSON(needs.matrix.outputs.platforms) }}
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.release-tag && format('refs/tags/{0}', inputs.release-tag) || github.ref }}
+          ref: ${{ inputs.source-ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test and vet
+        run: |
+          . ./scripts/release-common.ps1
+          Invoke-CheckedCommand -Command go -Arguments @('test', './...', '-count=1', '-timeout', '5m')
+          Invoke-CheckedCommand -Command go -Arguments @('vet', './...')
+          Invoke-CheckedCommand -Command go -Arguments @('tool', 'mygo', 'vet')
+
+  package:
+    name: Build ${{ matrix.name }}
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.platforms) }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source-ref || github.ref }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -61,20 +95,16 @@ jobs:
         run: |
           $actual = "$(go env GOOS)/$(go env GOARCH)"
           if ($actual -cne $env:TARGET_PLATFORM) { throw "Expected native $env:TARGET_PLATFORM, got $actual." }
-          go version
-          if ($LASTEXITCODE -ne 0) { throw 'Go toolchain is unavailable.' }
-      - name: Test, vet, and package
+      - name: Package
         env:
           EXPECTED_TAG: ${{ inputs.release-tag }}
           REQUIRE_SIGNED_UPDATES: ${{ inputs.require-signed-updates }}
-          MYGO_UPDATER_PRIVATE_KEY: ${{ inputs.release-tag != '' && secrets.updater-private-key || '' }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ inputs.require-signed-updates && secrets.updater-private-key || '' }}
         run: |
-          $config = Get-Content mygo.json -Raw | ConvertFrom-Json
-          if ($env:REQUIRE_SIGNED_UPDATES -eq 'true' -and $config.PSObject.Properties['updates']) {
-            ./scripts/package.ps1 -Platform '${{ matrix.platform }}' -ExpectedTag $env:EXPECTED_TAG -RequireSignedUpdates
+          if ($env:REQUIRE_SIGNED_UPDATES -eq 'true') {
+            ./scripts/package.ps1 -Platform '${{ matrix.platform }}' -ExpectedTag $env:EXPECTED_TAG -RequireSignedUpdates -SkipTests
           } else {
-            # Legacy tags predate updater configuration and this script switch.
-            ./scripts/package.ps1 -Platform '${{ matrix.platform }}' -ExpectedTag $env:EXPECTED_TAG
+            ./scripts/package.ps1 -Platform '${{ matrix.platform }}' -ExpectedTag $env:EXPECTED_TAG -SkipTests
           }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

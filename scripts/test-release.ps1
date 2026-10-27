@@ -8,8 +8,11 @@ $global:copilotChatReleaseTest = $null
 function git {
     $arguments = @($args | ForEach-Object { [string]$_ })
     $global:LASTEXITCODE = 0
+    $tag = 'v' + $global:copilotChatReleaseTest.Config.version
     switch ($arguments -join ' ') {
-        'rev-parse --verify refs/tags/v0.3.0^{commit}' { return $global:copilotChatReleaseTest.TagCommit }
+        "rev-parse --verify refs/tags/${tag}^{commit}" { return $global:copilotChatReleaseTest.TagCommit }
+        "rev-parse refs/tags/$tag" { return $global:copilotChatReleaseTest.TagCommit }
+        'tag --list v*' { return $global:copilotChatReleaseTest.TagList }
         'rev-parse HEAD' { return $global:copilotChatReleaseTest.WorkflowCommit }
         "show $($global:copilotChatReleaseTest.TagCommit):mygo.json" { return $global:copilotChatReleaseTest.Config | ConvertTo-Json -Depth 5 -Compress }
         default { throw "Unexpected mocked git command: $($arguments -join ' ')" }
@@ -21,6 +24,7 @@ function gh {
     $global:copilotChatReleaseTest.Calls.Add($arguments) | Out-Null
     $global:LASTEXITCODE = 0
     $command = $arguments -join ' '
+    $tag = 'v' + $global:copilotChatReleaseTest.Config.version
     if ($command -eq 'api --paginate --slurp repos/test-owner/test-repo/releases?per_page=100') {
         $global:copilotChatReleaseTest.ListCalls++
         if ($global:copilotChatReleaseTest.ListFails) { $global:LASTEXITCODE = 1; return '' }
@@ -30,15 +34,24 @@ function gh {
             ($global:copilotChatReleaseTest.HideCreated -and $global:copilotChatReleaseTest.Creates -gt 0)) { return "[[$older]]" }
         return "[[$older," + ($global:copilotChatReleaseTest.Release | ConvertTo-Json -Depth 10 -Compress) + ']]'
     }
-    if ($command -eq 'api repos/test-owner/test-repo/git/ref/tags/v0.3.0 --silent') {
+    if ($command -eq "api repos/test-owner/test-repo/git/ref/tags/$tag --silent") {
         if ($global:copilotChatReleaseTest.RemoteTagMissing) { $global:LASTEXITCODE = 1 }
+        return
+    }
+    if ($command -eq "api repos/test-owner/test-repo/git/matching-refs/tags/$tag") {
+        if ($global:copilotChatReleaseTest.RemoteTagMissing) { return '[]' }
+        return @(@{ ref = "refs/tags/$tag"; object = @{ sha = $global:copilotChatReleaseTest.TagCommit } }) | ConvertTo-Json -Depth 5 -AsArray -Compress
+    }
+    if ($command.StartsWith('api --method POST repos/test-owner/test-repo/git/refs ')) {
+        $global:copilotChatReleaseTest.RemoteTagMissing = $false
+        $global:copilotChatReleaseTest.TagsCreated++
         return
     }
     if ($command.StartsWith('api --method POST repos/test-owner/test-repo/releases --input ')) {
         $requestPath = $arguments[[Array]::IndexOf($arguments, '--input') + 1]
         $request = Get-Content -LiteralPath $requestPath -Raw | ConvertFrom-Json
-        if ($request.target_commitish -cne $global:copilotChatReleaseTest.TagCommit -or $request.tag_name -cne 'v0.3.0' -or
-            -not $request.draft -or -not $request.generate_release_notes -or $request.name -cne 'Copilot Chat v0.3.0') {
+        if ($request.target_commitish -cne $global:copilotChatReleaseTest.TagCommit -or $request.tag_name -cne $tag -or
+            -not $request.draft -or -not $request.generate_release_notes -or $request.name -cne "Copilot Chat $tag" -or $request.prerelease -ne ($global:copilotChatReleaseTest.Config.version -match '-dev\.')) {
             throw 'Create must make the expected draft for the existing tag commit.'
         }
         $global:copilotChatReleaseTest.Creates++
@@ -47,7 +60,7 @@ function gh {
         if ($global:copilotChatReleaseTest.InvalidCreatedID) { $global:copilotChatReleaseTest.Release.id = 'RE_graphql_id' }
         return $global:copilotChatReleaseTest.Release | ConvertTo-Json -Depth 10 -Compress
     }
-    if ($command.StartsWith('release upload v0.3.0 ')) {
+    if ($command.StartsWith("release upload $tag ")) {
         $global:copilotChatReleaseTest.Release.assets = @(Get-ChildItem -LiteralPath release -File | ForEach-Object {
             $digest = 'sha256:' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($global:copilotChatReleaseTest.BadDigest) { $digest = 'sha256:' + ('0' * 64) }
@@ -61,14 +74,16 @@ function gh {
         return $global:copilotChatReleaseTest.Release | ConvertTo-Json -Depth 10 -Compress
     }
     if ($command.Contains('/releases/tags/')) { throw 'Draft by-tag lookup returns 404; use its numeric release ID.' }
-    if ($command.StartsWith('release download v0.3.0 ')) {
+    if ($command.StartsWith("release download $tag ")) {
         $name = $arguments[[Array]::IndexOf($arguments, '--pattern') + 1]
         $destination = $arguments[[Array]::IndexOf($arguments, '--dir') + 1]
         Copy-Item -LiteralPath (Join-Path release $name) -Destination (Join-Path $destination $name) -Force
         return
     }
-    if ($command -eq 'release edit v0.3.0 --repo test-owner/test-repo --draft=false --latest') {
+    if ($command -eq "release edit $tag --repo test-owner/test-repo --draft=false --latest" -or
+        $command -eq "release edit $tag --repo test-owner/test-repo --draft=false --prerelease --latest=false") {
         $global:copilotChatReleaseTest.Release.draft = $false
+        $global:copilotChatReleaseTest.Latest = -not $command.Contains('--latest=false')
         return
     }
     throw "Unexpected mocked gh command: $command"
@@ -93,7 +108,8 @@ function New-TestRelease {
     return [pscustomobject]@{
         id = 414008935
         draft = $true
-        tag_name = 'v0.3.0'
+        tag_name = 'v' + $global:copilotChatReleaseTest.Config.version
+        prerelease = ($global:copilotChatReleaseTest.Config.version -match '-dev\.')
         target_commitish = $global:copilotChatReleaseTest.TagCommit
         assets = @()
     }
@@ -115,6 +131,9 @@ function Reset-TestState {
         RemoteTagMissing = $false
         InvalidCreatedID = $false
         ReleaseNotes = ''
+        Latest = $true
+        TagsCreated = 0
+        TagList = @('v0.2.0')
         Config = [pscustomobject]@{ name = 'Copilot Chat'; version = '0.3.0' }
     }
     $env:GITHUB_REPOSITORY = 'test-owner/test-repo'
@@ -129,10 +148,11 @@ function Assert-NoPublicMutation {
 $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('copilotchat-release-tests-' + [guid]::NewGuid().ToString('N'))
 $savedRepository = $env:GITHUB_REPOSITORY
 $savedSHA = $env:GITHUB_SHA
+$savedOutput = $env:GITHUB_OUTPUT
 $savedExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
 try {
     New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'scripts'), (Join-Path $fixtureRoot 'release') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-common.ps1'), (Join-Path $PSScriptRoot 'publish-release.ps1') -Destination (Join-Path $fixtureRoot 'scripts')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-common.ps1'), (Join-Path $PSScriptRoot 'publish-release.ps1'), (Join-Path $PSScriptRoot 'prepare-release.ps1') -Destination (Join-Path $fixtureRoot 'scripts')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-update') -Destination (Join-Path $fixtureRoot 'scripts/verify-update') -Recurse
     . (Join-Path $fixtureRoot 'scripts/release-common.ps1')
     $publisher = Join-Path $fixtureRoot 'scripts/publish-release.ps1'
@@ -288,9 +308,53 @@ try {
     Assert-Throws { & $publisher -Tag v0.3.0 } '*incomplete release*'
     Assert-True ($global:copilotChatReleaseTest.Calls.Count -eq 0) 'Missing update manifests must fail before calling GitHub.'
     Write-Host 'PASS: missing platform update manifest blocks all GitHub calls'
+
+    Reset-TestState
+    $prepare = Join-Path $fixtureRoot 'scripts/prepare-release.ps1'
+    $identity = Join-Path $fixtureRoot 'release-info.json'
+    $env:GITHUB_OUTPUT = Join-Path $fixtureRoot 'outputs.txt'
+    $prepared = (& $prepare -Channel dev -RunNumber 42 -MetadataPath $identity) -join "`n" | ConvertFrom-Json
+    Assert-True ($prepared.tag -ceq 'v0.2.1-dev.42' -and $prepared.source -ceq $global:copilotChatReleaseTest.WorkflowCommit) 'Dev versions must increment automatically and bind to the source commit.'
+    $global:copilotChatReleaseTest.TagList += 'v0.2.1'
+    $retry = (& $prepare -Channel dev -RunNumber 42 -MetadataPath $identity) -join "`n" | ConvertFrom-Json
+    Assert-True ($retry.tag -ceq $prepared.tag) 'A retry must preserve its release identity after newer stable tags appear.'
+    $stable = (& $prepare -Channel stable -RunNumber 43) -join "`n" | ConvertFrom-Json
+    Assert-True ($stable.tag -ceq 'v0.2.2') 'Stable versions must increment without editing mygo.json.'
+    Write-Host 'PASS: automatic dev/stable versions and frozen retry metadata'
+
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config.version = '0.3.1-dev.42'
+    $global:copilotChatReleaseTest.RemoteTagMissing = $true
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'release') -Recurse -Force
+    New-Item -ItemType Directory -Path (Join-Path $fixtureRoot 'release') | Out-Null
+    foreach ($name in Get-ReleaseAssetNames '0.3.1-dev.42') {
+        Set-Content -LiteralPath (Join-Path $fixtureRoot "release/$name") -Value "fixture for $name"
+    }
+    & $publisher -Tag v0.3.1-dev.42 -CreateTag
+    Assert-True (-not $global:copilotChatReleaseTest.Release.draft -and $global:copilotChatReleaseTest.Release.prerelease) 'Dev must publish as a prerelease.'
+    Assert-True (-not $global:copilotChatReleaseTest.Latest -and $global:copilotChatReleaseTest.TagsCreated -eq 1) 'Dev must create its tag after validation without changing latest.'
+    Assert-True ($global:copilotChatReleaseTest.Release.assets.Count -eq 7) 'Dev must publish three platform package pairs plus checksums.'
+    Assert-True (-not ($global:copilotChatReleaseTest.Release.assets.name -match 'macos-x64')) 'Dev must omit macOS Intel.'
+    $devConfig = [pscustomobject]@{ name = 'Fixture'; version = '0.3.1-dev.42'; updates = [pscustomobject]@{ github = 'test-owner/test-repo'; publicKey = 'fixture'; deltas = 0 } }
+    Assert-True (@(Get-ReleaseUpdateAssets $devConfig).Count -eq 3) 'Dev signed update targets must match its package matrix.'
+    Write-Host 'PASS: validated dev tag creation, three platforms, prerelease and stable latest preservation'
+
+    Invoke-CheckedCommand -Command go -Arguments @('run', (Join-Path $PSScriptRoot 'testdata/update-fixtures.go'), (Join-Path $fixtureRoot 'release'), '0.3.1-dev.42', 'windows-amd64', 'windows-arm64', 'darwin-arm64')
+    $devKeyPath = Join-Path $fixtureRoot 'release/test-public-key.txt'
+    $devKey = Get-Content -LiteralPath $devKeyPath -Raw
+    Remove-Item -LiteralPath $devKeyPath
+    Reset-TestState
+    $global:copilotChatReleaseTest.Config = [pscustomobject]@{
+        name = 'Copilot Chat'; version = '0.3.1-dev.42'
+        updates = [pscustomobject]@{ github = 'test-owner/test-repo'; publicKey = $devKey; deltas = 0 }
+    }
+    & $publisher -Tag v0.3.1-dev.42
+    Assert-True ($global:copilotChatReleaseTest.Release.assets.Count -eq 13 -and -not $global:copilotChatReleaseTest.Release.draft) 'Dev must verify and publish all three signed update archives and manifests.'
+    Write-Host 'PASS: signed dev publication verifies exactly three native targets'
 } finally {
     $env:GITHUB_REPOSITORY = $savedRepository
     $env:GITHUB_SHA = $savedSHA
+    $env:GITHUB_OUTPUT = $savedOutput
     if ($null -ne $savedExitCode) { $global:LASTEXITCODE = $savedExitCode.Value }
     # Only delete this suite's uniquely named directory inside the OS temp root.
     $resolvedRoot = [IO.Path]::GetFullPath($fixtureRoot)

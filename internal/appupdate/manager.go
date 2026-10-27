@@ -64,22 +64,23 @@ type operation struct {
 // goroutine and is always called without the manager lock held. UI integrations
 // should dispatch to their UI thread and then read the latest Snapshot.
 type Manager struct {
-	mu        sync.Mutex
-	client    Client
-	onChange  func()
-	state     Snapshot
-	release   *Release
-	active    *operation
-	automatic bool
-	interval  time.Duration
-	retryAt   time.Time
-	startAt   time.Time
-	running   bool
-	closed    bool
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wake      chan struct{}
-	done      chan struct{}
+	mu           sync.Mutex
+	client       Client
+	manualClient Client
+	onChange     func()
+	state        Snapshot
+	release      *Release
+	active       *operation
+	automatic    bool
+	interval     time.Duration
+	retryAt      time.Time
+	startAt      time.Time
+	running      bool
+	closed       bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wake         chan struct{}
+	done         chan struct{}
 }
 
 func New(client Client, onChange func()) *Manager {
@@ -155,7 +156,7 @@ func (m *Manager) Run(ctx context.Context) {
 			if release != nil {
 				go m.install(op, release)
 			} else {
-				go m.check(op)
+				go m.check(op, m.client)
 			}
 		}
 		timer.Reset(delay)
@@ -182,7 +183,7 @@ func (m *Manager) Run(ctx context.Context) {
 func (m *Manager) schedule(now time.Time) (*operation, *Release, time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.automatic || !m.canStartLocked() {
+	if !m.automatic || m.manualClient != nil || !m.canStartLocked() {
 		return nil, nil, resumePoll
 	}
 	due := m.startAt
@@ -206,16 +207,25 @@ func (m *Manager) schedule(now time.Time) (*operation, *Release, time.Duration) 
 
 // Check starts a manual check and returns immediately. It works when automatic
 // updates are off. Calls during existing work, or after installation, are no-ops.
-func (m *Manager) Check() {
+func (m *Manager) Check() { m.CheckWith(nil) }
+
+// CheckWith checks a temporary client without changing the normal update source.
+// A temporary client's release waits for Install, even with automatic updates on.
+func (m *Manager) CheckWith(client Client) bool {
 	m.mu.Lock()
 	if !m.canStartLocked() {
 		m.mu.Unlock()
-		return
+		return false
+	}
+	m.manualClient = client
+	if client == nil {
+		client = m.client
 	}
 	op := m.beginLocked(false, Checking)
 	m.mu.Unlock()
 	m.notify()
-	go m.check(op)
+	go m.check(op, client)
+	return true
 }
 
 // Install starts installing an available release and returns immediately. A
@@ -250,9 +260,9 @@ func (m *Manager) beginLocked(automatic bool, phase Phase) *operation {
 	return op
 }
 
-func (m *Manager) check(op *operation) {
+func (m *Manager) check(op *operation, client Client) {
 	ctx, cancel := context.WithTimeout(op.ctx, checkTimeout)
-	release, err := m.client.Check(ctx)
+	release, err := client.Check(ctx)
 	cancel()
 	m.mu.Lock()
 	if op.ctx.Err() != nil {
@@ -267,6 +277,9 @@ func (m *Manager) check(op *operation) {
 			m.release = &copy
 			m.state.Phase, m.state.Version, m.state.Notes = Available, copy.Version, copy.Notes
 		}
+	}
+	if op.ctx.Err() != nil || err != nil || release == nil {
+		m.discardManualLocked()
 	}
 	if op.ctx.Err() == nil && err == nil && m.release != nil && op.automatic && m.automatic {
 		release = m.release
@@ -314,10 +327,24 @@ func (m *Manager) install(op *operation, release *Release) {
 	default:
 		m.failedLocked(err)
 	}
+	if err != nil {
+		m.discardManualLocked()
+	}
 	m.finishedLocked(op)
 	m.mu.Unlock()
 	m.notify()
 	m.signal()
+}
+
+func (m *Manager) discardManualLocked() {
+	if m.manualClient == nil {
+		return
+	}
+	m.manualClient, m.release = nil, nil
+	m.state.Version, m.state.Notes = "", ""
+	if m.state.Phase == Available {
+		m.state.Phase = Idle
+	}
 }
 
 func (m *Manager) canceledLocked() {

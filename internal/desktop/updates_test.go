@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/store"
@@ -86,6 +87,82 @@ func TestSettingsUpdateFrequencySelectionPersists(t *testing.T) {
 		if got := settingsSavedState(t, a).Settings.UpdateIntervalHours; got != option.hours {
 			t.Fatalf("saved interval = %d, want %d", got, option.hours)
 		}
+	}
+}
+
+func TestChannelSwitchCommitsOnlyAfterTargetVersionStarts(t *testing.T) {
+	previousVersion := mygo.App.Version()
+	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
+	for _, tc := range []struct{ running, channel string }{
+		{"0.5.11-dev.42", "dev"},
+		{"0.5.10", "stable"},
+	} {
+		t.Run(tc.running, func(t *testing.T) {
+			mygo.App.SetVersion("0.5.10")
+			finish := make(chan struct{})
+			var a *app
+			release := &appupdate.Release{Version: "0.5.11-dev.42", Install: func(ctx context.Context, progress func(int64, int64)) error {
+				state, err := a.storage.Load()
+				if err != nil {
+					return err
+				}
+				if state.Settings.UpdateChannel != "stable" || state.Settings.PendingUpdate == nil || state.Settings.PendingUpdate.Version != "0.5.11-dev.42" {
+					return errors.New("channel intent was not saved before installation")
+				}
+				progress(1, 2)
+				select {
+				case <-finish:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}}
+			a, changed := newDesktopUpdateTestApp(t, desktopUpdateClient{enabled: true})
+			a.state.Settings.UpdateChannel = "stable"
+			a.state.Settings.AutomaticUpdates = false
+			a.configureUpdates()
+			a.updateChannelTarget = "dev"
+			a.draft = "Keep this draft before restarting."
+			a.updater.CheckWith(desktopUpdateClient{enabled: true, check: func(context.Context) (*appupdate.Release, error) { return release, nil }})
+			a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Available))
+			waitForDesktopUpdate(t, a, changed, appupdate.Downloading)
+			close(finish)
+			a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Ready))
+			if a.currentUpdateChannel() != "stable" || a.draft == "" {
+				t.Fatal("channel changed or draft was lost before restart")
+			}
+			mygo.App.SetVersion(tc.running)
+			restarted := &app{state: settingsSavedState(t, a), storage: a.storage}
+			restarted.restoreUpdateChannel()
+			state := settingsSavedState(t, restarted)
+			if state.Settings.UpdateChannel != tc.channel || state.Settings.PendingUpdate != nil {
+				t.Fatal("restart did not confirm the actual installed version", state.Settings.UpdateChannel)
+			}
+		})
+	}
+}
+
+func TestChannelSwitchFailureKeepsOriginalChannel(t *testing.T) {
+	for _, hasRelease := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no newer release", true: "download failure"}[hasRelease], func(t *testing.T) {
+			a, changed := newDesktopUpdateTestApp(t, desktopUpdateClient{enabled: true})
+			a.state.Settings.UpdateChannel, a.updateChannelTarget = "stable", "dev"
+			a.updater.CheckWith(desktopUpdateClient{enabled: true, check: func(context.Context) (*appupdate.Release, error) {
+				if !hasRelease {
+					return nil, nil
+				}
+				return &appupdate.Release{Version: "0.5.11-dev.42", Install: func(context.Context, func(int64, int64)) error { return errors.New("synthetic download failure") }}, nil
+			}})
+			if hasRelease {
+				a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Available))
+				a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Error))
+			} else {
+				a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Idle))
+			}
+			if a.currentUpdateChannel() != "stable" || a.state.Settings.PendingUpdate != nil || a.updateChannelTarget != "" {
+				t.Fatal("failed switch changed the channel or retained stale intent")
+			}
+		})
 	}
 }
 
@@ -172,9 +249,6 @@ func TestDevelopmentBuildExplainsUpdateAvailability(t *testing.T) {
 		return nil, nil
 	}})
 	tester := ui.NewTester(a.settingsView, 900, 620)
-	if !tester.HasText("Development builds cannot update themselves.") {
-		t.Fatal("development build update limitation is missing")
-	}
 	assertInWindow(t, tester, "Enable automatic updates", 900, 620)
 	assertInWindow(t, tester, "Update check frequency", 900, 620)
 	assertInWindow(t, tester, "Check for updates", 900, 620)

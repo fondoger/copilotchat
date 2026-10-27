@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
+	"github.com/fondoger/copilotchat/internal/store"
 )
 
 var updateIntervals = []struct {
@@ -21,7 +23,7 @@ var updateIntervals = []struct {
 }
 
 func (a *app) startUpdates() {
-	a.updater = appupdate.New(appupdate.NewMyGoClient(), func() {
+	a.updater = appupdate.New(appupdate.NewMyGoClient(a.currentUpdateChannel()), func() {
 		a.update(func() {
 			if a.quitting {
 				return
@@ -31,6 +33,7 @@ func (a *app) startUpdates() {
 				a.state.Settings.LastUpdateCheck = snapshot.LastCheck
 				a.save()
 			}
+			a.handleChannelUpdate(snapshot)
 		})
 	})
 	a.configureUpdates()
@@ -44,6 +47,95 @@ func (a *app) configureUpdates() {
 		a.updater.Configure(a.state.Settings.AutomaticUpdates,
 			time.Duration(a.state.Settings.UpdateIntervalHours)*time.Hour,
 			a.state.Settings.LastUpdateCheck)
+	}
+}
+
+func (a *app) currentUpdateChannel() string {
+	if channel := a.state.Settings.UpdateChannel; channel != "" {
+		return channel
+	}
+	if appinfo.Channel() == "dev" {
+		return "dev"
+	}
+	return "stable"
+}
+
+func (a *app) restoreUpdateChannel() {
+	s := &a.state.Settings
+	previous, pending := s.UpdateChannel, s.PendingUpdate
+	if pending != nil {
+		if pending.Version == appinfo.Version() {
+			s.UpdateChannel = pending.Channel
+		}
+		s.PendingUpdate = nil
+	}
+	s.UpdateChannel = a.currentUpdateChannel()
+	if previous != s.UpdateChannel || pending != nil {
+		a.save()
+	}
+}
+
+func (a *app) changeUpdateChannel(channel string) {
+	if a.updater == nil || channel == a.currentUpdateChannel() {
+		return
+	}
+	if channel != "stable" && channel != "dev" {
+		return
+	}
+	if channel == "dev" && runtime.GOOS == "darwin" && runtime.GOARCH == "amd64" {
+		a.updateError = "Dev releases are not available for macOS Intel."
+		return
+	}
+	previous := a.updateChannelTarget
+	a.updateChannelTarget, a.updateError = channel, ""
+	if !a.updater.CheckWith(appupdate.NewMyGoClient(channel)) {
+		a.updateChannelTarget = previous
+		a.updateError = "Wait for the current update to finish."
+	}
+}
+
+func (a *app) installAvailableUpdate() {
+	a.updateError = ""
+	if a.updater == nil {
+		return
+	}
+	if channel := a.updateChannelTarget; channel != "" {
+		previous := a.state.Settings.PendingUpdate
+		a.state.Settings.PendingUpdate = &store.PendingUpdate{Channel: channel, Version: a.updateSnapshot().Version}
+		if a.storage == nil {
+			a.state.Settings.PendingUpdate = previous
+			a.updateError = "Could not save the pending channel switch."
+			return
+		}
+		if err := a.storage.Save(a.state); err != nil {
+			a.state.Settings.PendingUpdate = previous
+			a.updateError = "Could not save the pending channel switch: " + err.Error()
+			return
+		}
+	}
+	a.updater.Install()
+}
+
+func (a *app) handleChannelUpdate(snapshot appupdate.Snapshot) {
+	if a.updateChannelTarget == "" {
+		return
+	}
+	switch snapshot.Phase {
+	case appupdate.Available:
+		a.installAvailableUpdate()
+	case appupdate.Ready:
+		if pending := a.state.Settings.PendingUpdate; pending != nil && pending.Version == snapshot.Version {
+			a.restartForUpdate()
+		}
+	case appupdate.Idle, appupdate.Error:
+		if snapshot.Phase == appupdate.Idle {
+			a.updateError = "No newer " + a.updateChannelTarget + " release is available. Channel unchanged."
+		}
+		a.updateChannelTarget = ""
+		if a.state.Settings.PendingUpdate != nil {
+			a.state.Settings.PendingUpdate = nil
+			a.save()
+		}
 	}
 }
 
@@ -91,7 +183,11 @@ func (a *app) deferQuitForUpdate() bool {
 func (a *app) checkForUpdates() {
 	a.updateError = ""
 	if a.updater != nil {
-		a.updater.Check()
+		if a.updateChannelTarget != "" {
+			a.updater.CheckWith(appupdate.NewMyGoClient(a.updateChannelTarget))
+		} else {
+			a.updater.Check()
+		}
 	}
 }
 
@@ -104,6 +200,19 @@ func (a *app) updateSettings(c *ui.Context) {
 	snapshot := a.updateSnapshot()
 	ui.Text(c, "Updates").FontSize(14).FontWeight(600)
 	settingsCard(c, func() {
+		settingsRow(c, "Channel", "", func() {
+			channel := "Stable"
+			if a.currentUpdateChannel() == "dev" {
+				channel = "Dev"
+			}
+			channels := []string{"Stable", "Dev"}
+			if runtime.GOOS == "darwin" && runtime.GOARCH == "amd64" {
+				channels = []string{"Stable"}
+			}
+			ui.Select(c.Key("update-channel"), &channel, channels).Height(26).Label("Update channel").
+				Disabled(snapshot.Phase == appupdate.Disabled || snapshot.Phase == appupdate.Checking || snapshot.Phase == appupdate.Downloading || snapshot.Phase == appupdate.Ready).
+				OnChange(func() { a.changeUpdateChannel(strings.ToLower(channel)) })
+		})
 		settingsRow(c, "Automatic updates", "Download and install updates in the background. Use the new version on your next launch.", func() {
 			ui.Switch(c.Key("automatic-updates"), &a.state.Settings.AutomaticUpdates).Label("Enable automatic updates").OnChange(func() {
 				a.configureUpdates()
@@ -150,12 +259,7 @@ func (a *app) updateSettings(c *ui.Context) {
 			ui.Progress(c.Key("update-download-progress"), progress)
 		}
 		if snapshot.Phase == appupdate.Available || (snapshot.Phase == appupdate.Error && snapshot.Version != "") {
-			ui.Button(c.Key("install-update"), "Download and install").OnClick(func() {
-				a.updateError = ""
-				if a.updater != nil {
-					a.updater.Install()
-				}
-			})
+			ui.Button(c.Key("install-update"), "Download and install").OnClick(a.installAvailableUpdate)
 		}
 		if snapshot.Phase == appupdate.Ready {
 			blocked := a.updateRestartBlockReason()
@@ -179,7 +283,7 @@ func (a *app) updateSettings(c *ui.Context) {
 func updateStatus(snapshot appupdate.Snapshot) string {
 	switch snapshot.Phase {
 	case appupdate.Disabled:
-		return "Updates require an official release installed in a writable folder. Development builds cannot update themselves."
+		return "Updates require an official release installed in a writable folder. Debug builds cannot update themselves."
 	case appupdate.Checking:
 		return "Checking GitHub Releases…"
 	case appupdate.Available:
@@ -230,6 +334,10 @@ func (a *app) restartForUpdate() {
 			a.updateError = "Could not save your conversations: " + err.Error()
 			return
 		}
+	}
+	if a.updateChannelTarget != "" {
+		// Selecting a channel already requested the automatic restart.
+		a.forwardQuitApproved = true
 	}
 	mygo.App.Relaunch()
 }

@@ -53,6 +53,41 @@ func requirePhase(t *testing.T, m *Manager, want Phase) Snapshot {
 	return s
 }
 
+func TestTemporaryClientWaitsForInstallAndReturnsToNormalAfterFailure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		normal := &fakeClient{enabled: true}
+		installs := 0
+		target := &fakeClient{enabled: true, check: func(context.Context) (*Release, error) {
+			return &Release{Version: "0.5.11-dev.42", Install: func(context.Context, func(int64, int64)) error {
+				installs++
+				return errors.New("synthetic download failure")
+			}}, nil
+		}}
+		m := testManager(normal)
+		defer m.Close()
+		m.Configure(true, time.Hour, time.Time{})
+		go m.Run(context.Background())
+		if !m.CheckWith(target) {
+			t.Fatal("temporary check was not admitted")
+		}
+		requirePhase(t, m, Available)
+		time.Sleep(2 * time.Hour)
+		requirePhase(t, m, Available)
+		if normal.count() != 0 || target.count() != 1 || installs != 0 {
+			t.Fatal("automatic updates bypassed explicit installation")
+		}
+		m.Install()
+		if s := requirePhase(t, m, Error); s.Version != "" || installs != 1 {
+			t.Fatal("failed temporary release remained installable", s)
+		}
+		m.Check()
+		requirePhase(t, m, Idle)
+		if normal.count() != 1 || target.count() != 1 {
+			t.Fatal("normal checks retained the temporary client")
+		}
+	})
+}
+
 func TestAutomaticStartupAndReady(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		finish := make(chan struct{})

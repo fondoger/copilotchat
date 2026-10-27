@@ -1,5 +1,5 @@
 #requires -Version 7.0
-param([Parameter(Mandatory)][string]$Tag)
+param([Parameter(Mandatory)][string]$Tag, [switch]$CreateTag)
 . (Join-Path $PSScriptRoot 'release-common.ps1')
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
@@ -9,6 +9,7 @@ try {
     $tagCommit = Resolve-ReleaseTagCommit $Tag
     if (-not $env:GITHUB_REPOSITORY) { throw 'Publishing requires the GitHub Actions repository context.' }
     $repository = $env:GITHUB_REPOSITORY
+    $dev = $config.version -match '-dev\.'
     $expected = @(Get-ReleaseAssetNames -Version $config.version -Config $config | Sort-Object)
     $actual = @(Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object Name | Sort-Object)
     if (Compare-Object $expected $actual) {
@@ -46,28 +47,33 @@ try {
 
     New-Item -ItemType Directory -Path dist -Force | Out-Null
     $notesPath = Join-Path (Get-Location) 'dist/release-notes.md'
+    $rows = foreach ($platform in Get-ReleasePlatforms $config.version) {
+        $os = if ($platform.platform.StartsWith('windows/')) { 'Windows' } else { 'macOS 12+' }
+        $architecture = if ($platform.platform.EndsWith('/amd64')) { 'Intel/AMD x64' } else { 'ARM64' }
+        $stem = "copilotchat-$($config.version)-$($platform.id)"
+        $installer = if ($os -eq 'Windows') { "$stem-setup.exe" } else { "$stem.dmg" }
+        "| $os | $architecture | ``$installer`` or ``$stem.zip`` |"
+    }
     $notes = @"
-Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot and Microsoft 365 Copilot, with streamed chat, model selection, attachments, local conversation storage, HTML previews, configurable MCP servers, and optional tray residence.
+Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot and Microsoft 365 Copilot.
 
 | Platform | Architecture | Downloads |
 | --- | --- | --- |
-| Windows | Intel/AMD x64 | ``copilotchat-$($config.version)-windows-x64-setup.exe`` or ``copilotchat-$($config.version)-windows-x64.zip`` |
-| Windows | ARM64 | ``copilotchat-$($config.version)-windows-arm64-setup.exe`` or ``copilotchat-$($config.version)-windows-arm64.zip`` |
-| macOS 12+ | Intel x64 | ``copilotchat-$($config.version)-macos-x64.dmg`` or ``copilotchat-$($config.version)-macos-x64.zip`` |
-| macOS 12+ | Apple silicon | ``copilotchat-$($config.version)-macos-arm64.dmg`` or ``copilotchat-$($config.version)-macos-arm64.zip`` |
+$($rows -join "`n")
 
-Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. The four native CI targets run automated tests and packaging checks; this does not claim interactive testing on a physical Mac. See the [build documentation](https://github.com/fondoger/copilotchat/blob/main/docs/building.md) for platform requirements. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party notices and license texts.
+Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer ID signing or notarization. Operating-system security prompts may require explicit approval. See the [build documentation](https://github.com/fondoger/copilotchat/blob/main/docs/building.md) for platform requirements. Verify downloads against ``SHA256SUMS.txt``. All packages include third-party license texts.
 "@
     if ($updateReleaseNotes) {
         $notes += "`n## Changes`n`n$updateReleaseNotes`n"
     }
     if ($updateAssets.Count -gt 0) {
-        $notes += "`nThe four ``update-*.json`` manifests and signed ``.tar.gz`` archives support in-app updates. Their Ed25519 signatures are verified against the public key built into the app; this is separate from operating-system code signing.`n"
+        $notes += "`nThe ``update-*.json`` manifests and signed ``.tar.gz`` archives support in-app updates. Their Ed25519 signatures are verified against the public key built into the app; this is separate from operating-system code signing.`n"
     }
     [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
     if (-not $existing) {
         # Keep the former --verify-tag behavior: never let release creation
         # manufacture a missing remote tag. The local tag was resolved above.
+        if ($CreateTag) { Ensure-RemoteReleaseTag -Repository $repository -Tag $Tag }
         Invoke-CheckedCommand -Command gh -Arguments @('api', "repos/$repository/git/ref/tags/$Tag", '--silent')
         $requestPath = Join-Path (Get-Location) 'dist/create-release.json'
         $request = @{
@@ -76,6 +82,7 @@ Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer I
             name = "Copilot Chat $Tag"
             body = $notes
             draft = $true
+            prerelease = [bool]$dev
             generate_release_notes = $true
         } | ConvertTo-Json -Depth 5
         [IO.File]::WriteAllText($requestPath, $request, [Text.UTF8Encoding]::new($false))
@@ -122,5 +129,7 @@ Windows packages are unsigned. macOS apps are ad-hoc signed, without Developer I
     }
     # This is the only public-state transition. Any earlier failure leaves a
     # recoverable draft, never a public release with a subset of the platforms.
-    Invoke-CheckedCommand -Command gh -Arguments @('release', 'edit', $Tag, '--repo', $repository, '--draft=false', '--latest')
+    $publish = @('release', 'edit', $Tag, '--repo', $repository, '--draft=false')
+    if ($dev) { $publish += @('--prerelease', '--latest=false') } else { $publish += '--latest' }
+    Invoke-CheckedCommand -Command gh -Arguments $publish
 } finally { Pop-Location }

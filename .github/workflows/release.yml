@@ -2,50 +2,86 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing release tag to build and publish (vMAJOR.MINOR.PATCH)
+      channel:
+        description: Channel for a new automatically versioned release
+        type: choice
+        options: [stable, dev]
+        default: stable
         required: true
+      tag:
+        description: Existing tag to retry (leave empty for a new version)
+        required: false
         type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
-  cancel-in-progress: false
+  group: release-${{ github.ref_type == 'branch' && (github.event_name == 'push' || inputs.channel == 'dev') && !inputs.tag && 'dev' || inputs.tag || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
 jobs:
-  release-tests:
-    uses: ./.github/workflows/release-tests.yml
-
-  validate:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+      source: ${{ steps.version.outputs.source }}
+      create-tag: ${{ steps.version.outputs.create-tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Check tag and version
+      - name: Restore release identity on retry
+        if: github.run_attempt > 1
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-info
+          path: ${{ runner.temp }}/release-info
+      - name: Choose version and source
+        id: version
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: ./scripts/validate-release.ps1 -ExpectedTag $env:RELEASE_TAG
+          RELEASE_CHANNEL: ${{ github.event_name == 'push' && github.ref_type == 'branch' && 'dev' || inputs.channel || 'stable' }}
+          RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'release-info'
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          ./scripts/prepare-release.ps1 -Channel $env:RELEASE_CHANNEL -Tag $env:RELEASE_TAG -RunNumber $env:GITHUB_RUN_NUMBER -MetadataPath (Join-Path $directory 'release-info.json')
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-info
+          path: ${{ runner.temp }}/release-info/release-info.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  release-tests:
+    needs: prepare
+    uses: ./.github/workflows/release-tests.yml
+    with:
+      source-ref: ${{ needs.prepare.outputs.source }}
 
   build:
-    needs: [validate, release-tests]
+    needs: prepare
     uses: ./.github/workflows/build.yml
     with:
-      release-tag: ${{ inputs.tag || github.ref_name }}
+      source-ref: ${{ needs.prepare.outputs.source }}
+      release-tag: ${{ needs.prepare.outputs.tag }}
       require-signed-updates: true
     secrets:
       updater-private-key: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
 
   publish:
-    needs: build
+    needs: [prepare, build, release-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -53,8 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Keep the scripts from this workflow run, including fixes after the
-          # release tag. The publisher reads app metadata from the tag itself.
+          # Use this workflow's publisher, while reading app metadata from the release source.
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -66,9 +101,22 @@ jobs:
           pattern: packages-*
           merge-multiple: true
           path: release
-      - name: Verify every package and publish atomically
+      - name: Verify every package and publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SOURCE: ${{ needs.prepare.outputs.source }}
+          CREATE_TAG: ${{ needs.prepare.outputs.create-tag }}
+        run: |
+          . ./scripts/release-common.ps1
+          git show-ref --verify --quiet "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -eq 1 -and $env:CREATE_TAG -eq 'true') {
+            Invoke-CheckedCommand -Command git -Arguments @('tag', $env:RELEASE_TAG, $env:RELEASE_SOURCE)
+          } elseif ($LASTEXITCODE -ne 0) {
+            throw 'Cannot resolve the release tag.'
+          }
+          if ((Resolve-ReleaseTagCommit $env:RELEASE_TAG) -cne $env:RELEASE_SOURCE) {
+            throw 'The release tag points at a different source commit.'
+          }
+          ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -CreateTag:($env:CREATE_TAG -eq 'true')

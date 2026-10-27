@@ -13,7 +13,19 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $previousCgo = $env:CGO_ENABLED
 Push-Location $projectRoot
 try {
+    if ($ExpectedTag) {
+        $null = Get-ReleaseVersion $ExpectedTag
+        & git show-ref --verify --quiet "refs/tags/$ExpectedTag"
+        if ($LASTEXITCODE -eq 1) {
+            Invoke-CheckedCommand -Command git -Arguments @('tag', $ExpectedTag, 'HEAD')
+        } elseif ($LASTEXITCODE -ne 0) {
+            throw 'Cannot inspect the local release tag.'
+        }
+    }
     $config = Get-ReleaseConfig -ExpectedTag $ExpectedTag
+    if ($ExpectedTag) {
+        [IO.File]::WriteAllText((Join-Path (Get-Location) 'mygo.json'), ($config | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+    }
     $updateAssets = @(Get-ReleaseUpdateAssets -Config $config -Targets @($Platform.Replace('/', '-')))
     if ($RequireSignedUpdates -and ($updateAssets.Count -ne 1 -or -not $env:MYGO_UPDATER_PRIVATE_KEY)) {
         throw 'Release packaging requires configured signed updates and MYGO_UPDATER_PRIVATE_KEY.'

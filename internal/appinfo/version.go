@@ -1,12 +1,27 @@
 package appinfo
 
-import "github.com/egoist/mygo"
+import (
+	"strings"
+
+	"github.com/egoist/mygo"
+)
 
 func Version() string {
 	if version := mygo.App.Version(); version != "" {
 		return version
 	}
-	return "dev"
+	return "debug"
+}
+
+func Channel() string {
+	version := Version()
+	if version == "debug" {
+		return "debug"
+	}
+	if strings.Contains(version, "-dev.") {
+		return "dev"
+	}
+	return "stable"
 }
 
 func UserAgent() string { return "CopilotChatNative/" + Version() }

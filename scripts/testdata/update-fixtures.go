@@ -20,10 +20,18 @@ import (
 
 func main() {
 	dir := os.Args[1]
+	version := "0.3.0"
+	if len(os.Args) > 2 {
+		version = os.Args[2]
+	}
+	targets := []string{"windows-amd64", "windows-arm64", "darwin-amd64", "darwin-arm64"}
+	if len(os.Args) > 3 {
+		targets = os.Args[3:]
+	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	check(err)
 	check(os.WriteFile(filepath.Join(dir, "test-public-key.txt"), []byte(base64.StdEncoding.EncodeToString(public)), 0o600))
-	for _, target := range []string{"windows-amd64", "windows-arm64", "darwin-amd64", "darwin-arm64"} {
+	for _, target := range targets {
 		var buf bytes.Buffer
 		gz := gzip.NewWriter(&buf)
 		tw := tar.NewWriter(gz)
@@ -40,11 +48,11 @@ func main() {
 		}
 		check(tw.Close())
 		check(gz.Close())
-		archive := "copilot-chat-0.3.0-" + target + ".tar.gz"
+		archive := "copilot-chat-" + version + "-" + target + ".tar.gz"
 		check(os.WriteFile(filepath.Join(dir, archive), buf.Bytes(), 0o600))
 		hash := sha256.Sum256(buf.Bytes())
 		manifest, err := json.Marshal(map[string]any{
-			"version": "0.3.0", "url": "https://github.com/test-owner/test-repo/releases/download/v0.3.0/" + archive,
+			"version": version, "url": "https://github.com/test-owner/test-repo/releases/download/v" + version + "/" + archive,
 			"size": buf.Len(), "signature": base64.StdEncoding.EncodeToString(ed25519.Sign(private, hash[:])),
 		})
 		check(err)

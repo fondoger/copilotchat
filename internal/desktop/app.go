@@ -40,6 +40,7 @@ type app struct {
 	updater                   *appupdate.Manager
 	updateCancel              context.CancelFunc
 	updateError               string
+	updateChannelTarget       string
 	updateQuitWaiting         bool
 	draft, query, status      string
 	attachments               []store.Attachment
@@ -113,6 +114,7 @@ func Run(dataDir string, dev bool) error {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return nil
 	}
+	a.restoreUpdateChannel()
 	a.pruneEmptyWebChats()
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
 	a.loadProviders()

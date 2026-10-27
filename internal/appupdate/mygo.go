@@ -6,15 +6,18 @@ import (
 	"github.com/egoist/mygo"
 )
 
-type myGoClient struct{}
+type myGoClient struct{ prereleases bool }
 
 // NewMyGoClient uses the GitHub feed and Ed25519 public key embedded by
 // `mygo build`. MyGo verifies downloaded bytes before replacing app files.
-func NewMyGoClient() Client { return myGoClient{} }
+func NewMyGoClient(channel string) Client { return myGoClient{prereleases: channel == "dev"} }
 
 func (myGoClient) Enabled() bool { return mygo.Updater.Enabled() }
 
-func (myGoClient) Check(ctx context.Context) (*Release, error) {
+func (c myGoClient) Check(ctx context.Context) (*Release, error) {
+	previous := mygo.Updater.Prereleases()
+	mygo.Updater.SetPrereleases(c.prereleases)
+	defer mygo.Updater.SetPrereleases(previous)
 	update, err := mygo.Updater.Check(ctx)
 	if err != nil || update == nil {
 		return nil, err

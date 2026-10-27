@@ -52,6 +52,8 @@ type Settings struct {
 	LocalKey             string           `json:"localKey,omitempty"` // Local gateway key only; never an upstream credential.
 	ForwardProfiles      []ForwardProfile `json:"forwardProfiles"`
 	AutomaticUpdates     bool             `json:"automaticUpdates"`
+	UpdateChannel        string           `json:"updateChannel,omitempty"`
+	PendingUpdate        *PendingUpdate   `json:"pendingUpdate,omitempty"`
 	UpdateIntervalHours  int              `json:"updateIntervalHours"`
 	LastUpdateCheck      time.Time        `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
 	ChatTitle            bool             `json:"chatTitle"`
@@ -64,6 +66,11 @@ type Settings struct {
 	Providers            []Provider       `json:"providers"`
 	CollapsedGroups      map[string]bool  `json:"collapsedGroups,omitempty"`
 	MCPServers           []mcp.Config     `json:"mcpServers,omitempty"`
+}
+
+type PendingUpdate struct {
+	Channel string `json:"channel"`
+	Version string `json:"version"`
 }
 
 // Enabled is independent of the native chat picker. Public gateway IDs are
@@ -348,6 +355,14 @@ func normalize(state *State) {
 		state.Settings.UpdateIntervalHours = DefaultUpdateIntervalHours
 	}
 	state.Settings.SidebarWidth = ClampSidebarWidth(state.Settings.SidebarWidth)
+	switch state.Settings.UpdateChannel {
+	case "", "stable", "dev":
+	default:
+		state.Settings.UpdateChannel = ""
+	}
+	if p := state.Settings.PendingUpdate; p != nil && (p.Version == "" || (p.Channel != "stable" && p.Channel != "dev")) {
+		state.Settings.PendingUpdate = nil
+	}
 	if state.Conversations == nil {
 		state.Conversations = []Conversation{}
 	}

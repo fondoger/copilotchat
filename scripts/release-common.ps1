@@ -8,9 +8,28 @@ function Invoke-CheckedCommand {
     if ($LASTEXITCODE -ne 0) { throw "$Command failed with exit code $LASTEXITCODE." }
 }
 
+function Get-ReleaseVersion {
+    param([Parameter(Mandatory)][string]$Tag)
+    if ($Tag -cnotmatch '^v(\d+\.\d+\.\d+(?:-dev\.\d+)?)$') {
+        throw 'Release tag must have the form vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-dev.BUILD.'
+    }
+    return $Matches[1]
+}
+
+function Get-ReleasePlatforms {
+    param([string]$Version = '')
+    $platforms = @(
+        [pscustomobject]@{ name = 'Windows x64'; runner = 'windows-2022'; platform = 'windows/amd64'; id = 'windows-x64' }
+        [pscustomobject]@{ name = 'Windows ARM64'; runner = 'windows-11-arm'; platform = 'windows/arm64'; id = 'windows-arm64' }
+        [pscustomobject]@{ name = 'macOS Intel'; runner = 'macos-15-intel'; platform = 'darwin/amd64'; id = 'macos-x64' }
+        [pscustomobject]@{ name = 'macOS Apple silicon'; runner = 'macos-15'; platform = 'darwin/arm64'; id = 'macos-arm64' }
+    )
+    $platforms | Where-Object { $Version -notmatch '-dev\.' -or $_.platform -ne 'darwin/amd64' }
+}
+
 function Resolve-ReleaseTagCommit {
     param([Parameter(Mandatory)][string]$Tag)
-    if ($Tag -cnotmatch '^v\d+\.\d+\.\d+$') { throw 'Release tag must have the form vMAJOR.MINOR.PATCH.' }
+    $null = Get-ReleaseVersion $Tag
     $commit = & git rev-parse --verify "refs/tags/${Tag}^{commit}"
     if ($LASTEXITCODE -ne 0) { throw "Tag $Tag must already exist." }
     return $commit
@@ -30,12 +49,10 @@ function Get-ReleaseConfig {
     $tagCommit = if ($ExpectedTag) { Resolve-ReleaseTagCommit $ExpectedTag } else { '' }
     $sourceCommit = if ($FromTag) { $tagCommit } else { '' }
     $config = Get-ReleaseSource 'mygo.json' $sourceCommit | ConvertFrom-Json
-    if ($config.version -notmatch '^\d+\.\d+\.\d+$') {
-        throw 'mygo.json version must be a stable major.minor.patch release.'
+    if ($config.version -notmatch '^\d+\.\d+\.\d+(?:-dev\.\d+)?$') {
+        throw 'mygo.json version must be major.minor.patch with an optional -dev.BUILD suffix.'
     }
-    if ($ExpectedTag -and $ExpectedTag -cne "v$($config.version)") {
-        throw "Tag $ExpectedTag does not match mygo.json version $($config.version)."
-    }
+    if ($ExpectedTag) { $config.version = Get-ReleaseVersion $ExpectedTag }
     if ($ExpectedTag -and -not $FromTag) {
         $headCommit = & git rev-parse HEAD
         if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $headCommit) {
@@ -43,6 +60,23 @@ function Get-ReleaseConfig {
         }
     }
     return $config
+}
+
+function Ensure-RemoteReleaseTag {
+    param([string]$Repository, [string]$Tag)
+    $object = & git rev-parse "refs/tags/$Tag"
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the local release tag.' }
+    $json = & gh api "repos/$Repository/git/matching-refs/tags/$Tag"
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect remote release tags.' }
+    $refs = @(ConvertFrom-Json -InputObject ($json -join "`n"))
+    $existing = @($refs | Where-Object { $_.ref -ceq "refs/tags/$Tag" })
+    if ($existing.Count -gt 0) {
+        if ($existing.Count -ne 1 -or $existing[0].object.sha -cne $object) {
+            throw 'The remote release tag points at a different object.'
+        }
+        return
+    }
+    Invoke-CheckedCommand -Command gh -Arguments @('api', '--method', 'POST', "repos/$Repository/git/refs", '-f', "ref=refs/tags/$Tag", '-f', "sha=$object", '--silent')
 }
 
 function Get-GitHubRelease {
@@ -67,11 +101,13 @@ function Get-GitHubRelease {
 
 function Get-ReleaseAssetNames {
     param([Parameter(Mandatory)][string]$Version, [object]$Config = $null)
-    foreach ($architecture in @('x64', 'arm64')) {
-        "copilotchat-$Version-windows-$architecture.zip"
-        "copilotchat-$Version-windows-$architecture-setup.exe"
-        "copilotchat-$Version-macos-$architecture.zip"
-        "copilotchat-$Version-macos-$architecture.dmg"
+    foreach ($platform in Get-ReleasePlatforms $Version) {
+        "copilotchat-$Version-$($platform.id).zip"
+        if ($platform.platform.StartsWith('windows/')) {
+            "copilotchat-$Version-$($platform.id)-setup.exe"
+        } else {
+            "copilotchat-$Version-$($platform.id).dmg"
+        }
     }
     if ($null -ne $Config) {
         foreach ($asset in Get-ReleaseUpdateAssets $Config) {
@@ -82,9 +118,12 @@ function Get-ReleaseAssetNames {
 }
 
 function Get-ReleaseUpdateAssets {
-    param([Parameter(Mandatory)][object]$Config, [string[]]$Targets = @('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64'))
+    param([Parameter(Mandatory)][object]$Config, [string[]]$Targets = @())
     if (-not $Config.PSObject.Properties['updates'] -or $null -eq $Config.updates) { return }
     $updates = $Config.updates
+    if ($Targets.Count -eq 0) {
+        $Targets = @(Get-ReleasePlatforms $Config.version | ForEach-Object { $_.platform.Replace('/', '-') })
+    }
     if (-not $updates.PSObject.Properties['deltas'] -or $updates.deltas -ne 0) {
         throw 'This release pipeline requires updates.deltas=0; delta publishing is not configured.'
     }
@@ -112,7 +151,7 @@ function Get-ReleaseUpdateAssets {
 }
 
 function Assert-ReleaseUpdateArtifacts {
-    param([Parameter(Mandatory)][object]$Config, [Parameter(Mandatory)][string]$Directory, [string[]]$Targets = @('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64'))
+    param([Parameter(Mandatory)][object]$Config, [Parameter(Mandatory)][string]$Directory, [string[]]$Targets = @())
     foreach ($asset in Get-ReleaseUpdateAssets -Config $Config -Targets $Targets) {
         $archive = Join-Path $Directory $asset.Archive
         $manifest = Join-Path $Directory $asset.Manifest

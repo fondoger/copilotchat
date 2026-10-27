@@ -21,7 +21,7 @@ go vet ./...
 
 `go run . --data-dir <directory>` selects a separate settings and conversation directory. It still uses the same application namespace in the system credential store.
 
-Plain `go run` and `go build` report version `dev`; MyGo builds obtain the version from `mygo.json` automatically.
+Plain `go run` and `go build` report version `debug`; MyGo builds obtain the version from `mygo.json` automatically. Release builds generate that version in the Actions workspace.
 
 Network protocol tests use local mock servers and synthetic credentials. UI tests use MyGo's software renderer and temporary settings, so they do not require a Copilot account or modify normal application data.
 
@@ -68,7 +68,7 @@ try {
 }
 ```
 
-The private key must match `updates.publicKey`. Keep a secure backup outside the repository: existing installations trust that key, so losing it prevents signing future compatible updates. GitHub Actions stores it as the repository secret `MYGO_UPDATER_PRIVATE_KEY`; only release-tag builds receive it. Normal CI can build and test the installation packages without this secret. Release packaging fails when signed updates are required and the key or generated assets are missing.
+The private key must match `updates.publicKey`. Keep a secure backup outside the repository: existing installations trust that key, so losing it prevents signing future compatible updates. GitHub Actions stores it as the repository secret `MYGO_UPDATER_PRIVATE_KEY`; release builds receive it. Pull-request checks build and test installation packages without this secret. Release packaging fails when signed updates are required and the key or generated assets are missing.
 
 Ed25519 update signing is separate from Windows Authenticode and Apple Developer ID signing/notarization. It authenticates downloaded updates against the key already in the app; it does not remove operating-system warnings when initially installing these packages.
 
@@ -76,30 +76,35 @@ Windows x64 has been exercised in a native desktop session. Windows ARM64 and bo
 
 ## Continuous integration
 
-[GitHub Actions](https://github.com/fondoger/copilotchat/actions) runs the test, vet, and package pipeline for four native runner targets on pushes to `main`, pull requests, and manual dispatches. The release workflow uses the same target matrix for version tags.
+[GitHub Actions](https://github.com/fondoger/copilotchat/actions) publishes a dev prerelease for each push to `main`. Native tests and package builds run in parallel; publishing waits for all checks and packages. Main pushes use this release workflow instead of a separate CI run. Pull requests retain CI checks.
 
-To publish a release, update the version in `mygo.json`, the single source for the packaged application's version and request headers. Update any versioned download references in the README, then commit the release source before creating the matching tag:
+Versions are generated automatically. After stable `0.5.10`, dev builds use `0.5.11-dev.<workflow-run-number>`; the next stable release uses `0.5.11`. The workflow writes the version into its working copy of `mygo.json`, and MyGo embeds it in the application and request headers. Saved workflow metadata keeps retries on the same version. Version changes do not create commits.
 
-```sh
-git tag v0.5.1
-git push origin v0.5.1
+Dev publishes Windows x64, Windows ARM64, and macOS ARM64. Stable also publishes macOS Intel. Dev releases are marked as GitHub prereleases and leave the latest stable release unchanged. To publish the next stable version:
+
+```bash
+gh workflow run release.yml --ref main -f channel=stable --repo fondoger/copilotchat
 ```
 
-The `v*` tag workflow builds and checks all four targets, gathers eight installation packages and eight signed update assets, and creates `SHA256SUMS.txt` for all sixteen files. Before uploading, it verifies every update manifest's version, immutable archive URL, size, Ed25519 signature, and archive layout. It uploads a draft release and publishes only after checking the exact asset set, uploaded sizes, and SHA-256 hashes. If a build or check fails, inspect the workflow run before retrying; do not publish a partial asset set. Tags from before updater configuration retain their original eight-package format.
+The publisher checks the channel's complete package set, signed update manifests and archives, uploaded sizes, and hashes before making the release public. The release tag is created only after build and test success. A failed build remains visible in Actions.
 
-The release-publisher regression suite runs without GitHub credentials or live API calls. Run `pwsh ./scripts/test-release.ps1` and `go test ./scripts/verify-update` to check draft retries, tagged-source isolation, incomplete-release rejection, signed manifests, and altered archives.
+### Update channels
+
+Settings → General → Updates offers Stable and Dev. Stable receives newer official releases; Dev also receives newer prereleases, using MyGo's `SetPrereleases` API. Dev is unavailable on macOS Intel. Debug builds cannot update themselves.
+
+Selecting another channel downloads and installs a newer matching update, then restarts the app. The new process confirms the channel after starting the expected version. Failed updates and requests with no newer version leave the current channel unchanged. Existing unsent-draft and active-response protections can postpone restarting.
+
+The release-publisher regression suite runs without GitHub credentials or live API calls. Run `pwsh ./scripts/test-release.ps1` and `go test ./scripts/verify-update` to check release retries, channel-specific assets, signed manifests, and altered archives.
 
 ### Retry a failed release
 
-Keep the existing release tag unchanged. After a workflow or publishing-script fix has landed on `main`, dispatch the current **Release** workflow with the existing tag. The required `tag` input has no default and must have the form `vMAJOR.MINOR.PATCH`:
+For a run whose tag has not been published, rerun it in Actions; the saved release metadata preserves its version. To retry an existing tag using publishing fixes from `main`:
 
-```sh
-gh workflow run release.yml --ref main -f tag=v0.5.1 --repo fondoger/copilotchat
+```bash
+gh workflow run release.yml --ref main -f tag=v0.5.11 --repo fondoger/copilotchat
 ```
 
-The same action is available through **Actions → Release → Run workflow**: select `main` and enter the existing tag. Use this new dispatch to pick up the repaired workflow; rerunning the original failed run uses its original workflow revision.
-
-Validation and all four builds check out the requested tag, so the application source remains the tagged release source. Publishing uses the scripts from the workflow run's `main` revision, while reading the version and target commit from the existing tag. It can resume a matching draft and replace its draft assets, then verifies the full asset list, sizes, and SHA-256 hashes before publishing. A draft targeting a different commit is rejected. An already published release is never overwritten; any application changes require a new version and tag.
+The tag input also accepts dev tags such as `v0.5.11-dev.123`. Builds use the tagged source; publishing uses the current workflow's scripts. A matching draft can be resumed. Published releases and existing tag targets are never overwritten.
 
 ## Verify a download
 
