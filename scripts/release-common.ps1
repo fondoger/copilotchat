@@ -16,6 +16,27 @@ function Get-ReleaseVersion {
     return $Matches[1]
 }
 
+function Get-ReleaseSlug {
+    param([Parameter(Mandatory)][object]$Config)
+    if ($Config.PSObject.Properties['slug'] -and $Config.slug) { return $Config.slug }
+    $slug = [regex]::Replace($Config.name.ToLowerInvariant(), '[^a-z0-9]+', '-').Trim('-')
+    if ($slug) { return $slug }
+    return 'app'
+}
+
+function Initialize-ReleaseBuildConfig {
+    param([Parameter(Mandatory)][object]$Config)
+    if ($Config.PSObject.Properties['updates'] -and $Config.updates) {
+        $subject = & git log -1 --format=%s
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot read the release source commit.' }
+        New-Item -ItemType Directory -Force -Path dist | Out-Null
+        $changelog = 'dist/release-changelog.md'
+        [IO.File]::WriteAllText((Join-Path (Get-Location) $changelog), "## $($Config.version)`n`n- $subject`n", [Text.UTF8Encoding]::new($false))
+        $Config.updates | Add-Member -NotePropertyName changelog -NotePropertyValue $changelog -Force
+    }
+    [IO.File]::WriteAllText((Join-Path (Get-Location) 'mygo.json'), ($Config | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+}
+
 function Get-ReleasePlatforms {
     param([string]$Version = '')
     $platforms = @(
@@ -136,8 +157,7 @@ function Get-ReleaseUpdateAssets {
     if (-not $updates.PSObject.Properties['publicKey'] -or -not $updates.publicKey) {
         throw 'Signed updates require updates.publicKey.'
     }
-    $slug = [regex]::Replace($Config.name.ToLowerInvariant(), '[^a-z0-9]+', '-').Trim('-')
-    if (-not $slug) { $slug = 'app' }
+    $slug = Get-ReleaseSlug $Config
     foreach ($target in $Targets) {
         if ($target -cnotmatch '^(windows|darwin)-(amd64|arm64)$') { throw "Unsupported update target: $target" }
         $archive = "$slug-$($Config.version)-$target.tar.gz"

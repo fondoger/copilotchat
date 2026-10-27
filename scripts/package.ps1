@@ -24,7 +24,7 @@ try {
     }
     $config = Get-ReleaseConfig -ExpectedTag $ExpectedTag
     if ($ExpectedTag) {
-        [IO.File]::WriteAllText((Join-Path (Get-Location) 'mygo.json'), ($config | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+        Initialize-ReleaseBuildConfig $config
     }
     $updateAssets = @(Get-ReleaseUpdateAssets -Config $config -Targets @($Platform.Replace('/', '-')))
     if ($RequireSignedUpdates -and ($updateAssets.Count -ne 1 -or -not $env:MYGO_UPDATER_PRIVATE_KEY)) {
@@ -57,18 +57,19 @@ try {
     $assetOS = if ($goos -eq 'darwin') { 'macos' } else { 'windows' }
     $assetArch = if ($goarch -eq 'amd64') { 'x64' } else { 'arm64' }
     $prefix = "copilotchat-$($config.version)-$assetOS-$assetArch"
+    $slug = Get-ReleaseSlug $config
     $zipPath = Join-Path $releaseRoot "$prefix.zip"
 
     if ($goos -eq 'darwin') {
         $appPath = Join-Path $packageRoot "$($config.name).app"
         $executable = Join-Path $appPath "Contents/MacOS/$($config.name)"
         $resourceRoot = Join-Path $appPath 'Contents/Resources'
-        $installerPath = Join-Path $packageRoot "$($config.name) $($config.version) $goarch.dmg"
+        $installerPath = Join-Path $packageRoot "$slug-$($config.version)-$goarch.dmg"
         $installerAsset = Join-Path $releaseRoot "$prefix.dmg"
     } else {
         $executable = Join-Path $packageRoot "$($config.name).exe"
         $resourceRoot = $packageRoot
-        $installerPath = Join-Path $packageRoot "$($config.name) Setup $($config.version) $goarch.exe"
+        $installerPath = Join-Path $packageRoot "$slug-setup-$($config.version)-$goarch.exe"
         $installerAsset = Join-Path $releaseRoot "$prefix-setup.exe"
     }
     foreach ($path in @($executable, $installerPath)) {
@@ -99,7 +100,7 @@ try {
         Invoke-CheckedCommand -Command ditto -Arguments @('-c', '-k', '--sequesterRsrc', '--keepParent', $appPath, $zipPath)
     } else {
         $portableFiles = @(Get-ChildItem -LiteralPath $packageRoot | Where-Object {
-            $_.FullName -ne $installerPath -and $_.Name -notlike '*.tar.gz' -and
+            $_.FullName -ne $installerPath -and $_.Name -notin @('install.ps1', 'install.sh', 'SHA256SUMS') -and $_.Name -notlike '*.tar.gz' -and
             $_.Name -notlike '*.delta' -and $_.Name -notlike 'update-*.json'
         } | ForEach-Object FullName)
         Compress-Archive -LiteralPath $portableFiles -DestinationPath $zipPath -CompressionLevel Optimal

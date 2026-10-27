@@ -78,7 +78,7 @@ Windows x64 has been exercised in a native desktop session. Windows ARM64 and bo
 
 [GitHub Actions](https://github.com/fondoger/copilotchat/actions) publishes a dev prerelease for each push to `main`. Native tests and package builds run in parallel; publishing waits for all checks and packages. Main pushes use this release workflow instead of a separate CI run. Pull requests retain CI checks.
 
-Versions are generated automatically. After stable `0.5.10`, dev builds use `0.5.11-dev.<workflow-run-number>`; the next stable release uses `0.5.11`. The workflow writes the version into its working copy of `mygo.json`, and MyGo embeds it in the application and request headers. Saved workflow metadata keeps retries on the same version. Version changes do not create commits.
+Versions are generated automatically. After stable `0.5.10`, dev builds use `0.5.11-dev.<workflow-run-number>`; the next stable release uses `0.5.11`. The workflow writes the version and matching update notes into its workspace, and MyGo embeds the version in the application and request headers. Saved workflow metadata keeps retries on the same version. Version changes do not create commits.
 
 Dev publishes Windows x64, Windows ARM64, and macOS ARM64. Stable also publishes macOS Intel. Dev releases are marked as GitHub prereleases and leave the latest stable release unchanged. To publish the next stable version:
 

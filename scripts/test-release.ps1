@@ -13,6 +13,7 @@ function git {
         "rev-parse --verify refs/tags/${tag}^{commit}" { return $global:copilotChatReleaseTest.TagCommit }
         "rev-parse refs/tags/$tag" { return $global:copilotChatReleaseTest.TagCommit }
         'tag --list v*' { return $global:copilotChatReleaseTest.TagList }
+        'log -1 --format=%s' { return 'Fixture release source' }
         'rev-parse HEAD' { return $global:copilotChatReleaseTest.WorkflowCommit }
         "show $($global:copilotChatReleaseTest.TagCommit):mygo.json" { return $global:copilotChatReleaseTest.Config | ConvertTo-Json -Depth 5 -Compress }
         default { throw "Unexpected mocked git command: $($arguments -join ' ')" }
@@ -321,6 +322,15 @@ try {
     $stable = (& $prepare -Channel stable -RunNumber 43) -join "`n" | ConvertFrom-Json
     Assert-True ($stable.tag -ceq 'v0.2.2') 'Stable versions must increment without editing mygo.json.'
     Write-Host 'PASS: automatic dev/stable versions and frozen retry metadata'
+    Push-Location $fixtureRoot
+    try {
+        $buildConfig = [pscustomobject]@{ name = 'Copilot Chat'; version = $prepared.version; updates = [pscustomobject]@{ github = 'test-owner/test-repo' } }
+        Initialize-ReleaseBuildConfig $buildConfig
+        $materialized = Get-Content -LiteralPath mygo.json -Raw | ConvertFrom-Json
+        $notes = Get-Content -LiteralPath $materialized.updates.changelog -Raw
+        Assert-True ($materialized.version -ceq $prepared.version -and $notes.Contains("## $($prepared.version)") -and $notes.Contains('Fixture release source')) 'Generated versions must have matching MyGo update notes.'
+    } finally { Pop-Location }
+    Write-Host 'PASS: generated build configuration includes versioned MyGo release notes'
 
     Reset-TestState
     $global:copilotChatReleaseTest.Config.version = '0.3.1-dev.42'
