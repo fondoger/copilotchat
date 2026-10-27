@@ -1,7 +1,7 @@
 github.com/ebitengine/purego v0.11.1 h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6XeQ/0=
 github.com/ebitengine/purego v0.11.1/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
-github.com/egoist/mygo v0.7.1 h1:hCEgDRz3j6YWby2oAbby4vtMRUUnZZ5AZ/I1yMNBRbs=
-github.com/egoist/mygo v0.7.1/go.mod h1:dVav53PwF2xEotjf4oA5lTY2Jp2exgzyjLhbSXhbMwE=
+github.com/egoist/mygo v0.7.2-0.20261027092812-b553a90aefc5 h1:k3UZEIEZ8JKeUWG7wmDEHBWbwC2bFwooKR8m7yQWXBU=
+github.com/egoist/mygo v0.7.2-0.20261027092812-b553a90aefc5/go.mod h1:dVav53PwF2xEotjf4oA5lTY2Jp2exgzyjLhbSXhbMwE=
 github.com/fondoger/GoVisual/mcp v1.0.2-0.20261022121931-1d5fe49983b1 h1:i+1RwI24x0CvuWGRJrsRCFIeSh4QV6jcahMr9IvDD2k=
 github.com/fondoger/GoVisual/mcp v1.0.2-0.20261022121931-1d5fe49983b1/go.mod h1:wwF04wTMniwNAVnQBgQvH1O+mgJ0jev0n1wf3KYHU1A=
 github.com/fondoger/GoVisual/v2 v2.0.2-0.20261022121931-1d5fe49983b1 h1:sCvG+FxeJnQoOr2t9oqgsSQH8DlzsQ3kkoDxUwSkZsk=
