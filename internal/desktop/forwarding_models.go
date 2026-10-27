@@ -44,14 +44,14 @@ func (a *app) reconcileProfileModels(profile *store.ForwardProfile) {
 }
 
 // index -1 toggles all models; IDs are independent of selection.
-func (a *app) setForwardEnabled(profile *store.ForwardProfile, index int, enabled bool) string {
+func (a *app) setForwardEnabled(profile *store.ForwardProfile, index int, enabled bool) {
 	for i := range profile.Models {
 		if index == -1 || i == index {
 			profile.Models[i].Enabled = enabled
 		}
 	}
+	a.agentSetup.modelError, a.agentSetup.notice = "", ""
 	a.saveSettings()
-	return ""
 }
 
 func (a *app) forwardingModelStatus(m store.ForwardModel) string {
@@ -87,10 +87,13 @@ func (a *app) profileForwardingModels(profile *store.ForwardProfile, enabledOnly
 		return nil
 	}
 	for _, m := range profile.Models {
-		if (enabledOnly && !m.Enabled) || a.forwardingModelStatus(m) != "" {
+		if (enabledOnly && !m.Enabled) || a.clientForProvider(m.ProviderID) == nil {
 			continue
 		}
-		model, _ := a.modelForProvider(m.ProviderID, m.ModelID)
+		model, ok := a.modelForProvider(m.ProviderID, m.ModelID)
+		if !ok {
+			continue
+		}
 		models = append(models, localproxy.Model{ProviderID: m.ProviderID, Model: model})
 	}
 	identities := []localproxy.ProviderIdentity{}
@@ -134,7 +137,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 				}
 				ui.ButtonBase(c).Height(26).PaddingX(6).Radius(4).Label(label).Children(func() {
 					ui.Text(c, label).FontSize(11).TextColor(t.TextMuted)
-				}).OnClick(func() { s.modelError = a.setForwardEnabled(profile, -1, enabled); s.notice = "" })
+				}).OnClick(func() { a.setForwardEnabled(profile, -1, enabled) })
 			}
 		})
 		if s.modelError != "" {
@@ -178,8 +181,7 @@ func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfi
 						enabled := m.Enabled
 						ui.Row(c).Width(48).Shrink(0).Justify(ui.Center).Children(func() {
 							ui.Checkbox(c, &enabled, "").Width(18).Label("Share " + m.ProviderID + " " + m.ModelID).OnChange(func() {
-								s.modelError = a.setForwardEnabled(profile, i, enabled)
-								s.notice = ""
+								a.setForwardEnabled(profile, i, enabled)
 							})
 						})
 					})

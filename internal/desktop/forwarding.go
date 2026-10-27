@@ -86,7 +86,6 @@ func (a *app) startForwarding() {
 		}
 	}
 	server := localproxy.New(s.LocalKey)
-	server.SetInspection(s.GatewayInspection)
 	if err := server.Start(s.LocalPort); err != nil {
 		server.Close()
 		a.forwardError = err.Error()
@@ -190,6 +189,9 @@ func (a *app) forwardingSettings(c *ui.Context) {
 							a.forwardError = "Could not open GoVisual: " + err.Error()
 						}
 					})
+				}
+				if url := a.forwarder.InspectionMCPURL(); url != "" {
+					ui.Button(c, "Copy MCP URL").Height(26).FontSize(11).OnClick(func() { mygo.Clipboard.WriteText(url) })
 				}
 			}
 			ui.Switch(c.Key("gateway-inspection"), &s.GatewayInspection).Label("Enable HTTP request inspection").OnChange(a.saveSettings)

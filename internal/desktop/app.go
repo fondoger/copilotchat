@@ -116,6 +116,7 @@ func Run(dataDir string, dev bool) error {
 	a.pruneEmptyWebChats()
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
 	a.loadProviders()
+	a.syncForwardingProviders()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 	mygo.App.OnActivate(func(bool) { a.show() })
 	mygo.App.OnBeforeQuit(func(event *mygo.QuitEvent) {
@@ -215,7 +216,6 @@ func (a *app) update(fn func()) {
 	}
 	a.win.Update(func() {
 		fn()
-		a.syncForwardingProviders()
 		if a.settingsWin != nil {
 			a.settingsWin.Invalidate()
 		}
@@ -223,7 +223,6 @@ func (a *app) update(fn func()) {
 }
 
 func (a *app) save() {
-	a.syncForwardingProviders()
 	if a.storage == nil {
 		return
 	}
@@ -404,6 +403,7 @@ func (a *app) saveSettings() {
 	if !a.state.Settings.ChatTitle {
 		a.cancelTitles()
 	}
+	a.syncForwardingProviders()
 	a.save()
 	if a.win != nil {
 		a.win.Invalidate()

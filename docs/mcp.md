@@ -2,6 +2,16 @@
 
 The MCP settings page accepts local servers over **stdio** and remote servers over **Streamable HTTP**. A connection initializes the server, negotiates the protocol version, sends `notifications/initialized`, and discovers tools through `tools/list`, including paginated results. Tool execution uses `tools/call`. The application asks for approval before a tool executes.
 
+## Gateway HTTP inspection
+
+Enable **Local forwarding** and **HTTP request inspection (GoVisual)** in LLM Gateway, then use **Copy MCP URL** to connect your agent. With the default port, register it in Claude Code:
+
+```bash
+claude mcp add govisual --transport http http://127.0.0.1:39321/__viz/mcp
+```
+
+The local endpoint shares the dashboard's captures across Gateway profiles. Use `get_last_error`, `list_requests`, `get_request`, `get_debug_context`, and `await_request` to inspect inbound and outbound traffic. `replay_request`, `diff_replay`, and `copy_as_curl` target the same local Gateway. Credential headers are redacted; supply deliberate header overrides for authenticated replays. Bodies may contain sensitive application data, and replaying inference requests may incur token charges. Disabling inspection disconnects access, and re-enabling starts an empty capture session.
+
 ## Local server
 
 Configure the executable and each argument separately. The client launches the executable directly; command text is never evaluated by a shell. The server must write newline-delimited JSON-RPC on stdout and send diagnostic logs to stderr.

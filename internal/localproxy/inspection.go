@@ -5,10 +5,15 @@ import (
 	"net/http"
 	"strings"
 
+	gvmcp "github.com/doganarif/govisual/mcp"
 	"github.com/doganarif/govisual/v2"
+	"github.com/doganarif/govisual/v2/store"
 )
 
-const inspectionPath = "/__viz"
+const (
+	inspectionPath    = "/__viz"
+	inspectionMCPPath = inspectionPath + "/mcp"
+)
 
 type requestInspection struct {
 	handler http.Handler
@@ -36,9 +41,10 @@ func (s *Server) SetInspection(enabled bool) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	st := store.WithNotify(store.NewMemory(100))
 	handler := govisual.Wrap(http.HandlerFunc(s.serveAPI),
+		govisual.WithStore(st),
 		govisual.WithDashboardPath(inspectionPath),
-		govisual.WithMaxRequests(100),
 		govisual.WithProfiling(true),
 		// Collect outbound HTTP headers, bodies and timings without CPU, heap or goroutine sampling.
 		govisual.WithProfileType(0),
@@ -48,16 +54,23 @@ func (s *Server) SetInspection(enabled bool) {
 		govisual.WithRequestBodyLogging(true),
 		govisual.WithResponseBodyLogging(true),
 	)
-	// Default GoVisual guards keep the dashboard local, redact credential
-	// headers and disable request replay and environment inspection.
-	s.inspection.Store(&requestInspection{handler: handler, ctx: ctx, cancel: cancel})
+	// Dashboard replay and environment inspection remain disabled.
+	// Keep MCP traffic outside capture; replays target the actual Gateway listener.
+	routes := http.NewServeMux()
+	routes.Handle(inspectionMCPPath, gvmcp.Handler(st, gvmcp.WithBaseURL("http://"+s.address)))
+	routes.Handle("/", handler)
+	s.inspection.Store(&requestInspection{handler: routes, ctx: ctx, cancel: cancel})
 }
 
-func (s *Server) InspectionURL() string {
+func (s *Server) InspectionURL() string { return s.inspectionURL(inspectionPath + "/") }
+
+func (s *Server) InspectionMCPURL() string { return s.inspectionURL(inspectionMCPPath) }
+
+func (s *Server) inspectionURL(path string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed || s.inspection.Load() == nil || s.address == "" {
 		return ""
 	}
-	return "http://" + s.address + inspectionPath + "/"
+	return "http://" + s.address + path
 }
