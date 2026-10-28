@@ -76,17 +76,17 @@ func TestMessagesDeferredToolsWithoutReferences(t *testing.T) {
 	}
 }
 
-func TestMessagesToolLoadingRejectsUnknownReferencesAndHiddenCacheMarkers(t *testing.T) {
+func TestMessagesToolLoadingRejectsUnknownReferencesAndInvalidCacheMarkers(t *testing.T) {
 	for _, test := range []struct {
 		name, tools, content, want string
 	}{
 		{"unknown", `[]`, `[{"type":"tool_reference","tool_name":"missing"}]`, "unknown tool reference"},
 		{"missing name", `[]`, `[{"type":"tool_reference"}]`, "unknown tool reference"},
 		{"placeholder", `[{"name":"DeferredToolPlaceholder"}]`, `[{"type":"tool_reference","tool_name":"DeferredToolPlaceholder"}]`, "unknown tool reference"},
-		{"unloaded marker", `[{"name":"later","defer_loading":true,"cache_control":{"type":"ephemeral"}}]`, `[{"type":"text","text":"ok"}]`, "tools[0]"},
-		{"loaded marker", `[{"name":"later","defer_loading":true,"cache_control":{"type":"ephemeral"}}]`, `[{"type":"tool_reference","tool_name":"later"}]`, "tools[0]"},
-		{"placeholder marker", `[{"name":"DeferredToolPlaceholder","cache_control":{"type":"ephemeral"}}]`, `[{"type":"text","text":"ok"}]`, "tools[0]"},
-		{"reference marker", `[{"name":"later","defer_loading":true}]`, `[{"type":"tool_reference","tool_name":"later","cache_control":{"type":"invalid"}}]`, "cache_control"},
+		{"unloaded marker", `[{"name":"later","defer_loading":true,"cache_control":{"type":"invalid"}}]`, `[{"type":"text","text":"ok"}]`, "tools[0]"},
+		{"loaded marker", `[{"name":"later","defer_loading":true,"cache_control":{"type":"invalid"}}]`, `[{"type":"tool_reference","tool_name":"later"}]`, "tools[0]"},
+		{"placeholder marker", `[{"name":"DeferredToolPlaceholder","cache_control":{"type":"invalid"}}]`, `[{"type":"text","text":"ok"}]`, "tools[0]"},
+		{"reference marker", `[{"name":"later","defer_loading":true}]`, `[{"type":"tool_reference","tool_name":"later","cache_control":{"type":"invalid"}}]`, "cache marker requires"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := `{"tools":` + test.tools + `,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"s1","content":` + test.content + `}]}]}`

@@ -82,6 +82,16 @@ func convertMessagesRequest(body []byte, model provider.Model, explicit bool) ([
 	if err := validateMessagesBridgeFeatures(src); err != nil {
 		return nil, false, nil, err
 	}
+	cache, err := newBridgeCache(src, true)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	if err := cache.validateMessages(src, explicit); err != nil {
+		return nil, false, nil, err
+	}
+	if !explicit {
+		removeMessagesCacheMarkers(src)
+	}
 	searchContext, err := detectMessagesSearch(src, model)
 	if err != nil {
 		return nil, false, nil, err
@@ -96,16 +106,6 @@ func convertMessagesRequest(body []byte, model provider.Model, explicit bool) ([
 	loading, err := resolveMessagesTools(src)
 	if err != nil {
 		return nil, false, nil, err
-	}
-	cache, err := newBridgeCache(src, true)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	if err := cache.validateMessages(src); err != nil {
-		return nil, false, nil, err
-	}
-	if !explicit {
-		removeMessagesCacheMarkers(src)
 	}
 	dst := object{"model": model.ID, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
 	input := []any{}

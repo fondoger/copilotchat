@@ -208,6 +208,79 @@ func TestClaudeCodeTurnSystemMessagesThroughGateway(t *testing.T) {
 	}
 }
 
+func TestClaudeCompactionCacheMarkersThroughGateway(t *testing.T) {
+	for _, endpoint := range []string{"/responses", "/v1/messages"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", endpoint, stream), func(t *testing.T) {
+				calls := make(chan provider.RawRequest, 1)
+				client := &rawClient{fn: func(_ context.Context, r provider.RawRequest) (*http.Response, error) {
+					calls <- r
+					res := response(`{"id":"summary","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Conversation summary"}]}],"usage":{}}`)
+					res.Header.Set("Content-Type", "application/json")
+					return res, nil
+				}}
+				_, base := fixture(t, client)
+				model := "gpt-fixture"
+				if endpoint == "/v1/messages" {
+					model = "claude-fixture"
+				}
+				messages := []any{}
+				for i := 0; i < 413; i++ {
+					role := "user"
+					if i%2 == 1 {
+						role = "assistant"
+					}
+					messages = append(messages, object{"role": role, "content": fmt.Sprintf("History %d", i)})
+				}
+				marker := object{"type": "ephemeral"}
+				reasoning := object{"type": "reasoning", "id": "rs_history", "encrypted_content": "opaque-history"}
+				messages = append(messages,
+					object{"role": "assistant", "content": []any{
+						object{"type": "thinking", "thinking": "History reasoning", "signature": reasoningSignature(reasoning)},
+						object{"type": "text", "text": "Reading the file"},
+						object{"type": "tool_use", "id": "last_call", "name": "read", "input": object{"cache_control": "keep"}, "cache_control": marker},
+					}},
+					object{"role": "user", "content": []any{object{"type": "tool_result", "tool_use_id": "last_call", "content": "File contents"}}},
+					object{"role": "user", "content": "Summarize this conversation"},
+				)
+				src := object{"model": model, "stream": stream, "messages": messages,
+					"system": []any{object{"type": "text", "text": "Summarize the full history", "cache_control": marker}},
+					"tools":  []any{object{"name": "read", "input_schema": object{"type": "object"}}},
+				}
+				body := encodedDiscovery(t, src)
+				res := send(t, "POST", base+"/v1/messages?beta=true", string(body), map[string]string{
+					"X-Api-Key": "fixture-key", "X-Claude-Code-Session-Id": "compact-session",
+				})
+				data, err := io.ReadAll(res.Body)
+				if err != nil || res.StatusCode != 200 || !strings.Contains(string(data), "Conversation summary") {
+					t.Fatal("compaction request failed", res.Status, string(data), err)
+				}
+				raw := <-calls
+				if raw.Endpoint != endpoint {
+					t.Fatal("wrong upstream endpoint", raw.Endpoint)
+				}
+				if endpoint == "/v1/messages" {
+					if string(raw.Body) != string(body) {
+						t.Fatal("native Messages cache markers changed", string(raw.Body))
+					}
+					return
+				}
+				got := parsed(t, string(raw.Body))
+				input := array(got["input"])
+				if len(input) != 418 || !reflect.DeepEqual(obj(input[413]), reasoning) ||
+					obj(input[414])["role"] != "assistant" || obj(array(obj(input[414])["content"])[0])["text"] != "Reading the file" ||
+					obj(input[415])["call_id"] != "last_call" || obj(input[415])["arguments"] != `{"cache_control":"keep"}` ||
+					obj(input[416])["output"] != "File contents" || obj(array(obj(input[417])["content"])[0])["text"] != "Summarize this conversation" {
+					t.Fatal("compaction history, reasoning or tool arguments changed", string(raw.Body))
+				}
+				if !reflect.DeepEqual(got["prompt_cache_options"], object{"mode": "implicit"}) || strings.Contains(string(raw.Body), "prompt_cache_breakpoint") {
+					t.Fatal("ordinary compaction used explicit cache boundaries", string(raw.Body))
+				}
+			})
+		}
+	}
+}
+
 func sse(values ...string) string {
 	var out strings.Builder
 	for _, value := range values {

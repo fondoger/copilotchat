@@ -206,17 +206,18 @@ func (c *bridgeCache) apply(dst object) error {
 	return nil
 }
 
-// Only text inputs have an established Responses breakpoint representation.
-// In particular, never invent breakpoint fields on tools or function calls.
-func (c *bridgeCache) validateMessages(src object) error {
+// Implicit caching validates source markers without requiring a Responses
+// breakpoint representation. Explicit conversion also validates placement.
+func (c *bridgeCache) validateMessages(src object, explicit bool) error {
 	for i, v := range array(src["tools"]) {
-		if _, err := c.marker(obj(v), false, fmt.Sprintf("tools[%d]", i)); err != nil {
+		if _, err := c.marker(obj(v), !explicit, fmt.Sprintf("tools[%d]", i)); err != nil {
 			return err
 		}
 	}
 	for i, v := range array(src["system"]) {
 		b := obj(v)
-		if _, err := c.marker(b, text(b["type"]) == "text" && text(b["text"]) != "", fmt.Sprintf("system[%d]", i)); err != nil {
+		allowed := !explicit || (text(b["type"]) == "text" && text(b["text"]) != "")
+		if _, err := c.marker(b, allowed, fmt.Sprintf("system[%d]", i)); err != nil {
 			return err
 		}
 	}
@@ -226,13 +227,13 @@ func (c *bridgeCache) validateMessages(src object) error {
 			b := obj(v)
 			path := fmt.Sprintf("messages[%d].content[%d]", i, j)
 			kind := text(b["type"])
-			allowed := kind == "tool_result" || (kind == "text" && m["role"] != "assistant" && text(b["text"]) != "")
+			allowed := !explicit || kind == "tool_result" || (kind == "text" && m["role"] != "assistant" && text(b["text"]) != "")
 			if _, err := c.marker(b, allowed, path); err != nil {
 				return err
 			}
 			if kind == "tool_result" {
 				for k, v := range array(b["content"]) {
-					if _, err := c.marker(obj(v), false, fmt.Sprintf("%s.content[%d]", path, k)); err != nil {
+					if _, err := c.marker(obj(v), !explicit, fmt.Sprintf("%s.content[%d]", path, k)); err != nil {
 						return err
 					}
 				}
@@ -283,9 +284,12 @@ func hasCacheMarker(blocks []any, key string) bool {
 
 // Ordinary Responses conversations use implicit caching. Remove source
 // markers before conversion so a moving tail marker cannot change wire shapes.
-// Validation runs first, including unsupported markers on omitted tools.
+// Validate markers first, including those on omitted tools.
 func removeMessagesCacheMarkers(src object) {
 	delete(src, "cache_control")
+	for _, value := range array(src["tools"]) {
+		delete(obj(value), "cache_control")
+	}
 	for _, value := range array(src["system"]) {
 		delete(obj(value), "cache_control")
 	}

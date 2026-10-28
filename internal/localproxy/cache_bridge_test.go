@@ -33,6 +33,98 @@ func TestImplicitCacheKeepsToolResultShapeAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestImplicitCacheAcceptsClientMarkerPositions(t *testing.T) {
+	const marker = `,"cache_control":{"type":"ephemeral"}`
+	for _, test := range []struct {
+		name, body string
+	}{
+		{"assistant text", `{"messages":[{"role":"assistant","content":[{"type":"text","text":"answer","cache_control":{"type":"ephemeral"}}]},{"role":"user","content":"Summarize this conversation"}]}`},
+		{"tool call", `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"c","name":"read","input":{"cache_control":"keep"},"cache_control":{"type":"ephemeral"}}]}]}`},
+		{"media", `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"},"cache_control":{"type":"ephemeral"}},{"type":"document","source":{"type":"url","url":"https://example.com/a.pdf"},"cache_control":{"type":"ephemeral"}}]}]}`},
+		{"tool result parts", `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","content":[{"type":"text","text":"result","cache_control":{"type":"ephemeral"}},{"type":"image","source":{"type":"url","url":"https://example.com/a.png"},"cache_control":{"type":"ephemeral"}}]}]}]}`},
+		{"tool definitions", `{"tools":[{"name":"read","input_schema":{"type":"object","properties":{"cache_control":{"type":"string"}}},"cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`},
+		{"deferred tools", `{"tools":[{"name":"read","defer_loading":true,"input_schema":{"type":"object"},"cache_control":{"type":"ephemeral"}},{"name":"unused","defer_loading":true,"input_schema":{"type":"object"},"cache_control":{"type":"ephemeral"}},{"name":"DeferredToolPlaceholder","input_schema":{"type":"object"},"cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"s","content":[{"type":"tool_reference","tool_name":"read"}]}]}]}`},
+		{"hosted search", `{"tools":[{"type":"tool_search_tool_regex_20251119","name":"tool_search_tool_regex","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"Find a tool"}]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := provider.Model{ID: "gpt-test"}
+			encoded, _, err := messagesToResponses([]byte(test.body), model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := parsed(t, string(encoded))
+			if !reflect.DeepEqual(got["prompt_cache_options"], object{"mode": "implicit"}) {
+				t.Fatal("client marker did not select implicit caching", string(encoded))
+			}
+			unmarked := strings.ReplaceAll(test.body, marker, "")
+			baseline, _, err := messagesToResponses([]byte(unmarked), model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			delete(got, "prompt_cache_options")
+			if !reflect.DeepEqual(got, parsed(t, string(baseline))) {
+				t.Fatal("cache markers changed prompt content or tool arguments", string(encoded), string(baseline))
+			}
+			if _, _, err := messagesToResponsesWithCache([]byte(test.body), model, true); err == nil || !strings.Contains(err.Error(), "cannot be represented") {
+				t.Fatal("explicit bridge accepted an unsupported boundary", err)
+			}
+		})
+	}
+}
+
+func TestImplicitCacheRejectsInvalidClientMarkers(t *testing.T) {
+	for _, marker := range []string{
+		`null`, `"ephemeral"`, `[]`, `{"type":"persistent"}`,
+		`{"type":"ephemeral","ttl":"12h"}`, `{"type":"ephemeral","ttl":5}`,
+		`{"type":"ephemeral","unexpected":true}`,
+	} {
+		for _, body := range []string{
+			`{"cache_control":MARKER,"messages":[{"role":"user","content":"hi"}]}`,
+			`{"tools":[{"name":"unused","defer_loading":true,"cache_control":MARKER}],"messages":[{"role":"user","content":"hi"}]}`,
+			`{"messages":[{"role":"assistant","content":[{"type":"text","text":"answer","cache_control":MARKER}]}]}`,
+			`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","content":[{"type":"text","text":"result","cache_control":MARKER}]}]}]}`,
+		} {
+			body = strings.ReplaceAll(body, "MARKER", marker)
+			if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "gpt-test"}); err == nil {
+				t.Fatal("invalid source cache marker was discarded", body)
+			}
+		}
+	}
+	body := `{"system":[{"type":"text","text":"rules","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"assistant","content":[{"type":"text","text":"answer","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`
+	if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "gpt-test"}); err == nil || !strings.Contains(err.Error(), "long cache TTL") {
+		t.Fatal("invalid source TTL order was discarded", err)
+	}
+}
+
+func TestImplicitCacheKeepsSearchReplayWithClientMarkers(t *testing.T) {
+	response := searchResponseFixture(t, "server")
+	message, err := responsesToMessage(response, "public", &messagesSearchContext{mode: "server", name: "tool_search_tool_regex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := array(message["content"])
+	for _, block := range blocks[1:] {
+		obj(block)["cache_control"] = object{"type": "ephemeral"}
+	}
+	src := object{
+		"tools":    []any{object{"type": "tool_search_tool_regex_20251119", "name": "tool_search_tool_regex"}},
+		"messages": []any{message, object{"role": "user", "content": "Summarize this conversation"}},
+	}
+	model := provider.Model{ID: "gpt-test"}
+	encoded, _, err := messagesToResponses(encodedDiscovery(t, src), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := array(parsed(t, string(encoded))["input"])
+	if len(input) != 3 || !reflect.DeepEqual(input[:2], response["output"]) {
+		t.Fatal("client cache markers changed native search history", string(encoded))
+	}
+	obj(blocks[1])["input"] = object{"pattern": "changed"}
+	if _, _, err := messagesToResponses(encodedDiscovery(t, src), model); err == nil || !strings.Contains(err.Error(), "visible blocks differ") {
+		t.Fatal("cache normalization hid an edited search replay", err)
+	}
+}
+
 func TestCacheBridgeStableClassifierPrefix(t *testing.T) {
 	for _, ttl := range []string{"", "5m", "1h"} {
 		t.Run(ttl, func(t *testing.T) {

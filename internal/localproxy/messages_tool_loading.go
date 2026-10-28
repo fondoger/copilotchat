@@ -5,8 +5,7 @@ import (
 	"fmt"
 )
 
-// Resolve references before cache validation, leaving src.tools intact so
-// omitted definitions cannot hide unsupported cache markers.
+// Resolve references in place while retaining the original tool definitions.
 func resolveMessagesTools(src object) ([]any, error) {
 	definitions := map[string]object{}
 	for _, value := range array(src["tools"]) {
