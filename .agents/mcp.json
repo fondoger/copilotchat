@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "copilot-chat-incoming-request-debugger": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://127.0.0.1:39321/__viz/mcp",
+        "--allow-http"
+      ]
+    }
+  }
+}
