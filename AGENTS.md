@@ -1,11 +1,26 @@
-基于 [MyGo](github.com/egoist/mygo) 的原生 AI 聊天客户端，go语言开发。
+Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天。
 
-- UI/UX: Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
-- Don't add UI test unless it covers meaningful user-facing behavior.
-- Avoid tests tied to trivial logic, UI copy, layout, or implementation details.
-- Work on `main` branch by default.
-- Don't patch around poor structure. If a new requirement makes existing code, names, or file layout a bad fit, refactor them in the same change; propose a plan first if it's large.
+## 约定
 
+- main 分支；UI 靠布局表达，少副标题/说明。
+- 测试仅覆盖有意义行为；不测琐碎逻辑、文案、布局、实现细节。
+- 结构/命名/文件组织随需求重构，勿绕补；大改先提方案。
 
-- ./docs: 文档
-- ./reference：Claude Code、Codex等Client端，以及本地网关转发层(Magpie、cc-switch)实现的参考代码。
+## 开发
+
+- `go run .`：隔离 Dev；Gateway 39322(debug)/39321(stable)。
+- `make dev`：替换本机安装版并重启，复用其数据/账号/端口。
+
+## 架构
+
+- UI 状态单线程；worker→app.update/Window.Update；身份+generation 防陈旧回写。
+- 原生：internal/desktop/chat.go→provider.Engine；InferenceBackend 管账号/鉴权。Gateway：provider.RawClient→internal/localproxy，raw body/SSE，按需 Messages↔Responses。
+- 协议历史：保留 tool ID、原生顺序、签名/加密 reasoning、数值精度、缓存前缀。
+- WebView 网页推理/持久登录；生成 HTML/SVG 预览独立 opaque-origin 沙箱，禁网络/native bridge。
+- internal/store 原子快照；上游凭据 OS secrets；LocalKey=Gateway 密钥。
+- MCP：internal/mcp=聊天工具，执行前审批；internal/localproxy/inspection.go=GoVisual 诊断。
+
+## 参考
+
+- 协议：docs/openai-to-anthropic-notes.md、docs/details/；客户端差异：docs/*-notes.md。
+- reference/：Claude Code/Codex、Magpie/cc-switch；文档风格：docs/AGENTS.md。
