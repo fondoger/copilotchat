@@ -2,6 +2,18 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'mygo.json'
+      - 'Makefile'
+      - 'internal/desktop/assets/**'
+      - 'internal/desktop/web_chat.js'
+      - 'internal/localproxy/codex/prompt.md'
+      - 'resources/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:

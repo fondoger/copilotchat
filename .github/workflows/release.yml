@@ -4,6 +4,19 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'mygo.json'
+      - 'Makefile'
+      - 'internal/desktop/assets/**'
+      - 'internal/desktop/web_chat.js'
+      - 'internal/localproxy/codex/prompt.md'
+      - 'resources/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+      - '!**/*_test.go'
   workflow_dispatch:
     inputs:
       channel:
