@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,19 +52,31 @@ type entry struct {
 }
 
 type Server struct {
-	mu         sync.RWMutex
-	targets    map[string]*entry
-	profiles   map[string]*profileEntry
-	key        [32]byte
-	http       *http.Server
-	address    string
-	err        error
-	closed     bool
-	inspection atomic.Pointer[requestInspection]
+	mu          sync.RWMutex
+	targets     map[string]*entry
+	profiles    map[string]*profileEntry
+	key         [32]byte
+	http        *http.Server
+	address     string
+	err         error
+	closed      bool
+	inspection  atomic.Pointer[requestInspection]
+	mcpErrorLog *log.Logger
 }
 
-func New(key string) *Server {
-	return &Server{targets: make(map[string]*entry), profiles: make(map[string]*profileEntry), key: sha256.Sum256([]byte(key))}
+type Option func(*Server)
+
+// WithMCPErrorLog logs failed MCP requests without capturing tool traffic.
+func WithMCPErrorLog(logger *log.Logger) Option {
+	return func(s *Server) { s.mcpErrorLog = logger }
+}
+
+func New(key string, options ...Option) *Server {
+	s := &Server{targets: make(map[string]*entry), profiles: make(map[string]*profileEntry), key: sha256.Sum256([]byte(key))}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 var profileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)

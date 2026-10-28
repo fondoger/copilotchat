@@ -12,6 +12,8 @@ claude mcp add govisual --transport http http://127.0.0.1:39321/__viz/mcp
 
 The local endpoint shares the dashboard's captures across Gateway profiles. Use `get_last_error`, `list_requests`, `get_request`, `get_debug_context`, and `await_request` to inspect inbound and outbound traffic. `replay_request`, `diff_replay`, and `copy_as_curl` target the same local Gateway. Credential headers are redacted; supply deliberate header overrides for authenticated replays. Bodies may contain sensitive application data, and replaying inference requests may incur token charges. Disabling inspection disconnects access, and re-enabling starts an empty capture session.
 
+Debug and dev builds record failed MCP HTTP requests (status 400 or higher) in the application's `logs/app.log`, under the data directory, with the `gateway-mcp` prefix. Logs include the method, path, status, selected protocol headers, user agent, and up to 1 KiB of a plain-text error response. Credentials, session IDs, query strings, and request bodies are omitted. Successful MCP traffic stays out of these logs and GoVisual captures. Stable builds leave this logging disabled.
+
 ## Local server
 
 Configure the executable and each argument separately. The client launches the executable directly; command text is never evaluated by a shell. The server must write newline-delimited JSON-RPC on stdout and send diagnostic logs to stderr.

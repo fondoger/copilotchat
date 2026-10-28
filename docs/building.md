@@ -23,6 +23,16 @@ go vet ./...
 
 Plain `go run` and `go build` report version `debug`; MyGo builds obtain the version from `mygo.json` automatically. Release builds generate that version in the Actions workspace.
 
+At startup, the app appends standard application logs to `logs/app.log` under its data directory. On Windows, the default is `%APPDATA%\Copilot Chat\logs\app.log`; isolated development instances use `%APPDATA%\Copilot Chat Dev\logs\app.log`. `--data-dir` also changes the log location.
+
+On Windows, with GNU Make and PowerShell 7 installed, replace an installer-installed dev or stable version with a local dev build:
+
+```bash
+make dev
+```
+
+This builds a native `-dev.local.<timestamp>` version under `.local/dev/`, stops processes running the installed executable, replaces it without a backup, and starts it again. The app keeps its existing settings, accounts, and Gateway port; MCP diagnostics go to `logs/app.log` in the application data directory. A failed build leaves the running app untouched. The source `mygo.json` stays unchanged.
+
 Network protocol tests use local mock servers and synthetic credentials. UI tests use MyGo's software renderer and temporary settings, so they do not require a Copilot account or modify normal application data.
 
 ## Package a target

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/mcp"
@@ -90,7 +92,7 @@ func init() {
 	http.DefaultTransport = netproxy.Transport()
 }
 
-func Run(dataDir string, dev bool) error {
+func Run(dataDir string, dev bool) (err error) {
 	appName := "Copilot Chat"
 	if dev {
 		appName += " Dev"
@@ -105,6 +107,17 @@ func Run(dataDir string, dev bool) error {
 		}
 		dataDir = filepath.Join(root, appName)
 	}
+	closeLog, err := initFileLogging(dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			log.Printf("application error: %v", err)
+		}
+		closeLog()
+	}()
+	log.Printf("starting %s version=%s", appName, appinfo.Version())
 	s, err := store.New(dataDir)
 	if err != nil {
 		return err

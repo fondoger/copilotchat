@@ -4,11 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
@@ -85,7 +87,11 @@ func (a *app) startForwarding() {
 			return
 		}
 	}
-	server := localproxy.New(s.LocalKey)
+	var options []localproxy.Option
+	if channel := appinfo.Channel(); channel == "debug" || channel == "dev" {
+		options = append(options, localproxy.WithMCPErrorLog(log.Default()))
+	}
+	server := localproxy.New(s.LocalKey, options...)
 	if err := server.Start(s.LocalPort); err != nil {
 		server.Close()
 		a.forwardError = err.Error()

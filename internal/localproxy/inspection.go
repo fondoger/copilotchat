@@ -57,7 +57,7 @@ func (s *Server) SetInspection(enabled bool) {
 	// Dashboard replay and environment inspection remain disabled.
 	// Keep MCP traffic outside capture; replays target the actual Gateway listener.
 	routes := http.NewServeMux()
-	routes.Handle(inspectionMCPPath, gvmcp.Handler(st, gvmcp.WithBaseURL("http://"+s.address)))
+	routes.Handle(inspectionMCPPath, withMCPErrorLog(gvmcp.Handler(st, gvmcp.WithBaseURL("http://"+s.address)), s.mcpErrorLog))
 	routes.Handle("/", handler)
 	s.inspection.Store(&requestInspection{handler: routes, ctx: ctx, cancel: cancel})
 }

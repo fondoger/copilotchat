@@ -2,11 +2,15 @@ package desktop
 
 import (
 	"net"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 )
@@ -105,6 +109,58 @@ func TestForwardingKeepsKeyAcrossBindFailureAndRestart(t *testing.T) {
 	a.startForwarding()
 	if a.forwarder == nil || a.state.Settings.LocalKey != key {
 		t.Fatal("restart changed the local key")
+	}
+}
+
+func TestForwardingMCPDiagnosticsByBuildChannel(t *testing.T) {
+	previousVersion := mygo.App.Version()
+	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
+	for _, tc := range []struct {
+		version string
+		logged  bool
+	}{
+		{"debug", true},
+		{"0.5.11-dev.42", true},
+		{"0.5.11", false},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			mygo.App.SetVersion(tc.version)
+			dataDir := t.TempDir()
+			closeLog, err := initFileLogging(dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(closeLog)
+			a := newSettingsTestApp(t)
+			listener, err := net.Listen("tcp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, port, _ := net.SplitHostPort(listener.Addr().String())
+			a.state.Settings.LocalPort, _ = strconv.Atoi(port)
+			listener.Close()
+			a.state.Settings.GatewayInspection = true
+			a.startForwarding()
+			t.Cleanup(a.stopForwarding)
+			if a.forwarder == nil {
+				t.Fatal(a.forwardError)
+			}
+			r := httptest.NewRequest("GET", "/__viz/mcp", nil)
+			r.Host, r.RemoteAddr = a.forwarder.Address(), "127.0.0.1:12345"
+			r.Header.Set("Accept", "application/json")
+			w := httptest.NewRecorder()
+			a.forwarder.ServeHTTP(w, r)
+			if w.Code != http.StatusBadRequest {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			data, err := os.ReadFile(filepath.Join(dataDir, "logs", "app.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if logged := strings.Contains(string(data), "gateway-mcp"); logged != tc.logged {
+				t.Fatalf("MCP diagnostic logging = %t, want %t: %s", logged, tc.logged, data)
+			}
+		})
 	}
 }
 

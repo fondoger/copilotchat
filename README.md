@@ -29,6 +29,8 @@ go run .
 
 `go run .` 默认启动独立的 Copilot Chat Dev，隔离数据与登录状态，Gateway 默认端口为 `39322`（正式版为 `39321`），可与正式版同时运行。
 
+运行 `make dev` 可构建并替换通过安装器安装的 dev 或 stable 版本，沿用现有数据与登录状态：
+
 ## 文档
 
 - [GitHub Copilot](docs/copilot.md)
