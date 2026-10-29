@@ -4,7 +4,7 @@
 
 - 网页搜索：`web_search_20250305` → Responses `web_search`，指定搜索的 `tool_choice` 同步转换。上游执行搜索/打开页面，桥接只返回回答与去重的来源链接，不要求客户端执行工具，不伪造 Anthropic 加密搜索结果或原生搜索卡片；后续对话按普通文本回放。`max_uses` 转为顶层 `max_tool_calls`（限制全部内置工具调用，可能比原生搜索次数限制更严格）。目前不支持域名过滤、地域等搜索选项，传入会明确报错。
 - 工具调用：`tool_use` / `tool_result` ↔ function call / output；保留调用 ID、JSON 参数和错误结果，转换工具选择与并行开关。
-- 思考：thinking 配置/预算 → 模型支持的 reasoning effort；用桥接签名保留完整 reasoning 项，供无状态续聊回放。Desktop 超出的 effort 向下适配。
+- 思考：thinking 配置/预算 → 模型支持的 reasoning effort；用桥接签名保留完整 reasoning 项，供无状态续聊回放。签名在有体积收益时采用 zlib + Base64（`copilotchat-responses:z1:`），继续支持旧的未压缩签名；解压最多 32 MiB，损坏或超限时拒绝请求。Desktop 超出的 effort 向下适配。
 - 内容：system → 上游指令，轮次内 system/developer 保持顺序；图片/PDF 转 Responses 内容格式，文本附件转文本，JSON Schema 输出转 `text.format`。
 - 响应：JSON/SSE 双向适配，转换结束原因和错误；用量拆分普通输入与缓存命中，避免重复计数。
 - 路由：Desktop 模型别名还原上游 ID；转换后移除 Anthropic 专用版本/beta 请求头。token 计数走 `/responses/input_tokens` (Github Provider暂不支持, 404原样返回)，不生成回答。原生 Messages 路由不经过上述协议转换。

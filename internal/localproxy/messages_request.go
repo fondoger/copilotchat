@@ -2,6 +2,7 @@ package localproxy
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -37,19 +38,44 @@ func decodeObject(data []byte) (object, error) {
 }
 
 const reasoningSignaturePrefix = "copilotchat-responses:"
+const reasoningSignatureZlib = "z1:"
 
 func reasoningSignature(item object) string {
 	data, _ := json.Marshal(item)
+	var compressed bytes.Buffer
+	// Huffman coding reliably removes Base64 redundancy in opaque ciphertext.
+	writer, _ := zlib.NewWriterLevel(&compressed, zlib.HuffmanOnly)
+	_, _ = writer.Write(data)
+	_ = writer.Close()
+	if len(reasoningSignatureZlib)+base64.RawStdEncoding.EncodedLen(compressed.Len()) < base64.RawStdEncoding.EncodedLen(len(data)) {
+		return reasoningSignaturePrefix + reasoningSignatureZlib + base64.RawStdEncoding.EncodeToString(compressed.Bytes())
+	}
 	return reasoningSignaturePrefix + base64.RawStdEncoding.EncodeToString(data)
 }
 
 func restoreReasoning(signature string) (object, error) {
-	if !strings.HasPrefix(signature, reasoningSignaturePrefix) {
+	encoded, ok := strings.CutPrefix(signature, reasoningSignaturePrefix)
+	if !ok {
 		return nil, nil
 	}
-	data, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(signature, reasoningSignaturePrefix))
+	encoded, compressed := strings.CutPrefix(encoded, reasoningSignatureZlib)
+	data, err := base64.RawStdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, errors.New("invalid Responses thinking signature")
+	}
+	if compressed {
+		reader, err := zlib.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, errors.New("invalid Responses thinking signature")
+		}
+		defer reader.Close()
+		data, err = io.ReadAll(io.LimitReader(reader, MaxBody+1))
+		if err != nil {
+			return nil, errors.New("invalid Responses thinking signature")
+		}
+		if len(data) > MaxBody {
+			return nil, errors.New("Responses thinking signature exceeds 32 MiB")
+		}
 	}
 	item, err := decodeObject(data)
 	if err != nil || text(item["type"]) != "reasoning" {
