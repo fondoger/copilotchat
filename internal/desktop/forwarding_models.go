@@ -74,7 +74,7 @@ func (a *app) forwardingModels(profile *store.ForwardProfile) []localproxy.Model
 	return a.profileForwardingModels(profile, true)
 }
 
-func (a *app) classifierModels(profile *store.ForwardProfile) []localproxy.Model {
+func (a *app) claudeModelChoices(profile *store.ForwardProfile) []localproxy.Model {
 	models := a.profileForwardingModels(profile, false)
 	return slices.DeleteFunc(models, func(m localproxy.Model) bool {
 		return !agentconfig.Compatible(m.Model, agentconfig.ClaudeCode)
@@ -108,8 +108,11 @@ func (a *app) profileForwardingModels(profile *store.ForwardProfile, enabledOnly
 }
 
 func (a *app) classifierModel(profile *store.ForwardProfile) localproxy.Model {
-	ref := profile.ClaudeClassifierModel
-	for _, model := range a.classifierModels(profile) {
+	return claudeModelByRef(a.claudeModelChoices(profile), profile.ClaudeClassifierModel)
+}
+
+func claudeModelByRef(models []localproxy.Model, ref store.ForwardModelRef) localproxy.Model {
+	for _, model := range models {
 		if sharedModelRef(model) == ref {
 			return model
 		}
@@ -117,6 +120,17 @@ func (a *app) classifierModel(profile *store.ForwardProfile) localproxy.Model {
 	// Preserve the selected identity when offline, but no protocol capabilities:
 	// future requests fail rather than silently using a different model/account.
 	return localproxy.Model{ProviderID: ref.ProviderID, Model: provider.Model{ID: ref.ModelID}}
+}
+
+func (a *app) claudeDefaults(profile *store.ForwardProfile) map[string]localproxy.Model {
+	models := a.claudeModelChoices(profile)
+	defaults := map[string]localproxy.Model{}
+	for _, key := range agentconfig.ClaudeModelVariables {
+		if ref := profile.ClaudeDefaults[key]; ref.ModelID != "" {
+			defaults[key] = claudeModelByRef(models, ref)
+		}
+	}
+	return defaults
 }
 
 func (a *app) forwardingModelSettings(c *ui.Context, profile *store.ForwardProfile) {

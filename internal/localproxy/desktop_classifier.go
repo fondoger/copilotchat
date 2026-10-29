@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // ClassifierModelID is a purpose-specific route, not a catalog entry. Only the
@@ -12,7 +13,23 @@ func ClassifierModelID(model Model) string {
 	if model.Model.ID == "" {
 		return ""
 	}
-	return fmt.Sprintf("copilotchat-classifier-%x", sha256.Sum256([]byte(model.ProviderID+"\x00"+model.Model.ID)))
+	return privateModelID("classifier", model)
+}
+
+// DefaultModelID addresses a configured Claude default without publishing it.
+func DefaultModelID(model Model) string {
+	id := privateModelID("default", model)
+	if id != "" && strings.Contains(strings.ToLower(model.Model.ID), "claude") {
+		id += "/" + strings.ReplaceAll(model.Model.ID, ".", "-")
+	}
+	return id
+}
+
+func privateModelID(purpose string, model Model) string {
+	if model.Model.ID == "" {
+		return ""
+	}
+	return fmt.Sprintf("copilotchat-%s-%x", purpose, sha256.Sum256([]byte(model.ProviderID+"\x00"+model.Model.ID)))
 }
 
 // This fingerprint only selects a route; the caller must also authenticate with

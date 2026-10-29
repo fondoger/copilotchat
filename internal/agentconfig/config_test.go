@@ -60,9 +60,10 @@ func TestLocalAgentConfiguration(t *testing.T) {
 }
 
 func TestClaudeDefaultsAreOptionalAndProtocolChecked(t *testing.T) {
-	o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat", ClaudeDefaults: map[string]provider.Model{}}
+	o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat", ClaudeDefaults: map[string]localproxy.Model{}}
+	selected := localproxy.Model{ProviderID: "work", Model: provider.Model{ID: "claude-work (2)", Endpoints: []string{"/responses", "/v1/messages"}}}
 	for _, key := range ClaudeModelVariables {
-		o.ClaudeDefaults[key] = provider.Model{ID: "claude-work (2)", Endpoints: []string{"/responses", "/v1/messages"}}
+		o.ClaudeDefaults[key] = selected
 	}
 	text, err := Generate(o)
 	var config struct{ Env map[string]string }
@@ -70,7 +71,7 @@ func TestClaudeDefaultsAreOptionalAndProtocolChecked(t *testing.T) {
 		t.Fatal(text, err)
 	}
 	for _, key := range ClaudeModelVariables {
-		if config.Env[key] != "claude-work (2)" {
+		if config.Env[key] != localproxy.DefaultModelID(selected) {
 			t.Fatal("missing model mapping", key)
 		}
 	}
@@ -79,7 +80,7 @@ func TestClaudeDefaultsAreOptionalAndProtocolChecked(t *testing.T) {
 	if err != nil || strings.Contains(text, ClaudeModelVariables[0]) || strings.Contains(text, "ANTHROPIC_MODEL") {
 		t.Fatal("unset variable was not omitted", text, err)
 	}
-	o.ClaudeDefaults[ClaudeModelVariables[1]] = provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}
+	o.ClaudeDefaults[ClaudeModelVariables[1]] = localproxy.Model{Model: provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}}
 	if _, err := Generate(o); err == nil {
 		t.Fatal("incompatible default allowed")
 	}
@@ -133,7 +134,7 @@ func TestClaudeClassifierModel(t *testing.T) {
 				Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
 				ClaudeClassifierModel: classifier,
 				// Obsolete ordinary defaults must not select the classifier.
-				ClaudeDefaults: map[string]provider.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": {ID: "legacy", Endpoint: "/chat/completions"}},
+				ClaudeDefaults: map[string]localproxy.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": {Model: provider.Model{ID: "legacy", Endpoint: "/chat/completions"}}},
 				Models:         []localproxy.Model{{ID: "work/chat", Model: provider.Model{ID: "chat", Endpoint: "/responses"}}},
 			})
 			if err != nil {

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +12,9 @@ func TestForwardProfileClassifierMigration(t *testing.T) {
 		name, fields string
 		want         ForwardModelRef
 	}{
+		{"Code field wins", `"claudeCodeClassifierModel":{"providerId":"code","modelId":"code-model"},"claudeClassifierModel":{"providerId":"old","modelId":"old-model"}`, ForwardModelRef{"code", "code-model"}},
+		{"empty Code field clears", `"claudeCodeClassifierModel":{},"claudeClassifierModel":{"providerId":"old","modelId":"old-model"}`, ForwardModelRef{}},
+		{"null Code field clears", `"claudeCodeClassifierModel":null,"claudeClassifierModel":{"providerId":"old","modelId":"old-model"}`, ForwardModelRef{}},
 		{"unset", ``, ForwardModelRef{}},
 		{"auto default", `"claudeDefaults":{"CLAUDE_CODE_AUTO_MODE_MODEL":{"providerId":"auto","modelId":"auto-model"}}`, ForwardModelRef{"auto", "auto-model"}},
 		{"legacy", `"claudeDesktopClassifierModel":{"providerId":"legacy","modelId":"legacy-model"},"claudeDefaults":{"CLAUDE_CODE_AUTO_MODE_MODEL":{"providerId":"auto","modelId":"auto-model"}}`, ForwardModelRef{"legacy", "legacy-model"}},
@@ -41,8 +45,11 @@ func TestForwardProfileClassifierMigration(t *testing.T) {
 			if _, exists := fields["claudeDesktopClassifierModel"]; exists {
 				t.Fatal("legacy classifier field written", string(encoded))
 			}
-			if _, exists := fields["claudeClassifierModel"]; !exists {
-				t.Fatal("canonical classifier field missing", string(encoded))
+			if _, exists := fields["claudeCodeClassifierModel"]; !exists {
+				t.Fatal("Code classifier field missing", string(encoded))
+			}
+			if _, exists := fields["claudeClassifierModel"]; exists {
+				t.Fatal("shared classifier field written", string(encoded))
 			}
 			var roundTrip ForwardProfile
 			if err := json.Unmarshal(encoded, &roundTrip); err != nil {
@@ -52,6 +59,37 @@ func TestForwardProfileClassifierMigration(t *testing.T) {
 				t.Fatalf("round trip changed classifier: %+v", roundTrip)
 			}
 		})
+	}
+}
+
+func TestDesktopClassifierMigratesToSonnetOnlyOnce(t *testing.T) {
+	for _, defaults := range []string{``, `,"claudeDefaults":{"ANTHROPIC_DEFAULT_SONNET_MODEL":{}}`, `,"claudeDefaults":{"ANTHROPIC_DEFAULT_SONNET_MODEL":{"providerId":"chosen","modelId":"balanced"}}`} {
+		var profile ForwardProfile
+		data := `{"agent":"Claude Desktop","claudeClassifierModel":{"providerId":"legacy","modelId":"check"}` + defaults + `}`
+		if err := json.Unmarshal([]byte(data), &profile); err != nil {
+			t.Fatal(err)
+		}
+		want := ForwardModelRef{"legacy", "check"}
+		if strings.Contains(defaults, `"chosen"`) {
+			want = ForwardModelRef{"chosen", "balanced"}
+		} else if defaults != "" {
+			want = ForwardModelRef{}
+		}
+		if profile.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"] != want || profile.ClaudeClassifierModel != (ForwardModelRef{"legacy", "check"}) {
+			t.Fatal("legacy Desktop choice lost or explicit default overwritten", profile)
+		}
+		delete(profile.ClaudeDefaults, "ANTHROPIC_DEFAULT_SONNET_MODEL")
+		encoded, err := json.Marshal(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored ForwardProfile
+		if err := json.Unmarshal(encoded, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if restored.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"] != (ForwardModelRef{}) || restored.ClaudeClassifierModel != profile.ClaudeClassifierModel {
+			t.Fatal("cleared Desktop default revived or Code classifier lost", restored)
+		}
 	}
 }
 

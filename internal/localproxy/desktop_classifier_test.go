@@ -96,7 +96,7 @@ func TestDesktopClassifierRouting(t *testing.T) {
 				s := New("key")
 				t.Cleanup(s.Close)
 				s.Update(targets, map[string]Profile{
-					"test":  {ID: "test", Models: models, ClaudeClassifierModel: classifier},
+					"test":  {ID: "test", Models: models, ClaudeDefaults: map[string]Model{claudeSonnetDefault: classifier}},
 					"other": {ID: "other", Models: models[:1]},
 				})
 				body := `{"model":"` + test.requested + `","max_tokens":100,"system":` + test.system + `,"stop_sequences":` + test.stops + `,"messages":[{"role":"user","content":"check"}],"unknown":{"number":9007199254740993,"signature":"signed"}}`
@@ -130,7 +130,7 @@ func TestDesktopClassifierDoesNotOverrideTokenCounting(t *testing.T) {
 			t.Fatalf("counting was rerouted: %s %s", raw.Endpoint, raw.Body)
 		}
 		return response(`{"input_tokens":1}`), nil
-	}}}}, map[string]Profile{"test": {ID: "test", Models: []Model{{ID: "primary", ProviderID: "account", Model: provider.Model{ID: "primary", Endpoint: "/v1/messages"}}}, ClaudeClassifierModel: Model{ProviderID: "account", Model: provider.Model{ID: "missing"}}}})
+	}}}}, map[string]Profile{"test": {ID: "test", Models: []Model{{ID: "primary", ProviderID: "account", Model: provider.Model{ID: "primary", Endpoint: "/v1/messages"}}}, ClaudeDefaults: map[string]Model{claudeSonnetDefault: {ProviderID: "account", Model: provider.Model{ID: "missing"}}}}})
 	r := httptest.NewRequest("POST", "/test/v1/messages/count_tokens", strings.NewReader(`{"model":"primary","system":[{"type":"text","text":"check","cache_control":{"type":"ephemeral"}}],"stop_sequences":["</severity>"],"messages":[{"role":"user","content":"hi"}]}`))
 	r.Host = "127.0.0.1:39321"
 	r.Header.Set("X-Api-Key", ClaudeDesktopKey)

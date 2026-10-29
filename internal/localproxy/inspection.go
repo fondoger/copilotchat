@@ -2,6 +2,8 @@ package localproxy
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -14,6 +16,14 @@ const (
 	inspectionPath    = "/__viz"
 	inspectionMCPPath = inspectionPath + "/mcp"
 )
+
+var modelRoutingLogger = slog.New(govisual.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
+
+func logModelRoute(ctx context.Context, requested string, route modelRoute) {
+	modelRoutingLogger.InfoContext(ctx, "LLM Gateway model routing",
+		"requested_model", requested, "routed_model", route.model.Model.ID,
+		"provider_id", route.model.ProviderID, "reason", route.reason, "available", route.ctx != nil)
+}
 
 type requestInspection struct {
 	handler http.Handler

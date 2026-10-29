@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fondoger/copilotchat/internal/agentconfig"
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
@@ -31,15 +32,16 @@ func TestClassifierIgnoresSharingButRequiresAvailableProvider(t *testing.T) {
 				t.Fatal("classifier widened shared models")
 			}
 			selected := a.classifierModel(p)
-			for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.ClaudeDesktop} {
-				config, err := a.agentConfiguration(p, agent)
-				if unavailable != "" {
-					if err == nil {
-						t.Fatal("unavailable classifier generated configuration", agent, config)
-					}
-				} else if err != nil {
-					t.Fatal("disabled checkbox blocked classifier", agent, err)
+			config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)
+			if unavailable != "" {
+				if err == nil {
+					t.Fatal("unavailable classifier generated configuration", config)
 				}
+			} else if err != nil || !strings.Contains(config, "copilotchat-classifier-") {
+				t.Fatal("disabled checkbox blocked classifier", config, err)
+			}
+			if _, err := a.agentConfiguration(p, agentconfig.ClaudeDesktop); err != nil {
+				t.Fatal("Code classifier affected Desktop defaults", err)
 			}
 			if selected.ProviderID != "work" || selected.Model.ID != "gpt-5.5" {
 				t.Fatal("classifier identity lost", selected)
@@ -47,17 +49,50 @@ func TestClassifierIgnoresSharingButRequiresAvailableProvider(t *testing.T) {
 			if unavailable != "" && agentconfig.Compatible(selected.Model, agentconfig.ClaudeCode) {
 				t.Fatal("unavailable classifier retained capabilities", selected)
 			}
-			if unavailable == "" {
-				p.ClaudeDefaults = map[string]store.ForwardModelRef{"ANTHROPIC_DEFAULT_SONNET_MODEL": p.ClaudeClassifierModel}
-				if _, err := a.agentConfiguration(p, agentconfig.ClaudeCode); err == nil {
-					t.Fatal("ordinary default bypassed sharing filter")
-				}
-				delete(p.ClaudeDefaults, "ANTHROPIC_DEFAULT_SONNET_MODEL")
-				config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)
-				if err != nil || !strings.Contains(config, "copilotchat-classifier-") {
-					t.Fatal(config, err)
-				}
-			}
 		})
+	}
+}
+
+func TestClaudeDefaultsUseUnsharedModelsAndPreserveUnavailableIdentity(t *testing.T) {
+	for _, key := range agentconfig.ClaudeModelVariables {
+		for _, unavailable := range []string{"", "disabled", "signed out", "missing model", "wrong protocol"} {
+			t.Run(key+"/"+unavailable, func(t *testing.T) {
+				a := profileTestApp(t)
+				a.state.Settings.LocalKey = "fixture-local-key"
+				p := a.selectedForwardProfile()
+				p.ClaudeDefaults = map[string]store.ForwardModelRef{key: {ProviderID: "work", ModelID: "gpt-5.5"}}
+				a.setForwardEnabled(p, -1, false)
+				switch unavailable {
+				case "disabled":
+					a.provider("work").Disabled = true
+				case "signed out":
+					a.providers["work"].client = nil
+				case "missing model":
+					a.providers["work"].models = nil
+				case "wrong protocol":
+					a.providers["work"].models = []provider.Model{{ID: "gpt-5.5", Endpoint: "/chat/completions"}}
+				}
+				selected := a.claudeDefaults(p)[key]
+				if selected.ProviderID != "work" || selected.Model.ID != "gpt-5.5" {
+					t.Fatal("default model changed account or identity", selected)
+				}
+				config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)
+				if unavailable != "" {
+					if err == nil || agentconfig.Compatible(selected.Model, agentconfig.ClaudeCode) {
+						t.Fatal("unavailable default retained capabilities", selected, config, err)
+					}
+				} else if err != nil || !strings.Contains(config, localproxy.DefaultModelID(selected)+"[1m]") {
+					t.Fatal("unshared default was not generated as a private route", config, err)
+				}
+				_, err = a.agentConfiguration(p, agentconfig.ClaudeDesktop)
+				usesDesktop := key == "ANTHROPIC_DEFAULT_SONNET_MODEL" || key == "ANTHROPIC_DEFAULT_HAIKU_MODEL" || key == "CLAUDE_CODE_SUBAGENT_MODEL"
+				if (err != nil) != (usesDesktop && unavailable != "") {
+					t.Fatal("Desktop validated the wrong defaults", key, unavailable, err)
+				}
+				if len(a.forwardingModels(p)) != 0 {
+					t.Fatal("default choice enabled ordinary sharing")
+				}
+			})
+		}
 	}
 }

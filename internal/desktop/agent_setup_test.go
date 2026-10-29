@@ -61,24 +61,28 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		t.Fatal("Claude config does not match defaults", tester.Texts())
 	}
 	agentSetupScreenshot(t, tester, "agent-setup-defaults")
+	settingsClick(t, tester, "Choose security classifier model")
+	settingsClick(t, tester, "Select Choose security classifier model github-copilot/claude-fixture")
 	settingsClick(t, tester, agentconfig.ClaudeDesktop)
 	settingsClick(t, tester, "Share github.com gpt-fixture")
-	settingsClick(t, tester, "Choose security classifier model")
-	settingsClick(t, tester, "Select Choose security classifier model github-copilot/gpt-fixture")
-	if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeClassifierModel.ModelID != "gpt-fixture" {
-		t.Fatal("Desktop classifier selection was not persisted")
+	for _, choice := range desktopModelDefaults {
+		settingsClick(t, tester, "Choose "+choice.label)
+		settingsClick(t, tester, "Select Choose "+choice.label+" github-copilot/gpt-fixture")
+		if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeDefaults[choice.key].ModelID != "gpt-fixture" {
+			t.Fatal("Desktop default selection was not persisted", choice.key)
+		}
+	}
+	if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeClassifierModel.ModelID != "claude-fixture" {
+		t.Fatal("Desktop defaults replaced the Code classifier")
 	}
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeDesktop)
 	if configErr != nil || !strings.Contains(configText, `"inferenceGatewayApiKey": "copilotchat-claude-desktop"`) || !tester.HasText("Claude Desktop gateway configuration (JSON)") {
 		t.Fatal("Claude Desktop configuration missing", configText, configErr)
 	}
-	if _, ok := tester.Find("Model defaults"); ok {
-		t.Fatal("CLI defaults shown in Desktop setup")
-	}
 	settingsClick(t, tester, agentconfig.ClaudeCode)
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeCode)
-	if configErr != nil || !strings.Contains(configText, "copilotchat-classifier-") || strings.Contains(configText, "github-copilot/gpt-fixture") {
-		t.Fatal("shared disabled classifier was not generated separately", configText, configErr)
+	if configErr != nil || !strings.Contains(configText, "copilotchat-classifier-") || !strings.Contains(configText, "copilotchat-default-") || strings.Contains(configText, "github-copilot/gpt-fixture") {
+		t.Fatal("unshared defaults or classifier were not generated separately", configText, configErr)
 	}
 	if len(a.forwardingModels(a.selectedForwardProfile())) != 1 {
 		t.Fatal("classifier selection enabled ordinary sharing")
@@ -148,9 +152,17 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 		t.Fatal("classifier or permission mode lost across profile duplication")
 	}
 	a.setForwardEnabled(p, 1, false)
+	config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)
+	if err != nil || !strings.Contains(config, localproxy.DefaultModelID(a.claudeDefaults(p)["ANTHROPIC_DEFAULT_SONNET_MODEL"])+"[1m]") {
+		t.Fatal("unshared default lost its account-bound private route", config, err)
+	}
+	if _, err := a.agentConfiguration(p, agentconfig.Codex); err == nil {
+		t.Fatal("unshared Codex model silently replaced")
+	}
+	a.provider("work").Disabled = true
 	for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.Codex} {
 		if _, err := a.agentConfiguration(p, agent); err == nil {
-			t.Fatal("disabled explicit model silently replaced", agent)
+			t.Fatal("disabled account silently replaced", agent)
 		}
 	}
 }

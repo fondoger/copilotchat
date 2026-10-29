@@ -31,7 +31,11 @@ const classifierCostHint = "Used only in Auto mode to judge whether potentially 
 
 const codeClassifierHint = "https://claude.com/resources/articles/auto-mode-default-in-claude-code\n\n" + classifierCostHint
 
-const desktopClassifierHint = classifierCostHint + "\n\nClaude Desktop's classifier model ID cannot be configured. LLM Gateway maps matching security-check requests to this model. If Not set, Desktop may fall back to the main model when its classifier model is unavailable, which can cost more if the main model is expensive."
+var desktopModelDefaults = []struct{ key, label, hint string }{
+	{"ANTHROPIC_DEFAULT_SONNET_MODEL", "Sonnet level balanced model", "Used for general-purpose subagents and the Auto mode security classifier."},
+	{"ANTHROPIC_DEFAULT_HAIKU_MODEL", "Haiku level fast model", "Used for web search and research subagents, and Auto mode security checks that request a Haiku level model."},
+	{"CLAUDE_CODE_SUBAGENT_MODEL", "Subagent Model", "Recommended: Not set. Subagents select a Sonnet or Haiku level model based on the task. When set, this model is the fallback for subagent requests."},
+}
 
 func classifierInfo(c *ui.Context, hint string) {
 	ui.Icon(c, classifierInfoIcon).Size(14, 14).Shrink(0).TextColor(c.Theme().TextMuted).Label("About Auto mode security checks").Tooltip(hint)
@@ -144,25 +148,29 @@ func (a *app) agentConfiguration(p *store.ForwardProfile, agent string) (string,
 	if a.storage != nil {
 		o.CatalogPath = a.storage.AgentCatalogPath(p.ID)
 	}
-	if (agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop) && p.ClaudeClassifierModel.ModelID != "" {
-		o.ClaudeClassifierModel = a.classifierModel(p)
-		if !agentconfig.Compatible(o.ClaudeClassifierModel.Model, agent) {
-			return "", fmt.Errorf("Security classifier model is unavailable. Choose another model or Not set")
+	if agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop {
+		o.ClaudeDefaults = a.claudeDefaults(p)
+		keys := agentconfig.ClaudeModelVariables
+		if agent == agentconfig.ClaudeDesktop {
+			keys = nil
+			for _, choice := range desktopModelDefaults {
+				keys = append(keys, choice.key)
+			}
+		}
+		for _, key := range keys {
+			model := o.ClaudeDefaults[key]
+			if model.Model.ID != "" && !agentconfig.Compatible(model.Model, agent) {
+				return "", fmt.Errorf("%s is unavailable. Choose another model or Not set", key)
+			}
 		}
 	}
 	if agent == agentconfig.ClaudeCode {
 		o.ClaudePermissionMode = p.ClaudePermissionMode
-		o.ClaudeDefaults = map[string]provider.Model{}
-		for _, key := range agentconfig.ClaudeModelVariables {
-			ref := p.ClaudeDefaults[key]
-			if ref.ModelID == "" {
-				continue
+		if p.ClaudeClassifierModel.ModelID != "" {
+			o.ClaudeClassifierModel = a.classifierModel(p)
+			if !agentconfig.Compatible(o.ClaudeClassifierModel.Model, agent) {
+				return "", fmt.Errorf("Security classifier model is unavailable. Choose another model or Not set")
 			}
-			model, ok := agentModelByRef(models, ref)
-			if !ok {
-				return "", fmt.Errorf("%s is unavailable. Choose another model or Not set", key)
-			}
-			o.ClaudeDefaults[key] = model
 		}
 	} else if agent == agentconfig.Codex {
 		if err := a.forwardCatalogErrors[p.ID]; err != "" {
@@ -246,23 +254,44 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 				}
 			})
 		})
-		if agent == agentconfig.ClaudeCode {
+		if agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop {
+			choices := a.claudeModelChoices(p)
 			ui.Column(c).FillWidth().Children(func() {
 				d := setupDisclosure(c, "model-defaults", "Model defaults", &s.defaultsOpen)
 				d.Panel(func() {
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
-						for _, key := range agentconfig.ClaudeModelVariables {
-							prefix := "ANTHROPIC_DEFAULT_"
-							if strings.HasPrefix(key, "CLAUDE_CODE_") {
-								prefix = "CLAUDE_CODE_"
+						keys := agentconfig.ClaudeModelVariables
+						if agent == agentconfig.ClaudeDesktop {
+							keys = nil
+							for _, choice := range desktopModelDefaults {
+								keys = append(keys, choice.key)
 							}
-							keyword := strings.TrimSuffix(strings.TrimPrefix(key, prefix), "_MODEL")
+						}
+						for _, key := range keys {
+							label, hint := key, ""
+							if agent == agentconfig.ClaudeDesktop {
+								for _, choice := range desktopModelDefaults {
+									if choice.key == key {
+										label, hint = choice.label, choice.hint
+									}
+								}
+							}
 							ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 								ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
-									ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).MinWidth(0)
+									if agent == agentconfig.ClaudeDesktop {
+										ui.Text(c, label).FontSize(12).MinWidth(0)
+										ui.Icon(c, classifierInfoIcon).Size(14, 14).Shrink(0).TextColor(t.TextMuted).Label("About " + label).Tooltip(hint)
+									} else {
+										prefix := "ANTHROPIC_DEFAULT_"
+										if strings.HasPrefix(key, "CLAUDE_CODE_") {
+											prefix = "CLAUDE_CODE_"
+										}
+										keyword := strings.TrimSuffix(strings.TrimPrefix(key, prefix), "_MODEL")
+										ui.RichText(c, ui.Span{Text: prefix}, ui.Span{Text: keyword, Weight: 600}, ui.Span{Text: "_MODEL"}).FontSize(11).MinWidth(0)
+									}
 								})
 								ui.Column(c).Width(250).Shrink(0).Children(func() {
-									a.agentModelSelect(c, p, "Choose "+key, p.ClaudeDefaults[key], models, true, func(ref store.ForwardModelRef) {
+									a.agentModelSelect(c, p, "Choose "+label, p.ClaudeDefaults[key], choices, true, func(ref store.ForwardModelRef) {
 										if p.ClaudeDefaults == nil {
 											p.ClaudeDefaults = map[string]store.ForwardModelRef{}
 										}
@@ -275,10 +304,11 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 								})
 							})
 						}
-						ui.Text(c, "Optional. Not set leaves the variable out of your configuration.").FontSize(11).TextColor(t.TextMuted)
 					})
 				})
 			})
+		}
+		if agent == agentconfig.ClaudeCode {
 			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Default permission mode").FontSize(12).Grow(1)
 				ui.Column(c).Width(250).Children(func() {
@@ -305,19 +335,15 @@ func (a *app) agentConfigurationSettings(c *ui.Context, p *store.ForwardProfile)
 			})
 			ui.Text(c, "Uses provider name OpenAI when enabled; Copilot Chat Proxy otherwise.").FontSize(11).TextColor(t.TextMuted)
 		}
-		if agent == agentconfig.ClaudeCode || agent == agentconfig.ClaudeDesktop {
-			label, hint := "Security classifier model for auto mode", desktopClassifierHint
-			if agent == agentconfig.ClaudeCode {
-				label += " (CLAUDE_CODE_AUTO_MODE_MODEL)"
-				hint = codeClassifierHint
-			}
+		if agent == agentconfig.ClaudeCode {
+			label := "Security classifier model for auto mode (CLAUDE_CODE_AUTO_MODE_MODEL)"
 			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 				ui.Row(c).Width(0).Grow(1).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, label).FontSize(12).MinWidth(0)
-					classifierInfo(c, hint)
+					classifierInfo(c, codeClassifierHint)
 				})
 				ui.Column(c).Width(250).Shrink(0).Children(func() {
-					a.agentModelSelect(c, p, "Choose security classifier model", p.ClaudeClassifierModel, a.classifierModels(p), true, func(ref store.ForwardModelRef) {
+					a.agentModelSelect(c, p, "Choose security classifier model", p.ClaudeClassifierModel, a.claudeModelChoices(p), true, func(ref store.ForwardModelRef) {
 						p.ClaudeClassifierModel = ref
 					})
 				})

@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/fondoger/copilotchat/internal/localproxy"
@@ -72,14 +73,34 @@ func TestClaudeCompactionWindowReservesHeadroom(t *testing.T) {
 	}
 }
 
-func TestClaudeDefaultModelUsesContextSuffix(t *testing.T) {
-	o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "work"), Key: "copilotchat",
-		Models:         []localproxy.Model{{ID: "github-copilot/claude-user/gpt-5.5", Model: provider.Model{ID: "gpt-5.5", Endpoint: "/responses"}}},
-		ClaudeDefaults: map[string]provider.Model{"ANTHROPIC_DEFAULT_SONNET_MODEL": {ID: "github-copilot/claude-user/gpt-5.5", Endpoint: "/responses"}},
-	}
-	config, err := Generate(o)
-	var parsed struct{ Env map[string]string }
-	if err != nil || json.Unmarshal([]byte(config), &parsed) != nil || parsed.Env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "github-copilot/claude-user/gpt-5.5[1m]" {
-		t.Fatal(config, err)
+func TestClaudeDefaultModelRoutesWithoutWideningCatalog(t *testing.T) {
+	for _, upstream := range []string{"claude-fixture", "gpt-fixture"} {
+		for _, shared := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/shared=%t", upstream, shared), func(t *testing.T) {
+				selected := localproxy.Model{ID: "github-copilot/claude-user/" + upstream, ProviderID: "github", Model: provider.Model{ID: upstream, Endpoint: "/responses"}}
+				o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "work"), Key: "copilotchat",
+					ClaudeDefaults: map[string]localproxy.Model{"ANTHROPIC_DEFAULT_SONNET_MODEL": selected},
+				}
+				wantRoute := localproxy.DefaultModelID(selected)
+				if shared {
+					o.Models = []localproxy.Model{selected}
+					wantRoute = selected.ID
+				}
+				if upstream == "gpt-fixture" {
+					wantRoute += "[1m]"
+				}
+				config, err := Generate(o)
+				var parsed struct {
+					Env         map[string]string
+					ModelPicker struct{ Options []struct{ Model string } }
+				}
+				if err != nil || json.Unmarshal([]byte(config), &parsed) != nil || parsed.Env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != wantRoute {
+					t.Fatal(config, err)
+				}
+				if len(parsed.ModelPicker.Options) != len(o.Models) {
+					t.Fatal("default choice changed ordinary model sharing", config)
+				}
+			})
+		}
 	}
 }

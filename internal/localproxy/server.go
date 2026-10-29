@@ -36,6 +36,7 @@ type Target struct {
 type Profile struct {
 	ID                    string
 	Models                []Model
+	ClaudeDefaults        map[string]Model
 	ClaudeClassifierModel Model
 }
 
@@ -135,6 +136,11 @@ func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) 
 		}
 		// Keep caller's persisted provider order for ambiguous short IDs.
 		profile.Models = models
+		defaults := make(map[string]Model, len(profile.ClaudeDefaults))
+		for key, model := range profile.ClaudeDefaults {
+			defaults[key] = cloneForwardModel(model)
+		}
+		profile.ClaudeDefaults = defaults
 		profile.ClaudeClassifierModel = cloneForwardModel(profile.ClaudeClassifierModel)
 		if old := s.profiles[name]; old != nil {
 			old.Profile = profile
@@ -321,52 +327,21 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	routeModelID := strings.TrimSuffix(envelope.Model, "[1m]")
 	routeModelID = strings.TrimPrefix(routeModelID, "claude-desktop/")
 	classifierRequest := desktop && endpoint == "/v1/messages" && isDesktopClassifierRequest(body)
+	subagentRequest := desktop && endpoint == "/v1/messages" && isDesktopSubagentRequest(r.Header, body)
 	s.mu.RLock()
-	var model Model
-	var target Target
-	var providerCtx context.Context
+	var route modelRoute
 	// Re-read after receiving the body so a removed/renamed profile or model
 	// cannot start a new request using an obsolete snapshot.
-	models = nil
-	var classifier Model
 	if current := s.profiles[profileName]; current != nil && current.ID == profileID {
-		models = current.Models
-		classifier = current.ClaudeClassifierModel
-	}
-	overrideClassifier := endpoint == "/v1/messages" && classifier.Model.ID != "" && (classifierRequest || routeModelID == ClassifierModelID(classifier))
-	if overrideClassifier {
-		models = nil // Never fall back to an ordinary route for a configured classifier.
-		if item := s.targets[classifier.ProviderID]; item != nil && supportsMessages(classifier.Model) {
-			model, target, providerCtx = classifier, item.Target, item.ctx
-		}
-	}
-	desktopModels := clientModelIDs(models, desktop)
-	for i, candidate := range models {
-		compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
-		matchesDesktop := desktop && desktopModels[i].ID == routeModelID
-		matches := candidate.ID == routeModelID || slices.Contains(candidate.Routes, routeModelID) || matchesDesktop
-		if matches && compatible {
-			if item := s.targets[candidate.ProviderID]; item != nil {
-				model, target, providerCtx = candidate, item.Target, item.ctx
-			}
-			break
-		}
-	}
-	// Published IDs take priority over compatibility aliases.
-	if desktop && !overrideClassifier && providerCtx == nil {
-		for _, candidate := range models {
-			compatible := supports(candidate.Model, protocol) || (protocol == "/v1/messages" && supportsMessages(candidate.Model)) || (endpoint == "/responses" && supportsResponses(candidate.Model))
-			if compatible && claudeDesktopModelAliasMatches(candidate, routeModelID) {
-				if item := s.targets[candidate.ProviderID]; item != nil {
-					model, target, providerCtx = candidate, item.Target, item.ctx
-				}
-				break
-			}
-		}
+		route = s.routeModel(current, desktop, endpoint, protocol, routeModelID, classifierRequest, subagentRequest)
 	}
 	s.mu.RUnlock()
+	model, target, providerCtx := route.model, route.target, route.ctx
+	if route.reason != "" {
+		logModelRoute(r.Context(), envelope.Model, route)
+	}
 	if providerCtx == nil {
-		apiError(w, 400, "Model ID is disabled, unavailable, or does not support this API. Check LLM Gateway in Copilot Chat.")
+		apiError(w, 400, unavailableModelMessage(desktop, routeModelID, classifierRequest, subagentRequest))
 		return
 	}
 	if envelope.Model != model.Model.ID {
@@ -388,7 +363,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	stream := false
 	if converted && !countTokens {
-		body, stream, messagesSearch, err = convertMessagesRequest(body, model.Model, overrideClassifier || classifierRequest)
+		body, stream, messagesSearch, err = convertMessagesRequest(body, model.Model, route.classifier || classifierRequest)
 		if err != nil {
 			apiError(w, 400, err.Error())
 			return

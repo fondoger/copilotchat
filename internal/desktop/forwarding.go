@@ -22,7 +22,7 @@ func (a *app) syncForwardingProviders() {
 		profile := &a.state.Settings.ForwardProfiles[i]
 		models := a.forwardingModels(profile)
 		profiles[profile.Name] = localproxy.Profile{ID: profile.ID, Models: models,
-			ClaudeClassifierModel: a.classifierModel(profile)}
+			ClaudeDefaults: a.claudeDefaults(profile), ClaudeClassifierModel: a.classifierModel(profile)}
 		a.syncForwardCatalog(profile.ID, models)
 	}
 	if a.forwarder == nil {

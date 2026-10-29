@@ -30,7 +30,7 @@ type Options struct {
 	Models                []localproxy.Model
 	Agent, BaseURL, Key   string
 	CatalogPath           string
-	ClaudeDefaults        map[string]provider.Model
+	ClaudeDefaults        map[string]localproxy.Model
 	ClaudePermissionMode  string
 	ClaudeClassifierModel localproxy.Model
 	RemoteCompaction      bool
@@ -96,20 +96,20 @@ func Generate(o Options) (string, error) {
 		}
 		for _, key := range ClaudeModelVariables {
 			model := o.ClaudeDefaults[key]
-			if model.ID == "" {
+			if model.Model.ID == "" {
 				continue
 			}
-			if !Compatible(model, ClaudeCode) {
+			if !Compatible(model.Model, ClaudeCode) {
 				return "", fmt.Errorf("%s does not support the Messages protocol", key)
 			}
-			upstreamID := model.ID[strings.LastIndex(model.ID, "/")+1:]
+			route := localproxy.DefaultModelID(model)
 			for _, m := range o.Models {
-				if m.ID == model.ID {
-					upstreamID = m.Model.ID
+				if m.ProviderID == model.ProviderID && m.Model.ID == model.Model.ID {
+					route = m.ID
 					break
 				}
 			}
-			env[key] = claudeConfigModelID(model.ID, upstreamID)
+			env[key] = claudeConfigModelID(route, model.Model.ID)
 		}
 		if alias := localproxy.ClassifierModelID(o.ClaudeClassifierModel); alias != "" {
 			if !Compatible(o.ClaudeClassifierModel.Model, ClaudeCode) {
