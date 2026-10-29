@@ -256,7 +256,7 @@ Codex 声明原生客户端搜索：
 
 客户端提供的原生 `additional_tools` 项保持透传。
 
-网关生成的 Codex 模型目录对非 GPT Responses 上游设置 `supports_search_tool:false`；GPT Responses 和 Messages-only 模型按普通工具能力声明搜索支持。这一保守策略用于避免兼容转换改变顶层工具表所带来的缓存前缀风险，尚无具体缓存收益的实测结论。
+网关生成的 Codex 模型目录对非 GPT Responses 上游设置 `supports_search_tool:false`；GPT Responses 和 Messages-only 模型按普通工具能力声明搜索支持。这一保守策略用于避免兼容转换改变顶层工具表所带来的缓存前缀风险。GPT 客户端搜索的后续缓存实测见[Tool Search 流式兼容与缓存前缀](tool-search-stream-compatibility.md)。
 
 ### Claude 客户端搜索到 GPT Responses
 

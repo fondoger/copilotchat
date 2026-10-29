@@ -231,7 +231,9 @@ func TestMessagesNativeSearchHostedBufferedUntilOutput(t *testing.T) {
 	if strings.Contains(w.Body.String(), "content_block_start") {
 		t.Fatal("hosted call escaped before its output")
 	}
-	if err := stream.complete(response); err != nil {
+	changed := copyMessagesObject(response)
+	obj(array(changed["output"])[0])["id"] = "rotated-pending-call"
+	if err := stream.complete(changed); err != nil {
 		t.Fatal(err)
 	}
 	if stream.tools || !strings.Contains(w.Body.String(), `"stop_reason":"end_turn"`) || strings.Count(w.Body.String(), "event: content_block_start") != 3 {
@@ -247,15 +249,33 @@ func TestMessagesNativeSearchReplayRejectsRawInternalBlock(t *testing.T) {
 }
 
 func TestMessagesNativeSearchStreamRejectsChangedTerminal(t *testing.T) {
-	response := searchResponseFixture(t, "client")
-	stream := newMessagesStream(httptest.NewRecorder(), "public", &messagesSearchContext{mode: "client", name: "ToolSearch"})
-	if err := stream.item(0, obj(array(response["output"])[0]), true); err != nil {
-		t.Fatal(err)
+	changes := object{
+		"arguments": object{"query": "tampered"}, "call_id": "changed", "execution": "invalid",
+		"namespace": "changed", "status": "in_progress", "type": "message",
+		"tools": []any{}, "future": true,
 	}
-	changed := searchResponseFixture(t, "client")
-	obj(array(changed["output"])[0])["arguments"] = object{"query": "tampered"}
-	if err := stream.complete(changed); err == nil {
-		t.Fatal("accepted changed terminal search call")
+	for _, mode := range []string{"client", "server"} {
+		for field, value := range changes {
+			t.Run(mode+"/"+field, func(t *testing.T) {
+				response := searchResponseFixture(t, mode)
+				context := &messagesSearchContext{mode: mode, name: "ToolSearch"}
+				if mode == "server" {
+					context.name = "tool_search_tool_regex"
+				}
+				stream := newMessagesStream(httptest.NewRecorder(), "public", context)
+				for index, value := range array(response["output"]) {
+					if err := stream.item(index, obj(value), true); err != nil {
+						t.Fatal(err)
+					}
+				}
+				changed := copyMessagesObject(response)
+				items := array(changed["output"])
+				obj(items[len(items)-1])[field] = value
+				if err := stream.complete(changed); err == nil {
+					t.Fatal("accepted changed terminal search item", changed)
+				}
+			})
+		}
 	}
 }
 

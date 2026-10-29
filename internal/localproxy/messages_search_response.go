@@ -252,9 +252,18 @@ type nativeResponseState struct {
 	completedItems map[int]object
 }
 
+// Copilot can rewrap item IDs between events. Keep the first completed item
+// intact for replay, so later requests retain the same history prefix.
+func sameResponseItem(a, b object) bool {
+	a, b = cloneToolObject(a), cloneToolObject(b)
+	delete(a, "id")
+	delete(b, "id")
+	return reflect.DeepEqual(a, b)
+}
+
 func (s *nativeResponseState) completedItem(index int, item object) (bool, error) {
 	if old := s.completedItems[index]; old != nil {
-		if !reflect.DeepEqual(old, item) {
+		if !sameResponseItem(old, item) {
 			return false, errors.New("Responses terminal item differs from streamed item")
 		}
 		return true, nil
@@ -286,7 +295,7 @@ func (s *nativeResponseState) item(index int, item object, done bool) ([]any, er
 	switch text(item["type"]) {
 	case "tool_search_call":
 		if s.pending != nil {
-			if index == s.pendingIndex && reflect.DeepEqual(s.pending, item) {
+			if index == s.pendingIndex && sameResponseItem(s.pending, item) {
 				return nil, nil
 			}
 			return nil, errors.New("concurrent hosted tool search calls cannot be converted")

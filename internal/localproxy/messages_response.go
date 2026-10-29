@@ -416,6 +416,10 @@ func (s *messagesStream) closeBlock(b *messageBlock) error {
 func blockKey(output, part int) string { return fmt.Sprintf("text:%d:%d", output, part) }
 
 func (s *messagesStream) item(index int, item object, done bool) error {
+	if done && s.search.completedItems[index] != nil {
+		_, err := s.search.completedItem(index, item)
+		return err
+	}
 	switch text(item["type"]) {
 	case "tool_search_call", "tool_search_output":
 		return s.searchItem(index, item, done)

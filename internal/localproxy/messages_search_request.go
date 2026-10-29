@@ -188,8 +188,9 @@ func (c *messagesSearchContext) request(dst object, original object) error {
 		input = append(input, item)
 	}
 	dst["input"] = input
-	if choice := obj(dst["tool_choice"]); choice != nil && choice["name"] == c.name {
-		dst["tool_choice"] = object{"type": "tool_search"}
+	choice := dst["tool_choice"]
+	if selected := obj(choice); selected != nil && selected["name"] == c.name || choice == "required" && len(tools) == 1 {
+		return errors.New("native tool search does not support forced tool_choice; use auto or omit tool_choice")
 	}
 	return nil
 }

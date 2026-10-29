@@ -169,6 +169,60 @@ func TestMessagesSearchContractAndBoundaries(t *testing.T) {
 	}
 }
 
+func TestMessagesSearchChoicePreservesCatalog(t *testing.T) {
+	for _, business := range []bool{false, true} {
+		request := claudeSearchRequest()
+		request["messages"] = []any{object{"role": "user", "content": "Find read"}}
+		if business {
+			delete(obj(array(request["tools"])[1]), "defer_loading")
+		}
+		model := provider.Model{ID: "gpt-test"}
+		data, _, err := messagesToResponses(encodedDiscovery(t, request), model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalog := parsed(t, string(data))["tools"]
+		for _, choice := range []object{
+			{"type": "auto"}, {"type": "none"}, {"type": "any"},
+			{"type": "tool", "name": "ToolSearch"}, {"type": "tool", "name": "read"},
+		} {
+			if choice["name"] == "read" && !business {
+				continue
+			}
+			request["tool_choice"] = choice
+			data, _, err := messagesToResponses(encodedDiscovery(t, request), model)
+			unsupported := choice["name"] == "ToolSearch" || choice["type"] == "any" && !business
+			if unsupported {
+				if err == nil || !strings.Contains(err.Error(), "native tool search") {
+					t.Fatal("unsupported search choice was silently weakened", choice, err)
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := parsed(t, string(data))
+			if !reflect.DeepEqual(got["tools"], catalog) {
+				t.Fatal("tool choice rewrote the cached catalog", got)
+			}
+			want := any(choice["type"])
+			if choice["type"] == "any" {
+				want = "required"
+			} else if choice["type"] == "tool" {
+				want = object{"type": "function", "name": "read"}
+			}
+			if !reflect.DeepEqual(got["tool_choice"], want) {
+				t.Fatal("tool choice changed", got)
+			}
+		}
+		request["tool_choice"] = object{"type": "tool", "name": "ToolSearch"}
+		data, _, err = messagesToResponses(encodedDiscovery(t, request), provider.Model{ID: "grok-test"})
+		if err != nil || !reflect.DeepEqual(parsed(t, string(data))["tool_choice"], object{"type": "function", "name": "ToolSearch"}) {
+			t.Fatal("ordinary function-based search cannot be selected", err)
+		}
+	}
+}
+
 func TestMessagesNativeEmptyAndInvalidSearch(t *testing.T) {
 	request := claudeSearchRequest()
 	result := obj(array(obj(array(request["messages"])[1])["content"])[0])
