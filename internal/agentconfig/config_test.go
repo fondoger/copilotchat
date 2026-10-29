@@ -119,7 +119,7 @@ func TestClaudePermissionMode(t *testing.T) {
 	}
 }
 
-func TestClaudeClassifierModel(t *testing.T) {
+func TestClaudeClassifierUsesSonnetDefault(t *testing.T) {
 	for _, test := range []struct {
 		upstream, endpoint, suffix string
 	}{
@@ -132,10 +132,12 @@ func TestClaudeClassifierModel(t *testing.T) {
 			classifier := localproxy.Model{ProviderID: "work", ID: "work/claude-user/selected", Model: provider.Model{ID: test.upstream, Endpoint: test.endpoint}}
 			text, err := Generate(Options{
 				Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
-				ClaudeClassifierModel: classifier,
-				// Obsolete ordinary defaults must not select the classifier.
-				ClaudeDefaults: map[string]localproxy.Model{"CLAUDE_CODE_AUTO_MODE_MODEL": {Model: provider.Model{ID: "legacy", Endpoint: "/chat/completions"}}},
-				Models:         []localproxy.Model{{ID: "work/chat", Model: provider.Model{ID: "chat", Endpoint: "/responses"}}},
+				ClaudeDefaults: map[string]localproxy.Model{
+					"ANTHROPIC_DEFAULT_SONNET_MODEL": classifier,
+					"ANTHROPIC_DEFAULT_HAIKU_MODEL":  {ProviderID: "work", Model: provider.Model{ID: "fast", Endpoint: "/responses"}},
+					"CLAUDE_CODE_SUBAGENT_MODEL":     {ProviderID: "work", Model: provider.Model{ID: "worker", Endpoint: "/responses"}},
+				},
+				Models: []localproxy.Model{{ID: "work/chat", Model: provider.Model{ID: "chat", Endpoint: "/responses"}}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -163,7 +165,7 @@ func TestClaudeClassifierModel(t *testing.T) {
 	}
 	if _, err := Generate(Options{
 		Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "claude"), Key: "copilotchat",
-		ClaudeClassifierModel: localproxy.Model{Model: provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}},
+		ClaudeDefaults: map[string]localproxy.Model{"ANTHROPIC_DEFAULT_SONNET_MODEL": {Model: provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}}},
 	}); err == nil {
 		t.Fatal("incompatible classifier allowed")
 	}

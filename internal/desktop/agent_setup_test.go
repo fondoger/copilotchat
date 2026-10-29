@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -61,19 +62,19 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 		t.Fatal("Claude config does not match defaults", tester.Texts())
 	}
 	agentSetupScreenshot(t, tester, "agent-setup-defaults")
-	settingsClick(t, tester, "Choose security classifier model")
-	settingsClick(t, tester, "Select Choose security classifier model github-copilot/claude-fixture")
+	var codeConfig struct{ Env map[string]string }
+	sonnet := a.claudeDefaults(a.selectedForwardProfile())["ANTHROPIC_DEFAULT_SONNET_MODEL"]
+	if err := json.Unmarshal([]byte(configText), &codeConfig); err != nil || codeConfig.Env["CLAUDE_CODE_AUTO_MODE_MODEL"] != localproxy.ClassifierModelID(sonnet) {
+		t.Fatal("Code classifier did not reuse the selected Sonnet default", configText, err)
+	}
 	settingsClick(t, tester, agentconfig.ClaudeDesktop)
 	settingsClick(t, tester, "Share github.com gpt-fixture")
-	for _, choice := range desktopModelDefaults {
+	for _, choice := range claudeModelDefaults {
 		settingsClick(t, tester, "Choose "+choice.label)
 		settingsClick(t, tester, "Select Choose "+choice.label+" github-copilot/gpt-fixture")
 		if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeDefaults[choice.key].ModelID != "gpt-fixture" {
 			t.Fatal("Desktop default selection was not persisted", choice.key)
 		}
-	}
-	if settingsSavedState(t, a).Settings.ForwardProfiles[0].ClaudeClassifierModel.ModelID != "claude-fixture" {
-		t.Fatal("Desktop defaults replaced the Code classifier")
 	}
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeDesktop)
 	if configErr != nil || !strings.Contains(configText, `"inferenceGatewayApiKey": "copilotchat-claude-desktop"`) || !tester.HasText("Claude Desktop gateway configuration (JSON)") {
@@ -83,6 +84,10 @@ func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	configText, configErr = a.agentConfiguration(a.selectedForwardProfile(), agentconfig.ClaudeCode)
 	if configErr != nil || !strings.Contains(configText, "copilotchat-classifier-") || !strings.Contains(configText, "copilotchat-default-") || strings.Contains(configText, "github-copilot/gpt-fixture") {
 		t.Fatal("unshared defaults or classifier were not generated separately", configText, configErr)
+	}
+	sonnet = a.claudeDefaults(a.selectedForwardProfile())["ANTHROPIC_DEFAULT_SONNET_MODEL"]
+	if err := json.Unmarshal([]byte(configText), &codeConfig); err != nil || codeConfig.Env["CLAUDE_CODE_AUTO_MODE_MODEL"] != localproxy.ClassifierModelID(sonnet)+"[1m]" {
+		t.Fatal("Desktop Sonnet change did not update the Code classifier", configText, err)
 	}
 	if len(a.forwardingModels(a.selectedForwardProfile())) != 1 {
 		t.Fatal("classifier selection enabled ordinary sharing")
@@ -124,7 +129,6 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 		"ANTHROPIC_DEFAULT_SONNET_MODEL": {ProviderID: "work", ModelID: "gpt-5.5"},
 	}
 	p.CodexModel = p.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"]
-	p.ClaudeClassifierModel = p.CodexModel
 	p.ClaudePermissionMode = "auto"
 	p.CodexRemoteCompaction = true
 	a.setForwardEnabled(p, 0, false)
@@ -139,7 +143,6 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	copy := a.selectedForwardProfile()
 	copy.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"] = store.ForwardModelRef{ProviderID: store.DefaultProviderID, ModelID: "gpt-5.5"}
 	copy.CodexRemoteCompaction = false
-	copy.ClaudeClassifierModel = store.ForwardModelRef{}
 	copy.ClaudePermissionMode = "default"
 	a.saveSettings()
 	a.state = settingsSavedState(t, a)
@@ -148,8 +151,8 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	if p.ClaudeDefaults["ANTHROPIC_DEFAULT_SONNET_MODEL"].ProviderID != "work" || p.CodexModel.ProviderID != "work" || !p.CodexRemoteCompaction {
 		t.Fatal("duplicated profile choices were shared or not persisted")
 	}
-	if p.ClaudeClassifierModel.ProviderID != "work" || p.ClaudePermissionMode != "auto" {
-		t.Fatal("classifier or permission mode lost across profile duplication")
+	if p.ClaudePermissionMode != "auto" {
+		t.Fatal("permission mode lost across profile duplication")
 	}
 	a.setForwardEnabled(p, 1, false)
 	config, err := a.agentConfiguration(p, agentconfig.ClaudeCode)

@@ -43,7 +43,10 @@ func TestClassifierPrivateRouteAndCatalogIsolation(t *testing.T) {
 			}
 			s := New("key")
 			t.Cleanup(s.Close)
-			profiles := map[string]Profile{"test": {ID: "test", ClaudeClassifierModel: classifier}, "other": {ID: "other", ClaudeClassifierModel: other}}
+			profiles := map[string]Profile{
+				"test":  {ID: "test", ClaudeDefaults: map[string]Model{claudeSonnetDefault: classifier}},
+				"other": {ID: "other", ClaudeDefaults: map[string]Model{claudeSonnetDefault: other}},
+			}
 			s.Update(targets, profiles)
 			// Update owns snapshots, including a classifier absent from ordinary Models.
 			classifier.Model.Endpoints[0] = "/unavailable"

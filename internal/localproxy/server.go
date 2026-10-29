@@ -34,10 +34,9 @@ type Target struct {
 }
 
 type Profile struct {
-	ID                    string
-	Models                []Model
-	ClaudeDefaults        map[string]Model
-	ClaudeClassifierModel Model
+	ID             string
+	Models         []Model
+	ClaudeDefaults map[string]Model
 }
 
 type profileEntry struct {
@@ -141,7 +140,6 @@ func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) 
 			defaults[key] = cloneForwardModel(model)
 		}
 		profile.ClaudeDefaults = defaults
-		profile.ClaudeClassifierModel = cloneForwardModel(profile.ClaudeClassifierModel)
 		if old := s.profiles[name]; old != nil {
 			old.Profile = profile
 		} else {

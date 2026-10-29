@@ -107,10 +107,6 @@ func (a *app) profileForwardingModels(profile *store.ForwardProfile, enabledOnly
 	return localproxy.NameModels(models, identities)
 }
 
-func (a *app) classifierModel(profile *store.ForwardProfile) localproxy.Model {
-	return claudeModelByRef(a.claudeModelChoices(profile), profile.ClaudeClassifierModel)
-}
-
 func claudeModelByRef(models []localproxy.Model, ref store.ForwardModelRef) localproxy.Model {
 	for _, model := range models {
 		if sharedModelRef(model) == ref {

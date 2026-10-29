@@ -95,7 +95,6 @@ type ForwardProfile struct {
 	Agent                 string                     `json:"agent,omitempty"`
 	ClaudeDefaults        map[string]ForwardModelRef `json:"claudeDefaults,omitempty"`
 	ClaudePermissionMode  string                     `json:"claudePermissionMode,omitempty"`
-	ClaudeClassifierModel ForwardModelRef            `json:"claudeCodeClassifierModel,omitempty"`
 	CodexModel            ForwardModelRef            `json:"codexModel,omitempty"`
 	CodexRemoteCompaction bool                       `json:"codexRemoteCompaction,omitempty"`
 }

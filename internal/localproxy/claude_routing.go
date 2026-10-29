@@ -110,7 +110,7 @@ func (s *Server) routeModel(profile *profileEntry, desktop bool, endpoint, proto
 				return s.configuredRoute(model, endpoint, protocol, "desktop_security_classifier", true)
 			}
 		}
-		if model := profile.ClaudeClassifierModel; id == ClassifierModelID(model) {
+		if model := profile.ClaudeDefaults[claudeSonnetDefault]; id == ClassifierModelID(model) {
 			return s.configuredRoute(model, endpoint, protocol, "claude_code_classifier", true)
 		}
 	}
