@@ -24,7 +24,7 @@ Copilot Chat 的 Desktop 专用模型 ID：
 ## 其他特殊细节
 
 - Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。已通过 `toolSearchEnabled` 启用，实测启用后47.8k->24.6k，降幅约 48%。详见: [客户端工具按需加载](details/tool-search-on-demand-loading.md)
-- CCD Auto模式下，会额外调用 LLM API 对请求进行安全分级，通常请求 Sonnet，也兼容请求 Haiku 的情况。官方订阅的安全检查请求免费，第三方可能产生额外 token 费用。
+- CCD Auto模式下，会额外调用 LLM API 对请求进行安全分级，通常使用Sonnet模型且model ID无法调整。官方订阅的安全检查请求免费，第三方可能产生额外 token 费用。
 
 ## 网关默认模型
 
