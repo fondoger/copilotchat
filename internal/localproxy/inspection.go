@@ -2,9 +2,11 @@ package localproxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	gvmcp "github.com/doganarif/govisual/mcp"
@@ -17,12 +19,22 @@ const (
 	inspectionMCPPath = inspectionPath + "/mcp"
 )
 
-var modelRoutingLogger = slog.New(govisual.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
+var gatewayLogger = slog.New(govisual.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
 
 func logModelRoute(ctx context.Context, requested string, route modelRoute) {
-	modelRoutingLogger.InfoContext(ctx, "LLM Gateway model routing",
+	gatewayLogger.InfoContext(ctx, "LLM Gateway model routing",
 		"requested_model", requested, "routed_model", route.model.Model.ID,
 		"provider_id", route.model.ProviderID, "reason", route.reason, "available", route.ctx != nil)
+}
+
+func logUpstreamFailure(ctx context.Context, providerID, endpoint, kind string, err error) {
+	// Keep the transport cause without logging a request URL's credentials or query.
+	var requestError *url.Error
+	for errors.As(err, &requestError) {
+		err = requestError.Err
+	}
+	gatewayLogger.ErrorContext(ctx, "LLM Gateway upstream request failed",
+		"provider_id", providerID, "endpoint", endpoint, "kind", kind, "error", err.Error())
 }
 
 type requestInspection struct {

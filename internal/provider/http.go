@@ -14,7 +14,9 @@ import (
 // NewHTTPClient never follows redirects carrying account credentials.
 func NewHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 30 * time.Second
+	// Large-context inference can take minutes to send headers. Short API
+	// operations retain their own context deadlines.
+	transport.ResponseHeaderTimeout = 5 * time.Minute
 	return &http.Client{Transport: govisual.WrapTransport(transport,
 		govisual.WithTransportBodyLogging(true),
 		govisual.WithTransportMaxBodyBytes(1<<20),

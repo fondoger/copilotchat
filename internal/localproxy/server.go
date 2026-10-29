@@ -204,7 +204,11 @@ func apiError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": "invalid_request_error", "message": message}})
+	kind := "invalid_request_error"
+	if status >= 500 {
+		kind = "api_error"
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": kind, "message": message}})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -461,7 +465,18 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := target.Client.Forward(ctx, provider.RawRequest{Endpoint: endpoint, RawQuery: query.Encode(), Body: body, Header: header, ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
 	if err != nil {
-		apiError(w, 502, "Upstream request failed. Check the selected provider's sign-in and connection in Copilot Chat.")
+		status, kind := http.StatusBadGateway, "transport"
+		message := "Upstream request failed. Check the selected provider's sign-in and connection in Copilot Chat."
+		var networkError net.Error
+		switch {
+		case errors.Is(err, context.Canceled):
+			kind, message = "canceled", "The upstream request was canceled."
+		case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) && networkError.Timeout():
+			status, kind = http.StatusGatewayTimeout, "timeout"
+			message = "The upstream request timed out. Retry the request."
+		}
+		logUpstreamFailure(ctx, model.ProviderID, endpoint, kind, err)
+		apiError(w, status, message)
 		return
 	}
 	defer response.Body.Close()
