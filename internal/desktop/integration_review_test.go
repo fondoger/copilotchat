@@ -86,6 +86,7 @@ func TestThinkingOptionsStayWithinProtocolBudgets(t *testing.T) {
 		model provider.Model
 		want  []string
 	}{
+		{"catalog-efforts", provider.Model{ID: "doubao-web", Endpoint: "/chat/completions", ThinkingEfforts: []string{"low"}}, []string{"default", "low"}},
 		{"responses", provider.Model{Endpoint: "/responses", MaxThinkingBudget: 8192}, []string{"default"}},
 		{"adaptive-without-efforts", provider.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, MaxThinkingBudget: 8192}, []string{"default"}},
 		{"adaptive", provider.Model{Endpoint: "/v1/messages", AdaptiveThinking: true, ThinkingEfforts: []string{"medium", "max"}}, []string{"default", "medium", "max"}},

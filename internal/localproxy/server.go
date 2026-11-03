@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,6 +91,7 @@ func BaseURL(port int, profile string) string {
 func cloneForwardModel(model Model) Model {
 	model.Model.Endpoints = slices.Clone(model.Model.Endpoints)
 	model.Model.ThinkingEfforts = slices.Clone(model.Model.ThinkingEfforts)
+	model.Model.ThinkingLabels = maps.Clone(model.Model.ThinkingLabels)
 	model.Model.Capabilities = slices.Clone(model.Model.Capabilities)
 	model.Routes = slices.Clone(model.Routes)
 	return model

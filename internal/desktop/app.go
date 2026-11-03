@@ -15,7 +15,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/localproxy"
@@ -56,7 +55,6 @@ type app struct {
 	pendingChat               string
 	composer                  ui.Handle
 	list                      ui.ListState
-	md                        markdown.Options
 	streaming                 bool
 	streamChat, streamMessage string
 	cancel                    context.CancelFunc
@@ -68,6 +66,8 @@ type app struct {
 	preview                   *artifactPreview
 	webChat, webSettings      *webChatView
 	webParked                 *webChatView
+	doubaoSessions            map[*doubaoSession]struct{}
+	doubaoLoginID             string
 	settingsPage              string
 	extensionPage             string
 	agentSetup                agentSetupState
@@ -157,6 +157,7 @@ func Run(dataDir string, dev bool) (err error) {
 		destroyWebChatView(a.webParked)
 		a.webParked = nil
 		a.closeWebSettings()
+		a.closeDoubaoSessions("")
 		a.stop()
 		a.cancelLogin()
 		a.cancelModelRefresh()
@@ -303,8 +304,9 @@ func (a *app) finishNewChat() {
 	a.editMessageID, a.editText = "", ""
 	now := time.Now()
 	chat := store.Conversation{ID: newID(), Title: "New Chat", Model: a.newChatModel(), ProviderID: a.state.Settings.ActiveProviderID, ReasoningEffort: a.state.Settings.ReasoningEffort, ThinkingBudgetTokens: a.state.Settings.ThinkingBudgetTokens, CreatedAt: now, UpdatedAt: now}
-	if p := a.provider(chat.ProviderID); p != nil && store.IsWebProvider(p.Kind) {
-		chat.WebKind = p.Kind
+	chat.Mode = "native"
+	if p := a.provider(chat.ProviderID); p != nil && !nativeProvider(p) && store.IsWebProvider(p.Kind) {
+		chat.WebKind, chat.Mode = p.Kind, "web"
 	}
 	a.state.Conversations = append([]store.Conversation{chat}, a.state.Conversations...)
 	a.state.ActiveID = chat.ID

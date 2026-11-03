@@ -112,6 +112,7 @@ func (a *app) closeWebChat() {
 }
 
 func (a *app) closeWebSettings() {
+	a.doubaoLoginID = ""
 	p := a.webSettings
 	a.webSettings = nil
 	destroyWebChatView(p)
@@ -159,6 +160,9 @@ func (a *app) pruneEmptyWebChats() {
 func (a *app) isWebChat(chat *store.Conversation) bool {
 	if chat == nil {
 		return false
+	}
+	if chat.Mode != "" {
+		return chat.Mode == "web"
 	}
 	if chat.WebKind != "" {
 		return store.IsWebProvider(chat.WebKind)

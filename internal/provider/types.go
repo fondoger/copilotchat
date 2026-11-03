@@ -21,33 +21,34 @@ type Client interface {
 }
 
 type Model struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	Vision            bool            `json:"vision"`
-	PDF               bool            `json:"pdf"`
-	Endpoint          string          `json:"endpoint"`
-	Endpoints         []string        `json:"endpoints,omitempty"` // All advertised protocols, for external clients.
-	MaxOutputTokens   int             `json:"max_output_tokens"`
-	ContextWindow     int             `json:"context_window,omitempty"`
-	CreatedAt         string          `json:"created_at,omitempty"`
-	Lifecycle         string          `json:"lifecycle,omitempty"`
-	DeprecatedAt      string          `json:"deprecated_at,omitempty"`
-	RetiresAt         string          `json:"retires_at,omitempty"`
-	Line              string          `json:"line,omitempty"`
-	Capabilities      json.RawMessage `json:"capabilities,omitempty"` // Native Anthropic capability metadata, when supplied.
-	StructuredOutputs bool            `json:"structured_outputs,omitempty"`
-	Tools             bool            `json:"tools"`
-	Reasoning         bool            `json:"reasoning"`
-	VisionKnown       bool            `json:"vision_known"`
-	PDFKnown          bool            `json:"pdf_known"`
-	ToolsKnown        bool            `json:"tools_known"`
-	NativeSearch      bool            `json:"native_search"`
-	NativeSearchKnown bool            `json:"native_search_known"`
-	ReasoningKnown    bool            `json:"reasoning_known"`
-	ThinkingEfforts   []string        `json:"thinking_efforts,omitempty"`
-	AdaptiveThinking  bool            `json:"adaptive_thinking"`
-	MinThinkingBudget int             `json:"min_thinking_budget,omitempty"`
-	MaxThinkingBudget int             `json:"max_thinking_budget,omitempty"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Vision            bool              `json:"vision"`
+	PDF               bool              `json:"pdf"`
+	Endpoint          string            `json:"endpoint"`
+	Endpoints         []string          `json:"endpoints,omitempty"` // All advertised protocols, for external clients.
+	MaxOutputTokens   int               `json:"max_output_tokens"`
+	ContextWindow     int               `json:"context_window,omitempty"`
+	CreatedAt         string            `json:"created_at,omitempty"`
+	Lifecycle         string            `json:"lifecycle,omitempty"`
+	DeprecatedAt      string            `json:"deprecated_at,omitempty"`
+	RetiresAt         string            `json:"retires_at,omitempty"`
+	Line              string            `json:"line,omitempty"`
+	Capabilities      json.RawMessage   `json:"capabilities,omitempty"` // Native Anthropic capability metadata, when supplied.
+	StructuredOutputs bool              `json:"structured_outputs,omitempty"`
+	Tools             bool              `json:"tools"`
+	Reasoning         bool              `json:"reasoning"`
+	VisionKnown       bool              `json:"vision_known"`
+	PDFKnown          bool              `json:"pdf_known"`
+	ToolsKnown        bool              `json:"tools_known"`
+	NativeSearch      bool              `json:"native_search"`
+	NativeSearchKnown bool              `json:"native_search_known"`
+	ReasoningKnown    bool              `json:"reasoning_known"`
+	ThinkingEfforts   []string          `json:"thinking_efforts,omitempty"`
+	ThinkingLabels    map[string]string `json:"thinking_labels,omitempty"` // Optional display labels, including "default".
+	AdaptiveThinking  bool              `json:"adaptive_thinking"`
+	MinThinkingBudget int               `json:"min_thinking_budget,omitempty"`
+	MaxThinkingBudget int               `json:"max_thinking_budget,omitempty"`
 }
 
 type AccountInfo struct {

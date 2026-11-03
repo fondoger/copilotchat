@@ -13,6 +13,12 @@ type InferenceBackend interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// RequestPreparer optionally validates and normalizes a request before the
+// engine looks up its model or encodes attachments.
+type RequestPreparer interface {
+	PrepareRequest(Request) (Request, error)
+}
+
 // Engine shares request encoding and streaming response handling across providers.
 type Engine struct{ backend InferenceBackend }
 

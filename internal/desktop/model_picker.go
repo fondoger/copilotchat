@@ -95,7 +95,7 @@ func (a *app) modelPicker(c *ui.Context) {
 		ui.Scroll(c.Key("model-picker-list")).Label("Model list").MaxHeight(min(float32(510), height-100)).Padding(0, scrollbarGutter, 0, 0).Gap(6).Children(func() {
 			count := 0
 			for _, configured := range a.state.Settings.Providers {
-				if store.IsWebProvider(configured.Kind) {
+				if !nativeProvider(&configured) {
 					continue
 				}
 				if a.clientForProvider(configured.ID) == nil {
@@ -159,7 +159,7 @@ func (a *app) modelPicker(c *ui.Context) {
 			}
 			webGroupShown := false
 			for _, configured := range a.state.Settings.Providers {
-				if !store.IsWebProvider(configured.Kind) || configured.Disabled {
+				if !store.IsWebProvider(configured.Kind) || nativeProvider(&configured) || configured.Disabled {
 					continue
 				}
 				if !webGroupShown {

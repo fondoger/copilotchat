@@ -105,10 +105,16 @@ func thinkingBudgetRange(model provider.Model) (int, int, bool) {
 type thinkingOption struct{ Value, Label string }
 
 func thinkingOptions(model provider.Model) []thinkingOption {
-	options := []thinkingOption{{Value: "default", Label: "Default"}}
+	label := func(value, fallback string) string {
+		if text := model.ThinkingLabels[value]; text != "" {
+			return text
+		}
+		return fallback
+	}
+	options := []thinkingOption{{Value: "default", Label: label("default", "Default")}}
 	if model.Endpoint != "/v1/messages" || model.AdaptiveThinking {
 		for _, value := range model.ThinkingEfforts {
-			options = append(options, thinkingOption{Value: value, Label: value})
+			options = append(options, thinkingOption{Value: value, Label: label(value, value)})
 		}
 	}
 	if minimum, maximum, valid := thinkingBudgetRange(model); valid && len(options) == 1 {
@@ -175,8 +181,11 @@ func (a *app) reasoningControl(c *ui.Context) {
 		return
 	}
 	label := "Default"
-	if effort != "" {
-		label = effort
+	for _, option := range options {
+		if option.Value == selected {
+			label = option.Label
+			break
+		}
 	}
 	if budget != 0 {
 		label = fmt.Sprintf("%d tokens", budget)

@@ -29,7 +29,7 @@ func (a *app) reconcileProfileModels(profile *store.ForwardProfile) {
 	}
 	for _, p := range a.state.Settings.Providers {
 		r := a.providers[p.ID]
-		if p.Disabled || r == nil {
+		if p.Disabled || store.IsWebProvider(p.Kind) || r == nil {
 			continue
 		}
 		for _, m := range r.models {
@@ -87,6 +87,10 @@ func (a *app) profileForwardingModels(profile *store.ForwardProfile, enabledOnly
 		return nil
 	}
 	for _, m := range profile.Models {
+		p := a.provider(m.ProviderID)
+		if p == nil || store.IsWebProvider(p.Kind) {
+			continue
+		}
 		if (enabledOnly && !m.Enabled) || a.clientForProvider(m.ProviderID) == nil {
 			continue
 		}

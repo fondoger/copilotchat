@@ -71,6 +71,9 @@ func (a *app) loadProviders() {
 	for _, p := range a.state.Settings.Providers {
 		r := a.providerState(p.ID)
 		if store.IsWebProvider(p.Kind) {
+			if nativeProvider(&p) {
+				a.loadDoubaoProvider(p.ID)
+			}
 			continue
 		}
 		if p.Kind == store.ProviderKindM365 {
@@ -126,7 +129,7 @@ func (a *app) selectedClient() provider.Client {
 }
 
 func (a *app) clientForProvider(id string) provider.Client {
-	if p := a.provider(id); p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
+	if p := a.provider(id); p == nil || p.Disabled || !nativeProvider(p) {
 		return nil
 	}
 	if r := a.providers[id]; r != nil {
@@ -143,7 +146,7 @@ func (a *app) selectedModel() string {
 }
 
 func (a *app) newChatModel() string {
-	if p := a.provider(a.state.Settings.ActiveProviderID); p != nil && store.IsWebProvider(p.Kind) {
+	if p := a.provider(a.state.Settings.ActiveProviderID); p != nil && !nativeProvider(p) {
 		return ""
 	}
 	if a.state.Settings.Model != "" {
@@ -160,7 +163,7 @@ func (a *app) clientStillConnected(client provider.Client) bool {
 		return false
 	}
 	for id, r := range a.providers {
-		if p := a.provider(id); p != nil && !p.Disabled && !store.IsWebProvider(p.Kind) && r.client == client {
+		if p := a.provider(id); p != nil && !p.Disabled && nativeProvider(p) && r.client == client {
 			return true
 		}
 	}
@@ -182,7 +185,7 @@ func (a *app) titleClient(chat *store.Conversation) (provider.Client, string) {
 }
 
 func modelAllowed(p *store.Provider, id string) bool {
-	return p != nil && !p.Disabled && !store.IsWebProvider(p.Kind) && modelEnabled(p, id)
+	return p != nil && !p.Disabled && nativeProvider(p) && modelEnabled(p, id)
 }
 
 // modelEnabled is a saved model preference, independent of whether its provider
@@ -235,7 +238,7 @@ func (a *app) setAllModelsEnabled(providerID string, enabled bool) {
 
 func (a *app) providerModels(id string) []provider.Model {
 	p, r := a.provider(id), a.providers[id]
-	if p == nil || r == nil || store.IsWebProvider(p.Kind) {
+	if p == nil || r == nil || !nativeProvider(p) {
 		return nil
 	}
 	var models []provider.Model
@@ -248,7 +251,7 @@ func (a *app) providerModels(id string) []provider.Model {
 }
 
 func (a *app) modelForProvider(providerID, modelID string) (provider.Model, bool) {
-	if p := a.provider(providerID); p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
+	if p := a.provider(providerID); p == nil || p.Disabled || !nativeProvider(p) {
 		return provider.Model{}, false
 	}
 	if r := a.providers[providerID]; r != nil {
@@ -274,7 +277,7 @@ func (a *app) chooseModel(providerID, modelID string) {
 
 func (a *app) chooseWebProvider(providerID string) {
 	p := a.provider(providerID)
-	if p == nil || p.Disabled || !store.IsWebProvider(p.Kind) || a.streaming {
+	if p == nil || p.Disabled || !store.IsWebProvider(p.Kind) || nativeProvider(p) || a.streaming {
 		return
 	}
 	a.chooseChatProvider(providerID, "")
@@ -313,7 +316,7 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 	if provider == nil || provider.Disabled || a.streaming {
 		return
 	}
-	web := store.IsWebProvider(provider.Kind)
+	web := !nativeProvider(provider)
 	if !web {
 		if _, ok := a.modelForProvider(providerID, modelID); !ok || !modelAllowed(provider, modelID) {
 			return
@@ -339,8 +342,10 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 		}
 		chat.ProviderID, chat.Model, chat.ReasoningEffort = providerID, modelID, ""
 		chat.ThinkingBudgetTokens, chat.WebKind = 0, ""
+		chat.Mode = "native"
 		chat.NativeSearch = false
 		if web {
+			chat.Mode = "web"
 			chat.WebKind = provider.Kind
 			chat.WebStarted = chat.WebStarted || a.draft != "" || len(a.attachments) != 0
 		} else {
@@ -428,6 +433,7 @@ func (a *app) resetDefaultProvider() {
 }
 
 func (a *app) cancelProviderWork(id string) {
+	a.closeDoubaoSessions(id)
 	a.closeWebProvider(id)
 	a.cancelProviderLogin(id)
 	a.cancelProviderModels(id)

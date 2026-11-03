@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/fondoger/copilotchat/internal/sse"
 )
 
 // Stream calls onDelta for each visible text fragment. Use StreamWithTools when
@@ -30,6 +31,13 @@ func (c *Engine) StreamWithTools(ctx context.Context, request Request, onDelta f
 // StreamWithEvents reports only provider-returned visible text and reasoning.
 // Opaque signatures and encrypted reasoning stay in ProviderData, never events.
 func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent func(StreamEvent)) (completion Completion, streamErr error) {
+	if preparer, ok := c.backend.(RequestPreparer); ok {
+		prepared, err := preparer.PrepareRequest(request)
+		if err != nil {
+			return Completion{}, err
+		}
+		request = prepared
+	}
 	model, err := c.backend.LookupModel(ctx, request.Model)
 	if err != nil {
 		return Completion{}, err
@@ -64,7 +72,7 @@ func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent 
 		}
 		err = parser.single(model.Endpoint, data)
 	} else {
-		err = readSSE(resp.Body, func(event, data string) error {
+		err = sse.Read(resp.Body, 16<<20, func(event, data string) error {
 			if data == "[DONE]" {
 				parser.done = true
 				return errStreamDone
@@ -108,58 +116,6 @@ func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent 
 }
 
 var errStreamDone = errors.New("stream completed")
-
-// readSSE supports CRLF, comments, multiline data, arbitrarily split network
-// chunks, a UTF-8 BOM, and a final event without a trailing blank line.
-func readSSE(reader io.Reader, handle func(event, data string) error) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64<<10), 16<<20)
-	var event string
-	var data []string
-	size := 0
-	first := true
-	dispatch := func() error {
-		if len(data) == 0 {
-			event, size = "", 0
-			return nil
-		}
-		err := handle(event, strings.Join(data, "\n"))
-		event, data, size = "", nil, 0
-		return err
-	}
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		if first {
-			line = strings.TrimPrefix(line, "\ufeff")
-			first = false
-		}
-		if line == "" {
-			if err := dispatch(); err != nil {
-				return err
-			}
-			continue
-		}
-		if strings.HasPrefix(line, ":") {
-			continue
-		}
-		field, value, _ := strings.Cut(line, ":")
-		value = strings.TrimPrefix(value, " ")
-		switch field {
-		case "event":
-			event = value
-		case "data":
-			size += len(value)
-			if size > 16<<20 {
-				return errors.New("Copilot stream event exceeds 16 MiB")
-			}
-			data = append(data, value)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return dispatch()
-}
 
 type streamParser struct {
 	completion       Completion

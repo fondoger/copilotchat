@@ -91,12 +91,15 @@ func (a *app) emptyView(c *ui.Context) {
 }
 
 func (a *app) messagesView(c *ui.Context, chat *store.Conversation) {
-	a.md.Theme = &markdown.Theme{FontSize: float32(a.state.Settings.FontSize), Font: c.Theme().Font, LineHeight: 1.5}
 	a.list.Key = func(i int) any { return chat.Messages[i].ID }
 	a.list.FollowEnd = true
 	a.list.FollowAnimation = &ui.Smooth
 	ui.List(c.Key(chat.ID), &a.list, len(chat.Messages), func(i int) {
 		m := &chat.Messages[i]
+		providerID := m.ProviderID
+		if providerID == "" {
+			providerID = chat.ProviderID
+		}
 		message := ui.Column(c.Key("message:"+m.ID)).FillWidth().MaxWidth(1024).AlignSelf(ui.Center).Padding(12, 20).Gap(7)
 		_, _, pointerOver := message.PointerPosition()
 		showActions := pointerOver || message.Hovered() || message.FocusWithin()
@@ -137,17 +140,24 @@ func (a *app) messagesView(c *ui.Context, chat *store.Conversation) {
 				if m.Content == "" && streaming {
 					ui.Text(c, "Thinking…").TextColor(c.Theme().TextMuted).FontSize(13)
 				}
-				ui.Column(c).PaddingStart(4).Children(func() {
-					a.md.CodeBlock = func(c *ui.Context, b *markdown.CodeBlockView) { a.codeBlock(c, m.ID, b) }
+				body := ui.Column(c).PaddingStart(4)
+				body.Children(func() {
+					options := a.messageMarkdownOptions(c, body, providerID)
+					options.CodeBlock = func(c *ui.Context, b *markdown.CodeBlockView) { a.codeBlock(c, m.ID, b) }
 					if streaming {
-						markdown.Stream(c, m.Content, &a.md)
+						markdown.Stream(c, m.Content, options)
 					} else {
-						markdown.View(c, m.Content, &a.md)
+						markdown.View(c, m.Content, options)
 					}
 				})
 				a.messageCitations(c, m.Citations)
 				if m.Error != "" {
-					ui.Text(c, m.Error).FontSize(13).TextColor(c.Theme().Danger)
+					errorView := ui.Column(c.Key("message-error")).FillWidth()
+					errorView.Children(func() {
+						options := a.messageMarkdownOptions(c, errorView, providerID)
+						options.Theme.FontSize, options.Theme.Text = 13, c.Theme().Danger
+						markdown.View(c, m.Error, options)
+					})
 				}
 				if !streaming {
 					actions := ui.Row(c).Gap(12).Height(20).PaddingStart(0)

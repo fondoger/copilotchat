@@ -100,15 +100,16 @@ type ForwardProfile struct {
 }
 
 type Provider struct {
-	Disabled          bool      `json:"disabled,omitempty"`
-	ModelsRefreshedAt time.Time `json:"modelsRefreshedAt,omitempty"`
-	ID                string    `json:"id"`
-	Kind              string    `json:"kind"`
-	Name              string    `json:"name"`
-	Host              string    `json:"host"`
-	Login             string    `json:"login,omitempty"`
-	DisabledModels    []string  `json:"disabledModels,omitempty"`
-	PinnedModels      []string  `json:"pinnedModels,omitempty"`
+	ExperimentalAPIMode bool      `json:"experimentalApiMode,omitempty"`
+	Disabled            bool      `json:"disabled,omitempty"`
+	ModelsRefreshedAt   time.Time `json:"modelsRefreshedAt,omitempty"`
+	ID                  string    `json:"id"`
+	Kind                string    `json:"kind"`
+	Name                string    `json:"name"`
+	Host                string    `json:"host"`
+	Login               string    `json:"login,omitempty"`
+	DisabledModels      []string  `json:"disabledModels,omitempty"`
+	PinnedModels        []string  `json:"pinnedModels,omitempty"`
 }
 
 func DefaultProvider() Provider {
@@ -152,6 +153,7 @@ type Message struct {
 }
 
 type Conversation struct {
+	Mode                 string    `json:"mode,omitempty"`
 	WebKind              string    `json:"webKind,omitempty"`
 	WebURL               string    `json:"webUrl,omitempty"`
 	WebStarted           bool      `json:"webStarted,omitempty"`
@@ -408,6 +410,9 @@ func validateProviders(state *State) error {
 	}
 	for i := range state.Conversations {
 		chat := &state.Conversations[i]
+		if chat.Mode != "" && chat.Mode != "native" && chat.Mode != "web" {
+			return fmt.Errorf("conversation %q: unsupported chat mode", chat.ID)
+		}
 		if chat.WebKind != "" && !IsWebProvider(chat.WebKind) {
 			return fmt.Errorf("conversation %q: unsupported web provider kind", chat.ID)
 		}

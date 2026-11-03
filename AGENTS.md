@@ -10,6 +10,7 @@ Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天
 
 - `go run .`：隔离 Dev；Gateway 39322(debug)/39321(stable)。
 - `make dev`：替换本机安装版并重启，复用其数据/账号/端口。
+- UI 自动化：`MYGO_AUTOMATION` + `go run -tags e2e .`；客户端 `go run ./scripts/automation`，用法见 docs/ui_automation.md。
 
 ## 架构
 
