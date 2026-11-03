@@ -23,5 +23,5 @@ Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天
 ## 参考
 
 - 协议：docs/openai-to-anthropic-notes.md、docs/details/；客户端差异：docs/*-notes.md。
-- reference/：Claude Code/Codex、Magpie/cc-switch；文档风格：docs/AGENTS.md。
+- reference/：Claude Code/Codex Agent源代码、Magpie/cc-switch开源LLM Gateway实现；文档风格：docs/AGENTS.md。
 - 使用copilot-chat-incoming-request-debugger可调试请求。
