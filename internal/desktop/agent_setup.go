@@ -30,6 +30,8 @@ var modelDefaultInfoIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org
 const classifierCostHint = "Safety checks are free with an official Claude subscription, but LLM Gateway calls may incur additional token charges. Manual mode avoids classifier calls by asking for approval; Bypass permissions also avoids them but disables this safety check."
 
 var claudeModelDefaults = []struct{ key, label, hint string }{
+	{"ANTHROPIC_DEFAULT_FABLE_MODEL", "Fable level PhD researcher model", "Used for long-horizon autonomous agents and massive multi-step projects."},
+	{"ANTHROPIC_DEFAULT_OPUS_MODEL", "Opus level complex reasoning model", "Used for subagents handling hard coding problems, deep research, and complex logic."},
 	{"ANTHROPIC_DEFAULT_SONNET_MODEL", "Sonnet level balanced model", "Used for general-purpose subagents and the Auto mode security classifier.\n\n" + classifierCostHint},
 	{"ANTHROPIC_DEFAULT_HAIKU_MODEL", "Haiku level fast model", "Used for web search and research subagents, and Auto mode security checks that request a Haiku level model."},
 	{"CLAUDE_CODE_SUBAGENT_MODEL", "Subagent Model", "Recommended: Not set. Subagents select a Sonnet or Haiku level model based on the task. When set, this model is the fallback for subagent requests."},

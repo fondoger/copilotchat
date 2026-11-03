@@ -10,12 +10,14 @@ import (
 )
 
 const (
+	claudeFableDefault    = "ANTHROPIC_DEFAULT_FABLE_MODEL"
+	claudeOpusDefault     = "ANTHROPIC_DEFAULT_OPUS_MODEL"
 	claudeSonnetDefault   = "ANTHROPIC_DEFAULT_SONNET_MODEL"
 	claudeHaikuDefault    = "ANTHROPIC_DEFAULT_HAIKU_MODEL"
 	claudeSubagentDefault = "CLAUDE_CODE_SUBAGENT_MODEL"
 )
 
-var desktopModelFamily = regexp.MustCompile(`^(?:claude-)?(sonnet|haiku)(?:-[0-9][0-9A-Za-z._-]*)?$`)
+var desktopModelFamily = regexp.MustCompile(`^(?:claude-)?(fable|opus|sonnet|haiku)(?:-[0-9][0-9A-Za-z._-]*)?$`)
 
 type modelRoute struct {
 	model      Model
@@ -30,10 +32,16 @@ func desktopModelDefault(id string) string {
 	if len(match) == 0 {
 		return ""
 	}
-	if match[1] == "haiku" {
+	switch match[1] {
+	case "fable":
+		return claudeFableDefault
+	case "opus":
+		return claudeOpusDefault
+	case "haiku":
 		return claudeHaikuDefault
+	default:
+		return claudeSonnetDefault
 	}
-	return claudeSonnetDefault
 }
 
 func isDesktopSubagentRequest(header http.Header, body []byte) bool {
@@ -146,9 +154,14 @@ func (s *Server) routeModel(profile *profileEntry, desktop bool, endpoint, proto
 		if model.Model.ID == "" {
 			key = desktopModelDefault(id)
 			model = profile.ClaudeDefaults[key]
-			if key == claudeSonnetDefault {
+			switch key {
+			case claudeFableDefault:
+				reason = "desktop_subagent_fable_fallback"
+			case claudeOpusDefault:
+				reason = "desktop_subagent_opus_fallback"
+			case claudeSonnetDefault:
 				reason = "desktop_subagent_sonnet_fallback"
-			} else if key == claudeHaikuDefault {
+			case claudeHaikuDefault:
 				reason = "desktop_subagent_haiku_fallback"
 			}
 		}
@@ -166,6 +179,10 @@ func unavailableModelMessage(desktop bool, id string, classifier, subagent bool)
 	}
 	var level string
 	switch desktopModelDefault(id) {
+	case claudeFableDefault:
+		level = "Fable"
+	case claudeOpusDefault:
+		level = "Opus"
 	case claudeSonnetDefault:
 		level = "Sonnet"
 	case claudeHaikuDefault:

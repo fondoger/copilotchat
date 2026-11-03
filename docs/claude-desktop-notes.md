@@ -28,9 +28,9 @@ Copilot Chat 的 Desktop 专用模型 ID：
 
 ## 网关默认模型
 
-配置页的 Sonnet level balanced model 和 Haiku level fast model 用于子代理回退，也按 classifier 请求的模型级别选择安全分类模型。Subagent Model 推荐留空；设置后，子代理在原模型无法路由时优先回退到它。安全分类请求始终优先使用对应级别的模型。
+配置页的 Fable level model、Opus level model、Sonnet level balanced model 和 Haiku level fast model 用于对应级别的子代理回退，也按 classifier 请求的模型级别选择安全分类模型。Subagent Model 推荐留空；设置后，子代理在原模型无法路由时优先回退到它。安全分类请求始终优先使用对应级别的模型。
 
 - 子代理通过 `X-Claude-Code-Agent-Id` 识别，也接受 system billing 文本中的 `cc_entrypoint=claude-desktop-3p; cc_is_subagent=true` 标记。识别和自动回退仅对 Desktop 专用 API key 生效。
-- 子代理的原模型可用时保留原路由。未识别为子代理或 classifier 的请求，以及对应默认模型未设置或不可用的请求，继续返回 400；Sonnet/Haiku 错误会按请求类型提示配置相应级别模型，并请 Agent 将配置建议转告用户。
+- 子代理的原模型可用时保留原路由。未识别为子代理或 classifier 的请求，以及对应默认模型未设置或不可用的请求，继续返回 400；Fable/Opus/Sonnet/Haiku 错误会按请求类型提示配置相应级别模型，并请 Agent 将配置建议转告用户。
 - 默认模型可从全部兼容模型中选择，不受底部 Models 勾选影响，也不会因此加入普通模型目录。选择绑定模型和账号，失效时不会换用其他账号。
 - GoVisual 请求日志记录 `requested_model`、`routed_model`、`provider_id` 和 `reason`，用于检查专用路由和回退。

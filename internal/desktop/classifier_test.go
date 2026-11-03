@@ -45,8 +45,7 @@ func TestClaudeDefaultsUseUnsharedModelsAndPreserveUnavailableIdentity(t *testin
 					t.Fatal("classifier did not reuse the unshared Sonnet default", config)
 				}
 				_, err = a.agentConfiguration(p, agentconfig.ClaudeDesktop)
-				usesDesktop := key == "ANTHROPIC_DEFAULT_SONNET_MODEL" || key == "ANTHROPIC_DEFAULT_HAIKU_MODEL" || key == "CLAUDE_CODE_SUBAGENT_MODEL"
-				if (err != nil) != (usesDesktop && unavailable != "") {
+				if (err != nil) != (unavailable != "") {
 					t.Fatal("Desktop validated the wrong defaults", key, unavailable, err)
 				}
 				if len(a.forwardingModels(p)) != 0 {
