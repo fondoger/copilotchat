@@ -52,8 +52,8 @@ func (a *app) sidebarConversations(c *ui.Context, selected, hovered ui.Color, si
 			row.Background(hovered)
 		}
 		row.Children(func() {
-			if a.isWebChat(chat) {
-				providerIcon(c, a.webChatKind(chat), 16)
+			if kind := a.chatProviderKind(chat); store.IsWebProvider(kind) {
+				providerIcon(c, kind, 16)
 			} else {
 				ui.Icon(c, iChat).Size(16, 16).Shrink(0)
 			}

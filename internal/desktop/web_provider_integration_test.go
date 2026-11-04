@@ -84,7 +84,7 @@ func TestWebProviderIntegrationPreservesEstablishedAndOrphanedChats(t *testing.T
 				t.Fatal(err)
 			}
 			chat := a.conversation(webID)
-			if !a.isWebChat(chat) || a.webChatKind(chat) != kind {
+			if !a.isWebChat(chat) || a.chatProviderKind(chat) != kind {
 				t.Fatal("orphaned conversation lost its web identity")
 			}
 			a.selectChat(webID)

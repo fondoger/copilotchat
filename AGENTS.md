@@ -10,7 +10,8 @@ Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天
 
 - `go run .`：隔离 Dev；Gateway 39322(debug)/39321(stable)。
 - `make dev`：替换本机安装版并重启，复用其数据/账号/端口。
-- UI 自动化：`MYGO_AUTOMATION` + `go run -tags e2e .`；客户端 `go run ./scripts/automation`，用法见 docs/ui_automation.md。
+- UI 自动化：mygo-automation SKILL
+- 请求调试: copilot-chat-incoming-request-debugger MCP
 
 ## 架构
 
@@ -25,4 +26,3 @@ Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天
 
 - 协议：docs/openai-to-anthropic-notes.md、docs/details/；客户端差异：docs/*-notes.md。
 - reference/：Claude Code/Codex Agent源代码、Magpie/cc-switch开源LLM Gateway实现；文档风格：docs/AGENTS.md。
-- 使用copilot-chat-incoming-request-debugger可调试请求。

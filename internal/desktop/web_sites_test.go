@@ -174,7 +174,7 @@ func TestWebSitesOrphanKeepsPersistedIdentity(t *testing.T) {
 			chat := a.current()
 			chat.WebURL = site.remote
 			a.state.Settings.Providers = nil
-			if !a.isWebChat(chat) || a.webChatKind(chat) != site.kind || a.currentWebChatView(p) {
+			if !a.isWebChat(chat) || a.chatProviderKind(chat) != site.kind || a.currentWebChatView(p) {
 				t.Fatal("removed provider lost persisted site identity or retained view ownership")
 			}
 			a.applyWebChatSnapshot(p, webChatSnapshot{URL: site.other, CreatedURL: site.other, Title: "Orphan update"})
@@ -183,7 +183,7 @@ func TestWebSitesOrphanKeepsPersistedIdentity(t *testing.T) {
 			}
 			// Reusing a provider ID must not reinterpret an old conversation's site.
 			a.state.Settings.Providers = []store.Provider{{ID: p.providerID, Kind: store.ProviderKindDoubao}}
-			if !a.isWebChat(chat) || a.webChatKind(chat) != site.kind {
+			if !a.isWebChat(chat) || a.chatProviderKind(chat) != site.kind {
 				t.Fatal("replacement provider overrode persisted web kind")
 			}
 		})

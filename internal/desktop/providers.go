@@ -55,6 +55,19 @@ func (a *app) provider(id string) *store.Provider {
 	return nil
 }
 
+func (a *app) chatProviderKind(chat *store.Conversation) string {
+	if chat == nil {
+		return ""
+	}
+	if chat.WebKind != "" {
+		return chat.WebKind
+	}
+	if p := a.provider(chat.ProviderID); p != nil {
+		return p.Kind
+	}
+	return ""
+}
+
 func (a *app) providerState(id string) *providerRuntime {
 	if a.providers == nil {
 		a.providers = make(map[string]*providerRuntime)

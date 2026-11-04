@@ -55,7 +55,7 @@ func (a *app) modelPicker(c *ui.Context) {
 	}
 	label := a.selectedModel()
 	if a.isWebChat(a.current()) {
-		label = providerKindName(a.webChatKind(a.current()))
+		label = providerKindName(a.chatProviderKind(a.current()))
 	} else if model, ok := a.modelForProvider(a.selectedProviderID(), label); ok {
 		label = modelDisplayName(model)
 	}

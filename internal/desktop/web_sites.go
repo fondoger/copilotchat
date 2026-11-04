@@ -49,19 +49,6 @@ func webScript(kind string, chat bool) string {
 	return strings.Replace(webChatPreload, "__WEB_CHAT_CONFIG__", string(config), 1)
 }
 
-func (a *app) webChatKind(chat *store.Conversation) string {
-	if chat == nil {
-		return ""
-	}
-	if chat.WebKind != "" {
-		return chat.WebKind
-	}
-	if p := a.provider(chat.ProviderID); p != nil {
-		return p.Kind
-	}
-	return ""
-}
-
 func (p *webChatView) siteName() string {
 	if p.kind == "" || p.kind == store.ProviderKindDoubao {
 		return "Doubao"

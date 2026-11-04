@@ -179,7 +179,7 @@ func (a *app) webProviderAvailable(providerID string, chat *store.Conversation) 
 	if provider == nil || !store.IsWebProvider(provider.Kind) {
 		return false
 	}
-	if chat != nil && (chat.ProviderID != providerID || a.webChatKind(chat) != provider.Kind) {
+	if chat != nil && (chat.ProviderID != providerID || a.chatProviderKind(chat) != provider.Kind) {
 		return false
 	}
 	if !provider.Disabled {
@@ -394,7 +394,7 @@ func (a *app) retargetWebChat(p *webChatView, chat *store.Conversation) {
 	p.chatID, p.providerID = chat.ID, chat.ProviderID
 	p.err, p.notice, p.ready = "", "", false
 	p.started, p.focusPending = time.Now(), true
-	site, _ := store.WebProviderFor(a.webChatKind(chat))
+	site, _ := store.WebProviderFor(a.chatProviderKind(chat))
 	p.nextURL = site.StartURL
 	if chat.WebURL != "" {
 		p.nextURL = chat.WebURL
@@ -456,7 +456,7 @@ func (a *app) webChatRouteAllowed(p *webChatView, raw string) bool {
 	if err != nil {
 		return false
 	}
-	site, _ := store.WebProviderFor(a.webChatKind(chat))
+	site, _ := store.WebProviderFor(a.chatProviderKind(chat))
 	remote, conversation := store.WebConversationURL(site.Kind, raw)
 	if u.Host == site.Host && (store.WebBlankURL(site.Kind, raw) || conversation || site.Kind == store.ProviderKindDoubao && strings.HasPrefix(u.Path, "/chat/")) {
 		return conversation && remote == chat.WebURL
@@ -523,35 +523,35 @@ func (a *app) applyWebChatSnapshot(p *webChatView, snapshot webChatSnapshot) {
 		a.save()
 	}
 	p.startedChat = p.startedChat || snapshot.Started || snapshot.CreatedURL != ""
-	if chat.WebURL == "" && !p.startedChat && store.WebBlankURL(a.webChatKind(chat), snapshot.URL) && snapshot.Draft != nil {
+	if chat.WebURL == "" && !p.startedChat && store.WebBlankURL(a.chatProviderKind(chat), snapshot.URL) && snapshot.Draft != nil {
 		if snapshot.Edited || a.draft != *snapshot.Draft {
 			a.attachments = nil
 		}
 		a.draft = *snapshot.Draft
 		a.rememberDraft()
 	}
-	remote, ok := store.WebConversationURL(a.webChatKind(chat), snapshot.URL)
+	remote, ok := store.WebConversationURL(a.chatProviderKind(chat), snapshot.URL)
 	if !ok {
-		if chat.WebURL != "" && store.WebBlankURL(a.webChatKind(chat), snapshot.URL) {
+		if chat.WebURL != "" && store.WebBlankURL(a.chatProviderKind(chat), snapshot.URL) {
 			p.notice = "This local chat is linked to another website conversation."
 		}
 		return
 	}
 	changed := false
 	if chat.WebURL == "" {
-		created, proven := store.WebConversationURL(a.webChatKind(chat), snapshot.CreatedURL)
+		created, proven := store.WebConversationURL(a.chatProviderKind(chat), snapshot.CreatedURL)
 		if !proven || remote != created {
 			p.notice = "This website conversation could not be linked to this local chat."
 			return
 		}
-		chat.WebKind, chat.WebURL, chat.UpdatedAt = a.webChatKind(chat), remote, time.Now()
+		chat.WebKind, chat.WebURL, chat.UpdatedAt = a.chatProviderKind(chat), remote, time.Now()
 		changed = true
 	} else if chat.WebURL != remote {
 		p.notice = "This local chat is linked to another website conversation."
 		return
 	}
 	p.notice = ""
-	if title := webTitle(a.webChatKind(chat), snapshot.Title); !chat.TitleManual && title != "" && title != chat.Title {
+	if title := webTitle(a.chatProviderKind(chat), snapshot.Title); !chat.TitleManual && title != "" && title != chat.Title {
 		chat.Title = title
 		changed = true
 	}

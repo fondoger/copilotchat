@@ -28,7 +28,7 @@ func TestDoubaoAPIModeKeepsHistoryIdentityAndGatewayPrivate(t *testing.T) {
 	}
 	a.chooseModel(id, doubao.ModelID)
 	nativeID := a.state.ActiveID
-	if nativeID == webID || a.isWebChat(a.current()) || a.current().Mode != "native" {
+	if nativeID == webID || a.isWebChat(a.current()) || a.current().Mode != "native" || a.chatProviderKind(a.current()) != store.ProviderKindDoubao {
 		t.Fatal("new native conversation was not independent")
 	}
 	a.current().Messages = []store.Message{{Role: "user", Content: "keep local history"}}
