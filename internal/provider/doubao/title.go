@@ -24,7 +24,7 @@ func ackConversationID(obj map[string]any) string {
 		case json.Number:
 			id = value.String()
 		}
-		if id != "" && len(id) <= 32 && strings.IndexFunc(id, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+		if validConversationID(id) {
 			return id
 		}
 	}

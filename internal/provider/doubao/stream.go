@@ -3,8 +3,11 @@ package doubao
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
@@ -38,9 +41,8 @@ var endSSE = errors.New("end of Doubao events")
 
 // The private API also completes by clean EOF (as in the reference client).
 // Never turn an empty or malformed stream into a successful Engine completion.
-func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer, complete func(string)) {
-	state := streamState{writer: writer, markers: map[string]streamPhase{}}
-	conversationID := ""
+func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer, conversationID string, complete func(conversationState)) {
+	state := streamState{writer: writer, markers: map[string]streamPhase{}, answerHash: sha256.New()}
 	err := sse.Read(reader, maxJSON, func(event, data string) error {
 		if data == "[DONE]" {
 			return endSSE
@@ -55,8 +57,14 @@ func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer, complet
 		if event == "gateway-error" || event == "STREAM_ERROR" || objectError(obj) {
 			return responseError(ctx, 200, []byte(data))
 		}
-		if event == "SSE_ACK" && conversationID == "" {
-			conversationID = ackConversationID(obj)
+		if event == "SSE_ACK" {
+			id := ackConversationID(obj)
+			if conversationID != "" && id != "" && id != conversationID {
+				return protocolError()
+			}
+			if id != "" {
+				conversationID = id
+			}
 		}
 		return state.event(event, obj)
 	})
@@ -78,7 +86,7 @@ func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer, complet
 		return
 	}
 	if complete != nil && conversationID != "" {
-		complete(conversationID)
+		complete(conversationState{ID: conversationID, AnswerHash: hex.EncodeToString(state.answerHash.Sum(nil))})
 	}
 	if ctx.Err() != nil {
 		return
@@ -120,10 +128,11 @@ type streamLane struct {
 }
 
 type streamState struct {
-	writer  io.Writer
-	markers map[string]streamPhase
-	phase   streamPhase
-	lanes   [channelCount]streamLane
+	answerHash hash.Hash
+	writer     io.Writer
+	markers    map[string]streamPhase
+	phase      streamPhase
+	lanes      [channelCount]streamLane
 }
 
 func (s *streamState) channel() streamChannel {
@@ -147,6 +156,9 @@ func (s *streamState) emit(text string) error {
 		return err
 	}
 	s.lane().outputBytes += len(text)
+	if s.channel() == answerChannel {
+		_, _ = io.WriteString(s.answerHash, text)
+	}
 	return nil
 }
 

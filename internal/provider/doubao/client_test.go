@@ -352,7 +352,7 @@ func TestRejectInvalidAndOversizedImages(t *testing.T) {
 			parts[i] = imageURL(data)
 		}
 		encoded, _ := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "user", "content": parts}}})
-		if _, err := prepareInput(encoded, ""); err == nil {
+		if _, err := prepareInput(encoded, "", ""); err == nil {
 			t.Fatalf("image limits accepted: %+v", tc)
 		}
 	}

@@ -88,17 +88,17 @@ type Message struct {
 }
 
 type Request struct {
-	Model                string    `json:"model"`
-	Messages             []Message `json:"messages"`
-	Tools                []Tool    `json:"tools,omitempty"`
-	NativeSearch         bool      `json:"native_search,omitempty"`
-	ConversationID       string    `json:"conversation_id,omitempty"`
-	Background           bool      `json:"background,omitempty"`
-	ReasoningEffort      string    `json:"reasoning_effort,omitempty"`
-	ThinkingBudgetTokens int       `json:"thinking_budget_tokens,omitempty"`
-	// OnConversationTitle opts into provider-supplied titles. It runs before a
-	// successful inference returns; unsupported providers leave it unused.
-	OnConversationTitle func(string) `json:"-"`
+	// ConversationState is opaque, provider-owned continuation metadata for native chat.
+	ConversationState     json.RawMessage `json:"-"`
+	Model                 string          `json:"model"`
+	Messages              []Message       `json:"messages"`
+	Tools                 []Tool          `json:"tools,omitempty"`
+	NativeSearch          bool            `json:"native_search,omitempty"`
+	ConversationID        string          `json:"conversation_id,omitempty"`
+	Background            bool            `json:"background,omitempty"`
+	ReasoningEffort       string          `json:"reasoning_effort,omitempty"`
+	ThinkingBudgetTokens  int             `json:"thinking_budget_tokens,omitempty"`
+	WantConversationTitle bool            `json:"-"`
 }
 
 type Usage struct {
@@ -139,16 +139,18 @@ type Citation struct {
 }
 
 type Completion struct {
-	Citations       []Citation        `json:"citations,omitempty"`
-	StopReason      string            `json:"stop_reason,omitempty"`
-	Content         string            `json:"content"`
-	Reasoning       string            `json:"reasoning,omitempty"`
-	ReasoningOpaque string            `json:"reasoning_opaque,omitempty"`
-	ToolCalls       []ToolCall        `json:"tool_calls,omitempty"`
-	ProviderData    []json.RawMessage `json:"provider_data,omitempty"`
-	Replay          *Replay           `json:"replay,omitempty"`
-	Usage           Usage             `json:"usage"`
-	Metrics         Metrics           `json:"metrics"`
+	ConversationState json.RawMessage   `json:"-"`
+	ConversationTitle string            `json:"-"`
+	Citations         []Citation        `json:"citations,omitempty"`
+	StopReason        string            `json:"stop_reason,omitempty"`
+	Content           string            `json:"content"`
+	Reasoning         string            `json:"reasoning,omitempty"`
+	ReasoningOpaque   string            `json:"reasoning_opaque,omitempty"`
+	ToolCalls         []ToolCall        `json:"tool_calls,omitempty"`
+	ProviderData      []json.RawMessage `json:"provider_data,omitempty"`
+	Replay            *Replay           `json:"replay,omitempty"`
+	Usage             Usage             `json:"usage"`
+	Metrics           Metrics           `json:"metrics"`
 }
 
 // AssistantMessage preserves provider reasoning signatures for subsequent turns.

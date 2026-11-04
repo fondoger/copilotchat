@@ -64,19 +64,13 @@ func TestConversationTitleUsesACKAndSameSessionAfterChatBodyCloses(t *testing.T)
 				})
 				client := NewClient(func(context.Context) (Session, error) { return session, nil })
 				req := baseRequest()
-				titles := make(chan string, 1)
-				req.OnConversationTitle = func(title string) { titles <- title }
+				req.WantConversationTitle = true
 				result, err := client.StreamWithEvents(context.Background(), req, nil)
 				if err != nil || result.Content != "answer" || queries != 2 {
 					t.Fatalf("title lookup affected the answer: %q, queries=%d, err=%v", result.Content, queries, err)
 				}
-				select {
-				case title := <-titles:
-					if title != "Autumn leaves" {
-						t.Fatalf("title = %q", title)
-					}
-				default:
-					t.Fatal("successful inference returned before its title callback")
+				if result.ConversationTitle != "Autumn leaves" {
+					t.Fatalf("title = %q", result.ConversationTitle)
 				}
 				awaitClose(t, session)
 				for _, body := range titleBodies {
@@ -114,9 +108,9 @@ func TestTitleLookupFailuresDoNotFailSuccessfulAnswers(t *testing.T) {
 			})
 			client := NewClient(func(context.Context) (Session, error) { return session, nil })
 			req := baseRequest()
-			req.OnConversationTitle = func(string) { t.Error("untrusted title reached the caller") }
+			req.WantConversationTitle = true
 			result, err := client.StreamWithEvents(context.Background(), req, nil)
-			if err != nil || result.Content != "answer" || queries != 1 {
+			if err != nil || result.Content != "answer" || result.ConversationTitle != "" || queries != 1 {
 				t.Fatalf("answer=%q queries=%d err=%v", result.Content, queries, err)
 			}
 			awaitClose(t, session)
@@ -146,12 +140,10 @@ func TestTitleLookupIsOptInAndRequiresSuccessfulChatAndACK(t *testing.T) {
 			})
 			client := NewClient(func(context.Context) (Session, error) { return session, nil })
 			req := baseRequest()
-			if scenario != "disabled" && scenario != "background" {
-				req.OnConversationTitle = func(string) { t.Error("unexpected title") }
-			}
+			req.WantConversationTitle = scenario != "disabled" && scenario != "background"
 			req.Background = scenario == "background"
-			_, err := client.StreamWithEvents(context.Background(), req, nil)
-			if (err != nil) != (scenario == "empty-chat" || scenario == "failed-chat") {
+			result, err := client.StreamWithEvents(context.Background(), req, nil)
+			if (err != nil) != (scenario == "empty-chat" || scenario == "failed-chat") || result.ConversationTitle != "" {
 				t.Fatalf("unexpected chat outcome: %v", err)
 			}
 			awaitClose(t, session)
@@ -188,14 +180,14 @@ func TestTitleLookupTimeoutAndCancellationReleaseSession(t *testing.T) {
 				})
 				client := NewClient(func(context.Context) (Session, error) { return session, nil })
 				req := baseRequest()
-				req.OnConversationTitle = func(string) { t.Error("unfinished title published") }
+				req.WantConversationTitle = true
 				started := time.Now()
 				result, err := client.StreamWithEvents(ctx, req, nil)
 				if scenario == "canceled" {
-					if !errors.Is(err, context.Canceled) {
+					if !errors.Is(err, context.Canceled) || result.ConversationTitle != "" {
 						t.Fatalf("cancellation lost: %v", err)
 					}
-				} else if err != nil || result.Content != "answer" || time.Since(started) != 4*time.Second {
+				} else if err != nil || result.Content != "answer" || result.ConversationTitle != "" || time.Since(started) != 4*time.Second {
 					t.Fatalf("title timeout changed the answer or escaped its budget: %q, %v, %v", result.Content, err, time.Since(started))
 				}
 				awaitClose(t, session)

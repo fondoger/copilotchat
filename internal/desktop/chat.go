@@ -234,6 +234,20 @@ func completeToolHistory(messages []provider.Message) []provider.Message {
 	return out
 }
 
+// Consume before sending: the remote may accept a request even if it later fails
+// locally. Only a successful reply supplies a new continuation point.
+func takeConversationState(chat *store.Conversation) json.RawMessage {
+	var state json.RawMessage
+	for i := range chat.Messages {
+		m := &chat.Messages[i]
+		if i == len(chat.Messages)-2 && m.Role == "assistant" && m.Error == "" && m.ProviderID == chat.ProviderID && m.Model == chat.Model {
+			state = m.ConversationState
+		}
+		m.ConversationState = nil
+	}
+	return state
+}
+
 func (a *app) startReply(chat *store.Conversation) {
 	if chat == nil || a.isWebChat(chat) {
 		return
@@ -247,7 +261,7 @@ func (a *app) startReply(chat *store.Conversation) {
 		job.cancel()
 		delete(a.titleJobs, chat.ID)
 	}
-	request := provider.Request{Model: chat.Model, ConversationID: chat.ID, Messages: history(chat), ReasoningEffort: chat.ReasoningEffort, ThinkingBudgetTokens: chat.ThinkingBudgetTokens}
+	request := provider.Request{Model: chat.Model, ConversationID: chat.ID, Messages: history(chat), ConversationState: takeConversationState(chat), ReasoningEffort: chat.ReasoningEffort, ThinkingBudgetTokens: chat.ThinkingBudgetTokens}
 	if model, ok := a.modelForProvider(chat.ProviderID, chat.Model); ok {
 		request.NativeSearch = chat.NativeSearch && provider.SupportsNativeSearch(model)
 	}
@@ -268,19 +282,10 @@ func (a *app) startReply(chat *store.Conversation) {
 	autoTitle := a.state.Settings.ChatTitle && !chat.TitleManual && len(chat.Messages) == 2
 	originalTitle := chat.Title
 	titleClient, titleModel := a.titleClient(chat)
-	var upstreamTitles chan string
-	if autoTitle {
-		upstreamTitles = make(chan string, 1)
-		request.OnConversationTitle = func(title string) {
-			select {
-			case upstreamTitles <- title:
-			default:
-			}
-		}
-	}
+	request.WantConversationTitle = autoTitle
 	go func() {
 		defer cancel()
-		err := a.runReply(ctx, client, request, servers, chatID, replyID)
+		result, err := a.runReply(ctx, client, request, servers, chatID, replyID)
 		a.update(func() {
 			if a.streamChat != chatID || a.streamMessage != replyID {
 				return
@@ -296,6 +301,9 @@ func (a *app) startReply(chat *store.Conversation) {
 						m.Error = err.Error()
 					}
 				}
+				if err == nil && m.Error == "" && a.clientForProvider(m.ProviderID) == client {
+					m.ConversationState = result.ConversationState
+				}
 			}
 			if chat := a.conversation(chatID); chat != nil {
 				chat.UpdatedAt = time.Now()
@@ -307,12 +315,8 @@ func (a *app) startReply(chat *store.Conversation) {
 			if m := a.message(chatID, replyID); m == nil || m.Error != "" {
 				return
 			}
-			select {
-			case title := <-upstreamTitles:
-				if chat := a.conversation(chatID); chat != nil && a.clientForProvider(chat.ProviderID) == client && a.setAutoTitle(client, chatID, originalTitle, title) {
-					return
-				}
-			default:
+			if chat := a.conversation(chatID); chat != nil && a.clientForProvider(chat.ProviderID) == client && a.setAutoTitle(client, chatID, originalTitle, result.ConversationTitle) {
+				return
 			}
 			a.startTitle(titleClient, chatID, originalTitle, titleModel, request.Messages)
 		})
@@ -358,18 +362,18 @@ func (a *app) recordReply(chatID, replyID, text string, transcript []json.RawMes
 	}
 }
 
-func (a *app) runReply(ctx context.Context, client provider.Client, req provider.Request, servers []mcp.Config, chatID, replyID string) error {
+func (a *app) runReply(ctx context.Context, client provider.Client, req provider.Request, servers []mcp.Config, chatID, replyID string) (provider.Completion, error) {
 	started := time.Now()
 	tools := map[string]connectedTool{}
 	for _, config := range servers {
 		connection, err := mcp.Connect(ctx, config)
 		if err != nil {
-			return fmt.Errorf("MCP %s: %w", config.Name, err)
+			return provider.Completion{}, fmt.Errorf("MCP %s: %w", config.Name, err)
 		}
 		defer connection.Close()
 		available, err := connection.ListTools(ctx)
 		if err != nil {
-			return fmt.Errorf("MCP %s: %w", config.Name, err)
+			return provider.Completion{}, fmt.Errorf("MCP %s: %w", config.Name, err)
 		}
 		for _, tool := range available {
 			alias := toolAlias(config.ID, tool.Name)
@@ -404,7 +408,7 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 	defer publish()
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return provider.Completion{}, err
 		}
 		prefix := display.String()
 		reasoningPrefix := reasoning.String()
@@ -450,7 +454,7 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 				appendWire(partial)
 			}
 			publish()
-			return err
+			return provider.Completion{}, err
 		}
 		display.Reset()
 		display.WriteString(prefix)
@@ -459,16 +463,16 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 		publish()
 		if len(completion.ToolCalls) == 0 {
 			if completion.StopReason != "pause_turn" {
-				return nil
+				return completion, nil
 			}
 			searchContinuations++
 			if searchContinuations >= 8 {
-				return errors.New("Search paused too many times. Send a new message to continue.")
+				return provider.Completion{}, errors.New("Search paused too many times. Send a new message to continue.")
 			}
 			continue
 		}
 		if toolRounds >= 8 {
-			return errors.New("Stopped after 8 tool rounds. Send a new message to continue.")
+			return provider.Completion{}, errors.New("Stopped after 8 tool rounds. Send a new message to continue.")
 		}
 		toolRounds++
 		for _, call := range completion.ToolCalls {
@@ -494,7 +498,7 @@ func (a *app) runReply(ctx context.Context, client provider.Client, req provider
 					allow := false
 					select {
 					case <-ctx.Done():
-						return ctx.Err()
+						return provider.Completion{}, ctx.Err()
 					case allow = <-approved:
 					}
 					if !allow {

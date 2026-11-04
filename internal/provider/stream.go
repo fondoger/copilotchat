@@ -55,7 +55,12 @@ func (c *Engine) StreamWithEvents(ctx context.Context, request Request, onEvent 
 		return Completion{}, err
 	}
 	started := time.Now()
-	defer func() { completion.Metrics.Duration = time.Since(started) }()
+	defer func() {
+		completion.Metrics.Duration = time.Since(started)
+		if streamErr != nil {
+			completion.ConversationState, completion.ConversationTitle = nil, ""
+		}
+	}()
 	resp, err := c.backend.Do(req)
 	if err != nil {
 		return Completion{}, err
@@ -215,10 +220,12 @@ func (p *streamParser) chat(data []byte) error {
 			Index        int     `json:"index"`
 			FinishReason *string `json:"finish_reason"`
 			Delta        struct {
-				Content         string `json:"content"`
-				ReasoningText   string `json:"reasoning_text"`
-				ReasoningOpaque string `json:"reasoning_opaque"`
-				ToolCalls       []struct {
+				ConversationState json.RawMessage `json:"conversation_state"`
+				ConversationTitle string          `json:"conversation_title"`
+				Content           string          `json:"content"`
+				ReasoningText     string          `json:"reasoning_text"`
+				ReasoningOpaque   string          `json:"reasoning_opaque"`
+				ToolCalls         []struct {
 					Index    int    `json:"index"`
 					ID       string `json:"id"`
 					Function struct {
@@ -242,6 +249,12 @@ func (p *streamParser) chat(data []byte) error {
 		}
 		p.text(choice.Delta.Content)
 		p.reasoning(choice.Delta.ReasoningText)
+		if len(choice.Delta.ConversationState) != 0 {
+			p.completion.ConversationState = choice.Delta.ConversationState
+		}
+		if choice.Delta.ConversationTitle != "" {
+			p.completion.ConversationTitle = choice.Delta.ConversationTitle
+		}
 		if choice.Delta.ReasoningOpaque != "" {
 			p.completion.ReasoningOpaque = choice.Delta.ReasoningOpaque
 		}

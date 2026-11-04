@@ -118,7 +118,7 @@ func TestNativeSearchPausedTurnResumesWithoutClientToolOrFabricatedUser(t *testi
 	}}
 	a := &app{}
 	request := provider.Request{NativeSearch: true, Messages: []provider.Message{{Role: "user", Content: "Find current information"}}}
-	if err := a.runReply(context.Background(), client, request, nil, "chat", "reply"); err != nil || requests != 2 {
+	if _, err := a.runReply(context.Background(), client, request, nil, "chat", "reply"); err != nil || requests != 2 {
 		t.Fatalf("paused turn did not resume: requests=%d err=%v", requests, err)
 	}
 }
@@ -134,7 +134,7 @@ func TestNativeSearchContinuationIsBoundedAndCancellationStopsIt(t *testing.T) {
 			}
 			return provider.Completion{StopReason: "pause_turn"}, nil
 		}}
-		err := (&app{}).runReply(ctx, client, provider.Request{NativeSearch: true}, nil, "chat", "reply")
+		_, err := (&app{}).runReply(ctx, client, provider.Request{NativeSearch: true}, nil, "chat", "reply")
 		stop()
 		if err == nil || cancel && requests != 1 || !cancel && (requests != 8 || !strings.Contains(err.Error(), "paused too many")) {
 			t.Fatalf("continuation failed to stop: cancel=%v requests=%d err=%v", cancel, requests, err)

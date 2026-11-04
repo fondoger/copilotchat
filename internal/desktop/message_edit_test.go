@@ -71,6 +71,7 @@ func TestEditingAssistantReplacesProviderHistoryWithoutRegenerating(t *testing.T
 	m.Reasoning, m.Error = "old reasoning", "old error"
 	m.Stats = &store.MessageStats{OutputTokens: 10}
 	m.ToolActivity = []string{"previous tool"}
+	m.ConversationState = json.RawMessage(`{"conversation_id":"123"}`)
 	stamp := m.CreatedAt
 	tt := ui.NewTester(a.view, 1060, 720)
 	body, _ := tt.Find("Original answer")
@@ -86,7 +87,7 @@ func TestEditingAssistantReplacesProviderHistoryWithoutRegenerating(t *testing.T
 	if a.streaming || len(a.current().Messages) != 4 || m.Content != "Manually corrected answer" {
 		t.Fatal("assistant edit regenerated or lost text")
 	}
-	if m.Stats != nil || m.ProviderMessages != nil || m.Reasoning != "" || m.Error != "" || m.ToolActivity != nil || !m.CreatedAt.Equal(stamp) {
+	if m.Stats != nil || m.ProviderMessages != nil || m.ConversationState != nil || m.Reasoning != "" || m.Error != "" || m.ToolActivity != nil || !m.CreatedAt.Equal(stamp) {
 		t.Fatal("edited response kept stale provider data or lost timestamp")
 	}
 	h := history(a.current())

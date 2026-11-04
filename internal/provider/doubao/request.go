@@ -12,6 +12,9 @@ import (
 )
 
 func validateRequest(req provider.Request) error {
+	if resumeConversation(req).ID != "" {
+		req.Messages = req.Messages[len(req.Messages)-1:]
+	}
 	if len(req.Tools) > 0 {
 		return errors.New("Doubao does not support tool calls")
 	}
@@ -72,9 +75,10 @@ func hasToolContent(value any) bool {
 }
 
 type chatInput struct {
-	text   string
-	images []inputImage
-	mode   int
+	conversationID string
+	text           string
+	images         []inputImage
+	mode           int
 }
 
 type chatMessage struct {
@@ -82,8 +86,8 @@ type chatMessage struct {
 	Content any    `json:"content"`
 }
 
-func prepareInput(encoded []byte, effort string) (*chatInput, error) {
-	input := &chatInput{}
+func prepareInput(encoded []byte, effort, conversationID string) (*chatInput, error) {
+	input := &chatInput{conversationID: conversationID}
 	switch effort {
 	case "", "off":
 	case "medium":
@@ -101,6 +105,9 @@ func prepareInput(encoded []byte, effort string) (*chatInput, error) {
 	}
 	if json.Unmarshal(encoded, &body) != nil || len(body.Messages) == 0 {
 		return nil, protocolError()
+	}
+	if conversationID != "" {
+		body.Messages = body.Messages[len(body.Messages)-1:]
 	}
 	var history []chatMessage
 	total := 0
@@ -177,9 +184,13 @@ func (input *chatInput) payload(attachments []map[string]any) ([]byte, error) {
 		"content": map[string]any{"text_block": map[string]any{"text": input.text, "icon_url": "", "icon_url_dark": "", "summary": ""}, "pc_event_block": ""},
 	})
 	mode := strconv.Itoa(input.mode)
+	localID := ""
+	if input.conversationID == "" {
+		localID = "local_" + provider.RequestID()
+	}
 	return json.Marshal(map[string]any{
 		"client_meta": map[string]any{
-			"local_conversation_id": "local_" + provider.RequestID(), "conversation_id": "", "bot_id": "7338286299411103781",
+			"local_conversation_id": localID, "conversation_id": input.conversationID, "bot_id": "7338286299411103781",
 			"last_section_id": "", "last_message_index": nil,
 			"local_permissions": []any{
 				map[string]any{"permission_name": "ACCESS_COARSE_LOCATION", "status": 3},
@@ -190,7 +201,7 @@ func (input *chatInput) payload(attachments []map[string]any) ([]byte, error) {
 		"messages": []any{map[string]any{"local_message_id": provider.RequestID(), "content_block": blocks, "message_status": 0}},
 		"option": map[string]any{
 			"create_time_ms": time.Now().UnixMilli(), "agent_mode": 2, "need_deep_think": input.mode,
-			"need_create_conversation": true, "conversation_init_option": map[string]any{"need_ack_conversation": true},
+			"need_create_conversation": input.conversationID == "", "conversation_init_option": map[string]any{"need_ack_conversation": true},
 			"conversation_init_ext":  map[string]any{"model_item_key": "0", "reasoning_effort": mode, "mode_id": "1"},
 			"sse_recv_event_options": map[string]any{"support_chunk_delta": true},
 			"model_config":           map[string]any{"model_item_key": "0", "model_extra_params": map[string]any{}, "reasoning_effort": input.mode},

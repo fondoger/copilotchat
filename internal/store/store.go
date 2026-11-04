@@ -137,19 +137,20 @@ type Attachment struct {
 }
 
 type Message struct {
-	CreatedAt        time.Time           `json:"createdAt,omitempty"`
-	ProviderID       string              `json:"providerId,omitempty"`
-	Model            string              `json:"model,omitempty"`
-	Reasoning        string              `json:"reasoning,omitempty"`
-	Stats            *MessageStats       `json:"stats,omitempty"`
-	ID               string              `json:"id"`
-	Role             string              `json:"role"`
-	Content          string              `json:"content"`
-	Attachments      []Attachment        `json:"attachments,omitempty"`
-	Error            string              `json:"error,omitempty"`
-	ProviderMessages []json.RawMessage   `json:"providerMessages,omitempty"`
-	ToolActivity     []string            `json:"toolActivity,omitempty"`
-	Citations        []provider.Citation `json:"citations,omitempty"`
+	ConversationState json.RawMessage     `json:"conversationState,omitempty"`
+	CreatedAt         time.Time           `json:"createdAt,omitempty"`
+	ProviderID        string              `json:"providerId,omitempty"`
+	Model             string              `json:"model,omitempty"`
+	Reasoning         string              `json:"reasoning,omitempty"`
+	Stats             *MessageStats       `json:"stats,omitempty"`
+	ID                string              `json:"id"`
+	Role              string              `json:"role"`
+	Content           string              `json:"content"`
+	Attachments       []Attachment        `json:"attachments,omitempty"`
+	Error             string              `json:"error,omitempty"`
+	ProviderMessages  []json.RawMessage   `json:"providerMessages,omitempty"`
+	ToolActivity      []string            `json:"toolActivity,omitempty"`
+	Citations         []provider.Citation `json:"citations,omitempty"`
 }
 
 type Conversation struct {

@@ -147,7 +147,7 @@ func TestEmptyMalformedAndLateErrorStreams(t *testing.T) {
 
 func TestConvertedStreamRetainsSafeMessage(t *testing.T) {
 	var output bytes.Buffer
-	convertSSE(context.Background(), strings.NewReader("event: STREAM_ERROR\ndata: {\"error_code\":429,\"error_msg\":\"secret\"}\n\n"), &output, nil)
+	convertSSE(context.Background(), strings.NewReader("event: STREAM_ERROR\ndata: {\"error_code\":429,\"error_msg\":\"secret\"}\n\n"), &output, "", nil)
 	if err := sse.Read(&output, maxJSON, func(_ string, data string) error {
 		var value struct {
 			Error struct{ Message string }

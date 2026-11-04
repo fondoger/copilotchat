@@ -82,18 +82,19 @@ type inputKey struct{}
 
 type inferenceInput struct {
 	*chatInput
-	onTitle func(string)
+	historyHash string
+	wantTitle   bool
 }
 
 func (c *Client) PrepareInference(ctx context.Context, req provider.Request, model provider.Model, encoded []byte, _ bool) (*http.Request, error) {
 	if model.ID != ModelID || model.Endpoint != "/chat/completions" {
 		return nil, protocolError()
 	}
-	input, err := prepareInput(encoded, req.ReasoningEffort)
+	input, err := prepareInput(encoded, req.ReasoningEffort, resumeConversation(req).ID)
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, inputKey{}, &inferenceInput{chatInput: input, onTitle: req.OnConversationTitle})
+	ctx = context.WithValue(ctx, inputKey{}, &inferenceInput{chatInput: input, historyHash: historyHash(req.ConversationID, req.Messages), wantTitle: req.WantConversationTitle})
 	return http.NewRequestWithContext(ctx, http.MethodPost, "https://"+Host+chatPath, nil)
 }
 
@@ -173,13 +174,15 @@ func (c *Client) Do(req *http.Request) (_ *http.Response, err error) {
 		defer stop()
 		defer life.close()
 		defer pw.Close()
-		convertSSE(ctx, reader, pw, func(conversationID string) {
-			if input.onTitle == nil {
-				return
+		convertSSE(ctx, reader, pw, input.conversationID, func(state conversationState) {
+			var title string
+			if input.wantTitle {
+				life.closeBody()
+				title = queryConversationTitle(ctx, life, state.ID)
 			}
-			life.closeBody()
-			if title := queryConversationTitle(ctx, life, conversationID); title != "" {
-				input.onTitle(title)
+			if ctx.Err() == nil {
+				state.HistoryHash = input.historyHash
+				writeEvent(pw, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"conversation_state": state, "conversation_title": title}}}})
 			}
 		})
 	}()
