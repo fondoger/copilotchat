@@ -80,6 +80,11 @@ func (c *Client) PrepareRequest(req provider.Request) (provider.Request, error) 
 
 type inputKey struct{}
 
+type inferenceInput struct {
+	*chatInput
+	onTitle func(string)
+}
+
 func (c *Client) PrepareInference(ctx context.Context, req provider.Request, model provider.Model, encoded []byte, _ bool) (*http.Request, error) {
 	if model.ID != ModelID || model.Endpoint != "/chat/completions" {
 		return nil, protocolError()
@@ -88,12 +93,12 @@ func (c *Client) PrepareInference(ctx context.Context, req provider.Request, mod
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, inputKey{}, input)
+	ctx = context.WithValue(ctx, inputKey{}, &inferenceInput{chatInput: input, onTitle: req.OnConversationTitle})
 	return http.NewRequestWithContext(ctx, http.MethodPost, "https://"+Host+chatPath, nil)
 }
 
 func (c *Client) Do(req *http.Request) (_ *http.Response, err error) {
-	input, ok := req.Context().Value(inputKey{}).(*chatInput)
+	input, ok := req.Context().Value(inputKey{}).(*inferenceInput)
 	if !ok || req.Method != http.MethodPost || req.URL.String() != "https://"+Host+chatPath {
 		return nil, protocolError()
 	}
@@ -138,7 +143,7 @@ func (c *Client) Do(req *http.Request) (_ *http.Response, err error) {
 	if err != nil {
 		return nil, protocolError()
 	}
-	raw, err := life.do(chatPath, "application/json", body)
+	raw, err := life.do(ctx, chatPath, "application/json", body)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +173,15 @@ func (c *Client) Do(req *http.Request) (_ *http.Response, err error) {
 		defer stop()
 		defer life.close()
 		defer pw.Close()
-		convertSSE(ctx, reader, pw)
+		convertSSE(ctx, reader, pw, func(conversationID string) {
+			if input.onTitle == nil {
+				return
+			}
+			life.closeBody()
+			if title := queryConversationTitle(ctx, life, conversationID); title != "" {
+				input.onTitle(title)
+			}
+		})
 	}()
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
 		Body: &streamBody{PipeReader: pr, life: life, stop: stop}}, nil
@@ -185,11 +198,11 @@ type sessionLife struct {
 	closed  bool
 }
 
-func (l *sessionLife) do(path, contentType string, body []byte) (*http.Response, error) {
-	if err := l.ctx.Err(); err != nil {
+func (l *sessionLife) do(ctx context.Context, path, contentType string, body []byte) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	resp, err := l.session.Do(l.ctx, path, contentType, body)
+	resp, err := l.session.Do(ctx, path, contentType, body)
 	if resp != nil && resp.Body != nil {
 		l.mu.Lock()
 		closed := l.closed

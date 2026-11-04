@@ -46,9 +46,9 @@ Settings → Providers 支持以下网页站点，各站点使用独立的 Provi
 
 豆包 Provider 可开启默认关闭的 `Experimental API Mode`，使用原生聊天、图片输入、消息编辑与本地历史。思考强度为 Off（普通，默认）、Medium（思考）、High（expert）。当前目录只提供 `doubao-web`，不支持 MCP 工具、PDF、图片生成或通用文件上传，也不暴露给 LLM Gateway，不启动额外 HTTP 服务。
 
-API 模式的设置页不自动加载网页。通过 Open Doubao 登录；原生回复遇到登录失效或需要验证码时，错误 `message` 会携带[应用内操作链接](app-links.md)，复用 Markdown 渲染。完成登录或人工验证后点击 Done 释放页面，再自行重试原消息。登录页继续使用上述共享浏览器存储，不自动处理验证码。
+API 模式的设置页不自动加载网页。通过 Open Doubao 登录；原生回复遇到登录失效或需要验证码时，错误 `message` 会携带[应用内操作链接](app-links.md)，复用 Markdown 渲染。完成登录或人工验证后点击 Done 释放页面，再自行重试原消息。登录页继续使用上述共享浏览器存储，不自动处理验证码。网页实测也会在待人机验证时返回 `710022004 / rate limited`；API 模式为这类含糊拒绝提供 Open Doubao 恢复入口，真实 HTTP 429 仍按限流处理。
 
-API 模式的自动标题沿用原生 Chat Title 设置。实测聊天流只在 ACK 的 `ack_client_meta.conversation_info.name` 返回默认名称“新对话”，流结束前没有最终会话标题；开启自动标题时，当前仍通过标题模型生成本地标题。
+API 模式的自动标题沿用原生 Chat Title 开关。首轮回复成功后，通过同一临时页面查询远端会话名称，最多等待四秒；取得非默认标题后直接用于本地会话，失败或超时则回退到配置的标题模型。手动命名优先；关闭自动标题时不查询名称。聊天 SSE 的 ACK 只用于取得远端会话 ID，最终名称来自独立的会话信息接口。
 
 聊天请求使用临时豆包页的 `fetch` 保留浏览器签名，图片上传优先使用 Go。`internal/desktop/doubaoweb` 管理 Cookie 转换与请求传输，浏览器脚本独立嵌入；`desktop` 保留临时页面的 UI 生命周期，`internal/provider/doubao` 处理私有协议与安全错误消息。Windows 实测中，同一聊天请求经 Go 直连被限流，页面代发则正常回复。临时页面在完成、停止或失败后销毁；查看原生历史不创建页面。没有同 Profile 页面时，框架约五秒后检查并释放可无损关闭的隐藏页面；会话 Cookie 或隐私 Profile 仍可能需要保留。本次实机验证中，纯文本推理完成后 WebView2 子进程归零。
 

@@ -176,7 +176,10 @@ func (a *app) providerSettings(c *ui.Context) {
 		})
 		if p.Kind == store.ProviderKindDoubao {
 			apiMode := p.ExperimentalAPIMode
-			ui.Switch(c, &apiMode).Label("Experimental API Mode").OnChange(func() { a.setExperimentalAPIMode(id, apiMode) })
+			ui.Row(c).FillWidth().Gap(12).Children(func() {
+				ui.Text(c, "Experimental API Mode").Grow(1).FontWeight(500)
+				ui.Switch(c, &apiMode).Label("Experimental API Mode").OnChange(func() { a.setExperimentalAPIMode(id, apiMode) })
+			})
 			if p.ExperimentalAPIMode {
 				if a.doubaoLoginID != id {
 					a.closeWebSettings()

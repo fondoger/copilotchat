@@ -38,6 +38,10 @@ func rateLimited() error {
 	return newWebError(http.StatusTooManyRequests, "Doubao is rate limited; try again later")
 }
 
+func webRejected() error {
+	return newWebError(http.StatusServiceUnavailable, "Doubao web rejected this request. [Open Doubao]("+RecoveryURL+") to check sign-in or verification, then retry.")
+}
+
 func protocolError() *safeError {
 	return newWebError(http.StatusBadGateway, "Doubao returned an unsupported response")
 }
@@ -127,7 +131,7 @@ func responseError(ctx context.Context, status int, data []byte) error {
 	}
 	fields := decodeObject(data)
 	var text strings.Builder
-	verification, login, rate := false, false, false
+	verification, login, rate, rejected := false, false, false, false
 	var visit func(map[string]any, int)
 	visit = func(obj map[string]any, depth int) {
 		if depth > 4 {
@@ -138,6 +142,7 @@ func responseError(ctx context.Context, status int, data []byte) error {
 			case "code", "error_code":
 				n := number(value)
 				rate = rate || n == 429
+				rejected = rejected || n == 710022004
 				login = login || n == 401 || n == 710012001
 				verification = verification || n == 710022002
 			case "status", "status_code":
@@ -169,12 +174,17 @@ func responseError(ctx context.Context, status int, data []byte) error {
 		return verificationRequired()
 	case status == 401 || login || loginPattern.MatchString(text.String()):
 		return LoginRequired()
+	case rejected && verifyPattern.MatchString(text.String()):
+		return verificationRequired()
+	case rejected:
+		// The website also emits this code as "rate limited" before a captcha.
+		// Keep recovery available without claiming every rejection is a challenge.
+		return webRejected()
 	case ratePattern.MatchString(text.String()):
 		return rateLimited()
 	case verifyPattern.MatchString(text.String()):
 		return verificationRequired()
 	default:
-		// 710022004 by itself is deliberately not a verification challenge.
 		return protocolError()
 	}
 }

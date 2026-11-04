@@ -54,10 +54,12 @@ async (operation, args) => {
       if (new URL(args.url).origin !== origin) throw new Error('origin');
       const controller = new AbortController();
       window.__copilotDoubaoRequest = {controller};
+      const json = args.contentType.startsWith('application/json');
       const headers = {'Content-Type': args.contentType, 'agw-js-conv': 'str'};
+      if (json) headers.Accept = 'application/json, text/plain, */*';
       if (args.csrf) headers['x-tt-passport-csrf-token'] = args.csrf;
       const bytes = Uint8Array.from(atob(args.body), c => c.charCodeAt(0));
-      const body = args.contentType.startsWith('application/json') ? new TextDecoder().decode(bytes) : bytes;
+      const body = json ? new TextDecoder().decode(bytes) : bytes;
       const response = await fetch(args.url, {
         method: 'POST', headers, body, credentials: 'include', redirect: 'error', signal: controller.signal
       });

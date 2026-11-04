@@ -121,7 +121,7 @@ func uploadImage(ctx context.Context, life *sessionLife, image inputImage) (map[
 const maxJSON = 1 << 20
 
 func doJSON(ctx context.Context, life *sessionLife, path, contentType string, body []byte, target any) error {
-	resp, err := life.do(path, contentType, body)
+	resp, err := life.do(ctx, path, contentType, body)
 	if err != nil {
 		return err
 	}

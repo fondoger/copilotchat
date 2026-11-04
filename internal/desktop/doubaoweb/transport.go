@@ -28,14 +28,20 @@ var pageScript string
 // each response body before the next request; it never creates or destroys pages.
 type Transport struct {
 	ctx  context.Context
-	page *mygo.Page
+	call func(context.Context, string, any) (any, error)
 	http *http.Client
 }
 
 func NewTransport(ctx context.Context, page *mygo.Page) *Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 5 * time.Minute
-	return &Transport{ctx: ctx, page: page, http: &http.Client{Transport: transport,
+	return &Transport{ctx: ctx, call: func(ctx context.Context, operation string, input any) (any, error) {
+		args, err := json.Marshal(input)
+		if err != nil {
+			return nil, err
+		}
+		return page.EvalContext(ctx, "("+pageScript+")("+strconv.Quote(operation)+","+string(args)+")")
+	}, http: &http.Client{Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
@@ -82,11 +88,7 @@ func (t *Transport) eval(ctx context.Context, operation string, input, target an
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	args, err := json.Marshal(input)
-	if err != nil {
-		return unavailable(ctx)
-	}
-	value, err := t.page.EvalContext(ctx, "("+pageScript+")("+strconv.Quote(operation)+","+string(args)+")")
+	value, err := t.call(ctx, operation, input)
 	if err != nil {
 		return unavailable(ctx)
 	}
@@ -136,22 +138,30 @@ func (t *Transport) Abort(ctx context.Context) error {
 
 func (t *Transport) CloseIdleConnections() { t.http.CloseIdleConnections() }
 
-func requestPath(path string) bool {
-	return path == "/chat/completion" || path == "/samantha/pages/upload_image" || path == "/alice/message/get_file_url"
-}
-
-func (t *Transport) Do(ctx context.Context, path, contentType string, body []byte) (*http.Response, error) {
+func (t *Transport) Do(ctx context.Context, path, contentType string, body []byte) (response *http.Response, err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(t.ctx, cancel)
+	release := func() { stop(); cancel() }
+	defer func() {
+		if response == nil {
+			release()
+		} else {
+			// The call's deadline and session teardown both cover body reads.
+			response.Body = &requestBody{ReadCloser: response.Body, cancel: release}
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !requestPath(path) {
+	browser := path == "/chat/completion" || path == "/im/conversation/info"
+	if !browser && path != "/samantha/pages/upload_image" && path != "/alice/message/get_file_url" {
 		return nil, unavailable(ctx)
 	}
 	var signed signResult
 	if err := t.eval(ctx, "sign", signInput{Path: path, Tab: provider.RequestID()}, &signed); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, signed.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, signed.URL, bytes.NewReader(body))
 	if err != nil {
 		return nil, unavailable(ctx)
 	}
@@ -159,9 +169,9 @@ func (t *Transport) Do(ctx context.Context, path, contentType string, body []byt
 	if req.URL.Scheme != "https" || req.URL.Host != store.DoubaoHost || req.URL.Path != path || req.URL.User != nil {
 		return nil, unavailable(ctx)
 	}
-	// Chat always needs browser-bound fetch signing. Replaying its cookies and
-	// frontierSign result in Go was rejected even while website chat worked.
-	if path == "/chat/completion" {
+	// Chat and conversation info need browser-bound fetch signing. Replaying
+	// cookies and frontierSign results in Go can still be rejected by the site.
+	if browser {
 		return t.browserRequest(ctx, signed.URL, contentType, signed.CSRF, body)
 	}
 	req.Header.Set("Content-Type", contentType)
@@ -206,12 +216,22 @@ func (t *Transport) browserRequest(ctx context.Context, url, contentType, csrf s
 	if err := t.eval(ctx, "fetch", args, &header); err != nil {
 		return nil, err
 	}
-	stream := newBrowserBody(t.ctx, func(ctx context.Context) (readResult, error) {
+	stream := newBrowserBody(ctx, func(ctx context.Context) (readResult, error) {
 		var part readResult
 		err := t.eval(ctx, "read", nil, &part)
 		return part, err
 	})
 	return &http.Response{StatusCode: header.Status, Header: http.Header{"Content-Type": {header.ContentType}}, Body: stream}, nil
+}
+
+type requestBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *requestBody) Close() error {
+	b.cancel()
+	return b.ReadCloser.Close()
 }
 
 type browserBody struct {

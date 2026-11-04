@@ -15,26 +15,33 @@ func TestPageSigningFetchReadAndAbort(t *testing.T) {
 	if err != nil {
 		t.Skip("node is needed to execute the page transport protocol")
 	}
-	fixture := struct {
-		Script string     `json:"script"`
-		Sign   signInput  `json:"sign"`
-		Fetch  fetchInput `json:"fetch"`
-	}{
-		Script: pageScript,
-		Sign:   signInput{Path: "/chat/completion", Tab: "test-tab"},
-		Fetch: fetchInput{URL: "https://www.doubao.com/chat/completion?X-Bogus=test", ContentType: "application/json", CSRF: "csrf",
-			Body: base64.StdEncoding.EncodeToString([]byte(`{"text":"测试 🙂"}`))},
-	}
-	input, err := json.Marshal(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, node, "-e", pageProtocolHarness)
-	cmd.Stdin = bytes.NewReader(input)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("page transport protocol: %v\n%s", err, out)
+	for _, request := range []struct{ path, contentType string }{
+		{"/chat/completion", "application/json"},
+		{"/im/conversation/info", "application/json; encoding=utf-8"},
+	} {
+		t.Run(request.path, func(t *testing.T) {
+			fixture := struct {
+				Script string     `json:"script"`
+				Sign   signInput  `json:"sign"`
+				Fetch  fetchInput `json:"fetch"`
+			}{
+				Script: pageScript,
+				Sign:   signInput{Path: request.path, Tab: "test-tab"},
+				Fetch: fetchInput{URL: "https://www.doubao.com" + request.path + "?X-Bogus=test", ContentType: request.contentType, CSRF: "csrf",
+					Body: base64.StdEncoding.EncodeToString([]byte(`{"text":"测试 🙂"}`))},
+			}
+			input, err := json.Marshal(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, node, "-e", pageProtocolHarness)
+			cmd.Stdin = bytes.NewReader(input)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("page transport protocol: %v\n%s", err, out)
+			}
+		})
 	}
 }
 
@@ -96,6 +103,9 @@ const command = vm.runInNewContext('(' + fixture.script + ')', state);
   assert.equal(lastFetch.options.body, Buffer.from(fixture.fetch.body, 'base64').toString('utf8'));
   assert.equal(lastFetch.options.method, 'POST'); assert.equal(lastFetch.options.credentials, 'include');
   assert.equal(lastFetch.options.redirect, 'error');
+  assert.equal(lastFetch.url, fixture.fetch.url);
+  assert.equal(lastFetch.options.headers['Content-Type'], fixture.fetch.contentType);
+  assert.equal(lastFetch.options.headers.Accept, 'application/json, text/plain, */*');
   assert.equal(lastFetch.options.headers['x-tt-passport-csrf-token'], 'csrf');
   assert.equal(lastFetch.options.headers['agw-js-conv'], 'str');
   const part = await command('read');
@@ -113,6 +123,7 @@ const command = vm.runInNewContext('(' + fixture.script + ')', state);
   await command('fetch', {...fixture.fetch, contentType: 'multipart/form-data; boundary=test', csrf: '', body: binary.toString('base64')});
   assert.deepEqual(Buffer.from(lastFetch.options.body), binary);
   assert.equal(lastFetch.options.headers['x-tt-passport-csrf-token'], undefined);
+  assert.equal(lastFetch.options.headers.Accept, undefined);
 
   const before = fetchCount;
   await assert.rejects(command('fetch', {...fixture.fetch, url: 'https://attacker.invalid/chat/completion'}), /origin/);

@@ -23,6 +23,150 @@ func assertUnavailable(t *testing.T, err error) {
 	}
 }
 
+func TestChatAndTitleRequestsUseBrowserTransport(t *testing.T) {
+	for _, path := range []string{"/chat/completion", "/im/conversation/info"} {
+		t.Run(path, func(t *testing.T) {
+			const contentType = "application/json; encoding=utf-8"
+			body := []byte(`{"conversation_id":"conversation"}`)
+			signedURL := "https://www.doubao.com" + path + "?a_bogus=signed"
+			fetched := false
+			transport := &Transport{ctx: context.Background(), call: func(_ context.Context, operation string, input any) (any, error) {
+				switch operation {
+				case "sign":
+					args := input.(signInput)
+					if args.Path != path || args.Tab == "" {
+						t.Fatalf("unexpected signing input: %+v", args)
+					}
+					return signResult{URL: signedURL, CSRF: "csrf"}, nil
+				case "fetch":
+					args := input.(fetchInput)
+					if args.URL != signedURL || args.ContentType != contentType || args.CSRF != "csrf" || args.Body != base64.StdEncoding.EncodeToString(body) {
+						t.Fatalf("browser fetch lost signed URL, headers or body: %+v", args)
+					}
+					fetched = true
+					return fetchResult{Status: http.StatusOK, ContentType: "application/json"}, nil
+				case "read":
+					return readResult{Done: true, Data: base64.StdEncoding.EncodeToString([]byte(`{"name":"reused title"}`))}, nil
+				default:
+					return nil, errors.New("unexpected operation")
+				}
+			}}
+			resp, err := transport.Do(context.Background(), path, contentType, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			data, err := io.ReadAll(resp.Body)
+			if !fetched || err != nil || string(data) != `{"name":"reused title"}` || resp.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("browser response: fetched=%v, data=%q, headers=%v, error=%v", fetched, data, resp.Header, err)
+			}
+		})
+	}
+}
+
+func TestTitleRequestRejectsUntrustedPathsAndDestinations(t *testing.T) {
+	for _, path := range []string{"/im/conversation/info/", "/im/conversation/info?extra=1", "/im/conversation/list", "/im/conversation/%69nfo"} {
+		transport := &Transport{ctx: context.Background()}
+		_, err := transport.Do(context.Background(), path, "application/json", nil)
+		assertUnavailable(t, err)
+	}
+	for _, destination := range []string{
+		"http://www.doubao.com/im/conversation/info",
+		"https://attacker.invalid/im/conversation/info",
+		"https://www.doubao.com:443/im/conversation/info",
+		"https://user@www.doubao.com/im/conversation/info",
+		"https://www.doubao.com/im/conversation/list",
+	} {
+		t.Run(destination, func(t *testing.T) {
+			transport := &Transport{ctx: context.Background(), call: func(_ context.Context, operation string, _ any) (any, error) {
+				if operation != "sign" {
+					t.Fatalf("untrusted signed URL reached %s", operation)
+				}
+				return signResult{URL: destination}, nil
+			}}
+			_, err := transport.Do(context.Background(), "/im/conversation/info", "application/json", nil)
+			assertUnavailable(t, err)
+		})
+	}
+}
+
+func TestDoCancellationCoversBrowserBody(t *testing.T) {
+	for _, action := range []string{"request canceled", "request deadline", "session canceled", "close body"} {
+		t.Run(action, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				session, cancelSession := context.WithCancel(context.Background())
+				defer cancelSession()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if action == "request deadline" {
+					var deadlineCancel context.CancelFunc
+					ctx, deadlineCancel = context.WithTimeout(ctx, time.Second)
+					defer deadlineCancel()
+				}
+				started, stopped := make(chan struct{}), make(chan struct{})
+				pending := true
+				transport := &Transport{ctx: session, call: func(ctx context.Context, operation string, _ any) (any, error) {
+					switch operation {
+					case "sign":
+						return signResult{URL: "https://www.doubao.com/im/conversation/info?a_bogus=signed"}, nil
+					case "fetch":
+						return fetchResult{Status: http.StatusOK, ContentType: "application/json"}, nil
+					case "read":
+						if !pending {
+							return readResult{Done: true}, nil
+						}
+						close(started)
+						<-ctx.Done()
+						close(stopped)
+						return nil, errors.New("private browser error after cancellation")
+					default:
+						return nil, errors.New("unexpected operation")
+					}
+				}}
+				resp, err := transport.Do(ctx, "/im/conversation/info", "application/json; encoding=utf-8", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				<-started
+				want := context.Canceled
+				switch action {
+				case "request canceled":
+					cancel()
+				case "request deadline":
+					want = context.DeadlineExceeded
+				case "session canceled":
+					cancelSession()
+				case "close body":
+					resp.Body.Close()
+					resp.Body.Close()
+					want = io.ErrClosedPipe
+				}
+				_, err = io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if !errors.Is(err, want) {
+					t.Fatalf("body read returned %v, want %v", err, want)
+				}
+				<-stopped
+				if action != "session canceled" {
+					if session.Err() != nil {
+						t.Fatal("request cancellation also canceled the session")
+					}
+					pending = false
+					resp, err := transport.Do(context.Background(), "/im/conversation/info", "application/json; encoding=utf-8", nil)
+					if err != nil {
+						t.Fatalf("session could not be reused: %v", err)
+					}
+					defer resp.Body.Close()
+					if _, err := io.ReadAll(resp.Body); err != nil {
+						t.Fatalf("reused session body: %v", err)
+					}
+				}
+			})
+		})
+	}
+}
+
 func TestReadinessTimeoutDoesNotBecomeRequestDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		start := time.Now()

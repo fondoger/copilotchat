@@ -128,6 +128,7 @@ func TestEmptyMalformedAndLateErrorStreams(t *testing.T) {
 		{"data: {broken}\n\n", protocolError(), ""},
 		{`data: {"patch_op":[{"patch_value":{"content":"{broken}"}}]}` + "\n\n", protocolError(), ""},
 		{completionSSE() + "event: gateway-error\ndata: {\"code\":710012001,\"message\":\"登录已过期 secret\"}\n\n", LoginRequired(), "answer"},
+		{completionSSE() + "event: STREAM_ERROR\ndata: {\"error_code\":710022004,\"error_msg\":\"rate limited secret\"}\n\n", webRejected(), "answer"},
 		{completionSSE() + "data: {\"error\":{\"type\":\"verify\",\"message\":\"secret\"}}\n\n", verificationRequired(), "answer"},
 	} {
 		session := newTestSession(func(context.Context, string, string, []byte) (*http.Response, error) {
@@ -146,7 +147,7 @@ func TestEmptyMalformedAndLateErrorStreams(t *testing.T) {
 
 func TestConvertedStreamRetainsSafeMessage(t *testing.T) {
 	var output bytes.Buffer
-	convertSSE(context.Background(), strings.NewReader("event: STREAM_ERROR\ndata: {\"error_code\":429,\"error_msg\":\"secret\"}\n\n"), &output)
+	convertSSE(context.Background(), strings.NewReader("event: STREAM_ERROR\ndata: {\"error_code\":429,\"error_msg\":\"secret\"}\n\n"), &output, nil)
 	if err := sse.Read(&output, maxJSON, func(_ string, data string) error {
 		var value struct {
 			Error struct{ Message string }

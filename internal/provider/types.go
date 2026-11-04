@@ -96,6 +96,9 @@ type Request struct {
 	Background           bool      `json:"background,omitempty"`
 	ReasoningEffort      string    `json:"reasoning_effort,omitempty"`
 	ThinkingBudgetTokens int       `json:"thinking_budget_tokens,omitempty"`
+	// OnConversationTitle opts into provider-supplied titles. It runs before a
+	// successful inference returns; unsupported providers leave it unused.
+	OnConversationTitle func(string) `json:"-"`
 }
 
 type Usage struct {

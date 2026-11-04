@@ -265,9 +265,19 @@ func (a *app) startReply(chat *store.Conversation) {
 		servers = nil
 	}
 	chatID := chat.ID
-	autoTitle := a.state.Settings.ChatTitle && len(chat.Messages) == 2
+	autoTitle := a.state.Settings.ChatTitle && !chat.TitleManual && len(chat.Messages) == 2
 	originalTitle := chat.Title
 	titleClient, titleModel := a.titleClient(chat)
+	var upstreamTitles chan string
+	if autoTitle {
+		upstreamTitles = make(chan string, 1)
+		request.OnConversationTitle = func(title string) {
+			select {
+			case upstreamTitles <- title:
+			default:
+			}
+		}
+	}
 	go func() {
 		defer cancel()
 		err := a.runReply(ctx, client, request, servers, chatID, replyID)
@@ -291,11 +301,20 @@ func (a *app) startReply(chat *store.Conversation) {
 				chat.UpdatedAt = time.Now()
 			}
 			a.save()
-			if err == nil && autoTitle && a.clientStillConnected(titleClient) && !a.quitting {
-				if m := a.message(chatID, replyID); m != nil && m.Error == "" {
-					a.startTitle(titleClient, chatID, originalTitle, titleModel, request.Messages)
-				}
+			if err != nil || !autoTitle || a.quitting {
+				return
 			}
+			if m := a.message(chatID, replyID); m == nil || m.Error != "" {
+				return
+			}
+			select {
+			case title := <-upstreamTitles:
+				if chat := a.conversation(chatID); chat != nil && a.clientForProvider(chat.ProviderID) == client && a.setAutoTitle(client, chatID, originalTitle, title) {
+					return
+				}
+			default:
+			}
+			a.startTitle(titleClient, chatID, originalTitle, titleModel, request.Messages)
 		})
 	}()
 }
@@ -531,7 +550,8 @@ func (a *app) cancelTitles() {
 }
 
 func (a *app) startTitle(client provider.Client, chatID, original, model string, messages []provider.Message) {
-	if !a.state.Settings.ChatTitle || a.quitting || !a.clientStillConnected(client) {
+	chat := a.conversation(chatID)
+	if !a.state.Settings.ChatTitle || a.quitting || !a.clientStillConnected(client) || chat == nil || chat.TitleManual || chat.Title != original {
 		return
 	}
 	if a.titleJobs == nil {
@@ -569,19 +589,25 @@ func (a *app) generateTitle(ctx context.Context, client provider.Client, chatID,
 	if err != nil {
 		return
 	}
-	title := strings.Trim(strings.TrimSpace(result.Content), "\"'`“”")
-	if title == "" || strings.Contains(title, "\n") || utf8.RuneCountInString(title) > 80 {
-		return
-	}
 	a.update(func() {
-		if !a.clientStillConnected(client) || !a.state.Settings.ChatTitle || a.quitting || a.titleJobs[chatID] != job {
-			return
-		}
-		if chat := a.conversation(chatID); chat != nil && chat.Title == original {
-			chat.Title = title
-			a.save()
+		if a.titleJobs[chatID] == job {
+			a.setAutoTitle(client, chatID, original, result.Content)
 		}
 	})
+}
+
+func (a *app) setAutoTitle(client provider.Client, chatID, original, title string) bool {
+	if !a.clientStillConnected(client) || !a.state.Settings.ChatTitle || a.quitting {
+		return false
+	}
+	chat := a.conversation(chatID)
+	title = strings.Trim(strings.TrimSpace(title), "\"'`“”")
+	if chat == nil || chat.TitleManual || chat.Title != original || title == "" || strings.ContainsAny(title, "\r\n") || utf8.RuneCountInString(title) > 80 {
+		return false
+	}
+	chat.Title = title
+	a.save()
+	return true
 }
 
 const maxAttachmentBytes = 5 * 1024 * 1024

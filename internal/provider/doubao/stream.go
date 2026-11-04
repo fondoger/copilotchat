@@ -38,8 +38,9 @@ var endSSE = errors.New("end of Doubao events")
 
 // The private API also completes by clean EOF (as in the reference client).
 // Never turn an empty or malformed stream into a successful Engine completion.
-func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer) {
+func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer, complete func(string)) {
 	state := streamState{writer: writer, markers: map[string]streamPhase{}}
+	conversationID := ""
 	err := sse.Read(reader, maxJSON, func(event, data string) error {
 		if data == "[DONE]" {
 			return endSSE
@@ -53,6 +54,9 @@ func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer) {
 		}
 		if event == "gateway-error" || event == "STREAM_ERROR" || objectError(obj) {
 			return responseError(ctx, 200, []byte(data))
+		}
+		if event == "SSE_ACK" && conversationID == "" {
+			conversationID = ackConversationID(obj)
 		}
 		return state.event(event, obj)
 	})
@@ -71,6 +75,12 @@ func convertSSE(ctx context.Context, reader io.Reader, writer io.Writer) {
 			detail = protocolError().HTTPError
 		}
 		writeEvent(writer, map[string]any{"error": map[string]any{"message": detail.Message}})
+		return
+	}
+	if complete != nil && conversationID != "" {
+		complete(conversationID)
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	if writeEvent(writer, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}}}) == nil {
