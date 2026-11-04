@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/fondoger/copilotchat/internal/desktop/webtransport"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/doubao"
 )
@@ -46,7 +47,7 @@ func TestChatAndTitleRequestsUseBrowserTransport(t *testing.T) {
 					fetched = true
 					return fetchResult{Status: http.StatusOK, ContentType: "application/json"}, nil
 				case "read":
-					return readResult{Done: true, Data: base64.StdEncoding.EncodeToString([]byte(`{"name":"reused title"}`))}, nil
+					return webtransport.Chunk{Done: true, Data: base64.StdEncoding.EncodeToString([]byte(`{"name":"reused title"}`))}, nil
 				default:
 					return nil, errors.New("unexpected operation")
 				}
@@ -113,7 +114,7 @@ func TestDoCancellationCoversBrowserBody(t *testing.T) {
 						return fetchResult{Status: http.StatusOK, ContentType: "application/json"}, nil
 					case "read":
 						if !pending {
-							return readResult{Done: true}, nil
+							return webtransport.Chunk{Done: true}, nil
 						}
 						close(started)
 						<-ctx.Done()
@@ -203,9 +204,9 @@ func TestBrowserBodyEOFClosesBeforeCancel(t *testing.T) {
 	// Exercise the cancellation watcher race repeatedly, including bytes returned
 	// with done=true. A successful body must never end in context.Canceled.
 	for range 100 {
-		body := newBrowserBody(context.Background(), func(context.Context) (readResult, error) {
-			return readResult{Done: true, Data: base64.StdEncoding.EncodeToString([]byte("final bytes"))}, nil
-		})
+		body := webtransport.NewBody(context.Background(), func(context.Context) (webtransport.Chunk, error) {
+			return webtransport.Chunk{Done: true, Data: base64.StdEncoding.EncodeToString([]byte("final bytes"))}, nil
+		}, unavailable)
 		data, err := io.ReadAll(body)
 		body.Close()
 		if err != nil || string(data) != "final bytes" {
@@ -216,12 +217,12 @@ func TestBrowserBodyEOFClosesBeforeCancel(t *testing.T) {
 
 func TestBrowserBodySanitizesPageAndEncodingFailures(t *testing.T) {
 	for _, broken := range []bool{false, true} {
-		body := newBrowserBody(context.Background(), func(context.Context) (readResult, error) {
+		body := webtransport.NewBody(context.Background(), func(context.Context) (webtransport.Chunk, error) {
 			if broken {
-				return readResult{Data: "invalid base64!"}, nil
+				return webtransport.Chunk{Data: "invalid base64!"}, nil
 			}
-			return readResult{}, errors.New("private signed URL or cookie")
-		})
+			return webtransport.Chunk{}, errors.New("private signed URL or cookie")
+		}, unavailable)
 		_, err := io.ReadAll(body)
 		body.Close()
 		assertUnavailable(t, err)
@@ -238,11 +239,11 @@ func TestBrowserBodyCancelAndCloseUnblockPendingRead(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				stopped := make(chan struct{})
-				body := newBrowserBody(ctx, func(ctx context.Context) (readResult, error) {
+				body := webtransport.NewBody(ctx, func(ctx context.Context) (webtransport.Chunk, error) {
 					<-ctx.Done()
 					close(stopped)
-					return readResult{}, errors.New("private browser error after cancellation")
-				})
+					return webtransport.Chunk{}, errors.New("private browser error after cancellation")
+				}, unavailable)
 				defer body.Close()
 				if closeBody {
 					body.Close()

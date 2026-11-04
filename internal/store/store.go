@@ -154,22 +154,23 @@ type Message struct {
 }
 
 type Conversation struct {
-	Mode                 string    `json:"mode,omitempty"`
-	WebKind              string    `json:"webKind,omitempty"`
-	WebURL               string    `json:"webUrl,omitempty"`
-	WebStarted           bool      `json:"webStarted,omitempty"`
-	NativeSearch         bool      `json:"nativeSearch,omitempty"`
-	TitleManual          bool      `json:"titleManual,omitempty"`
-	ProviderID           string    `json:"providerId"`
-	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`
-	ThinkingBudgetTokens int       `json:"thinkingBudgetTokens,omitempty"`
-	ID                   string    `json:"id"`
-	Title                string    `json:"title"`
-	Model                string    `json:"model,omitempty"`
-	Favorite             bool      `json:"favorite,omitempty"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
-	Messages             []Message `json:"messages"`
+	AccountIDs           map[string]string `json:"accountIds,omitempty"`
+	Mode                 string            `json:"mode,omitempty"`
+	WebKind              string            `json:"webKind,omitempty"`
+	WebURL               string            `json:"webUrl,omitempty"`
+	WebStarted           bool              `json:"webStarted,omitempty"`
+	NativeSearch         bool              `json:"nativeSearch,omitempty"`
+	TitleManual          bool              `json:"titleManual,omitempty"`
+	ProviderID           string            `json:"providerId"`
+	ReasoningEffort      string            `json:"reasoningEffort,omitempty"`
+	ThinkingBudgetTokens int               `json:"thinkingBudgetTokens,omitempty"`
+	ID                   string            `json:"id"`
+	Title                string            `json:"title"`
+	Model                string            `json:"model,omitempty"`
+	Favorite             bool              `json:"favorite,omitempty"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	UpdatedAt            time.Time         `json:"updatedAt"`
+	Messages             []Message         `json:"messages"`
 }
 
 type State struct {

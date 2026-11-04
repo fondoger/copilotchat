@@ -12,10 +12,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/fondoger/copilotchat/internal/desktop/webtransport"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/doubao"
 	"github.com/fondoger/copilotchat/internal/store"
@@ -79,11 +79,6 @@ type fetchResult struct {
 	ContentType string `json:"contentType"`
 }
 
-type readResult struct {
-	Done bool   `json:"done"`
-	Data string `json:"data"`
-}
-
 func (t *Transport) eval(ctx context.Context, operation string, input, target any) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -136,7 +131,7 @@ func (t *Transport) Abort(ctx context.Context) error {
 	return t.eval(ctx, "abort", nil, nil)
 }
 
-func (t *Transport) CloseIdleConnections() { t.http.CloseIdleConnections() }
+func (t *Transport) Close() { t.http.CloseIdleConnections() }
 
 func (t *Transport) Do(ctx context.Context, path, contentType string, body []byte) (response *http.Response, err error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -216,11 +211,11 @@ func (t *Transport) browserRequest(ctx context.Context, url, contentType, csrf s
 	if err := t.eval(ctx, "fetch", args, &header); err != nil {
 		return nil, err
 	}
-	stream := newBrowserBody(ctx, func(ctx context.Context) (readResult, error) {
-		var part readResult
+	stream := webtransport.NewBody(ctx, func(ctx context.Context) (webtransport.Chunk, error) {
+		var part webtransport.Chunk
 		err := t.eval(ctx, "read", nil, &part)
 		return part, err
-	})
+	}, unavailable)
 	return &http.Response{StatusCode: header.Status, Header: http.Header{"Content-Type": {header.ContentType}}, Body: stream}, nil
 }
 
@@ -232,44 +227,4 @@ type requestBody struct {
 func (b *requestBody) Close() error {
 	b.cancel()
 	return b.ReadCloser.Close()
-}
-
-type browserBody struct {
-	*io.PipeReader
-	cancel context.CancelFunc
-	once   sync.Once
-}
-
-func (b *browserBody) Close() error { b.once.Do(b.cancel); return b.PipeReader.Close() }
-
-func newBrowserBody(ctx context.Context, read func(context.Context) (readResult, error)) *browserBody {
-	life, cancel := context.WithCancel(ctx)
-	reader, writer := io.Pipe()
-	go func() {
-		defer cancel()
-		// Close the writer first: a successful EOF must not race with cancellation.
-		defer writer.Close()
-		for {
-			part, err := read(life)
-			if err != nil {
-				_ = writer.CloseWithError(unavailable(life))
-				return
-			}
-			data, err := base64.StdEncoding.DecodeString(part.Data)
-			if err != nil {
-				_ = writer.CloseWithError(unavailable(life))
-				return
-			}
-			if len(data) > 0 {
-				if _, err = writer.Write(data); err != nil {
-					return
-				}
-			}
-			if part.Done {
-				return
-			}
-		}
-	}()
-	go func() { <-life.Done(); _ = writer.CloseWithError(life.Err()) }()
-	return &browserBody{PipeReader: reader, cancel: cancel}
 }

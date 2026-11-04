@@ -13,7 +13,7 @@ import (
 func TestConversationContinuationIsPersistedAndConsumedBeforeNextAttempt(t *testing.T) {
 	a := providerTestApp(t)
 	state := json.RawMessage(`{"conversation_id":"123","history_hash":"history","answer_hash":"answer"}`)
-	chat := store.Conversation{ID: "chat", ProviderID: store.DefaultProviderID, Model: "model", Messages: []store.Message{
+	chat := store.Conversation{ID: "chat", ProviderID: store.DefaultProviderID, Model: "model", AccountIDs: map[string]string{store.DefaultProviderID: "web-account"}, Messages: []store.Message{
 		{Role: "user", Content: "question"},
 		{Role: "assistant", Content: "answer", ProviderID: store.DefaultProviderID, Model: "model", ConversationState: state},
 	}}
@@ -36,6 +36,9 @@ func TestConversationContinuationIsPersistedAndConsumedBeforeNextAttempt(t *test
 		t.Fatal(err)
 	}
 	chat = saved.Conversations[0]
+	if chat.AccountIDs[store.DefaultProviderID] != "web-account" {
+		t.Fatal("consuming the continuation lost the durable account binding")
+	}
 	if len(takeConversationState(&chat)) != 0 {
 		t.Fatal("an interrupted attempt could reuse a consumed remote context")
 	}

@@ -81,6 +81,13 @@ func (a *app) modelPicker(c *ui.Context) {
 	})
 	trigger.OnClick(func() {
 		state.Open = !state.Open
+		if state.Open {
+			for _, p := range a.state.Settings.Providers {
+				if store.IsWebProvider(p.Kind) && nativeProvider(&p) && !a.providerState(p.ID).modelsLoaded {
+					a.refreshProviderModels(p.ID)
+				}
+			}
+		}
 	})
 	ui.PopoverBase(c.Key("top-model-picker-popup"), trigger, &state.Open, func(panel ui.Element) {
 		width, height := c.Size()
@@ -103,6 +110,23 @@ func (a *app) modelPicker(c *ui.Context) {
 				}
 				models := a.providerModels(configured.ID)
 				if len(models) == 0 {
+					if store.IsWebProvider(configured.Kind) {
+						count++
+						r := a.providerState(configured.ID)
+						ui.Row(c).FillWidth().Gap(8).Children(func() {
+							providerIcon(c, configured.Kind, 16)
+							ui.Text(c, configured.Name).Grow(1).MinWidth(0).SingleLine()
+							label := "Load"
+							if r.modelsBusy {
+								label = "Loading…"
+							}
+							ui.Button(c, label).Disabled(r.modelsBusy).OnClick(func() { a.refreshProviderModels(configured.ID) })
+							ui.Button(c, "Open").OnClick(func() { state.Open = false; a.openWebAPILogin(configured.ID) })
+						})
+						if r.status != "" {
+							ui.Text(c, r.status).FontSize(11).TextColor(t.TextMuted)
+						}
+					}
 					continue
 				}
 				slices.SortStableFunc(models, func(left, right provider.Model) int {

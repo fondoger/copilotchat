@@ -23,7 +23,7 @@ func TestNumericUpstreamErrorCodesKeepMessages(t *testing.T) {
 }
 
 func TestRecoveryLinkSurvivesHTTPAndStreamErrors(t *testing.T) {
-	const message = "Sign in to continue. [Open Doubao](copilotchat://doubao/open)"
+	const message = "Sign in to continue. [Open Doubao](copilotchat://providers/doubao/open)"
 	detail := map[string]string{"message": message}
 	raw, _ := json.Marshal(map[string]any{"error": detail})
 	stream, _ := json.Marshal(detail)

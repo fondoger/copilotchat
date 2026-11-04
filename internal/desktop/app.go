@@ -66,8 +66,8 @@ type app struct {
 	preview                   *artifactPreview
 	webChat, webSettings      *webChatView
 	webParked                 *webChatView
-	doubaoSessions            map[*doubaoSession]struct{}
-	doubaoLoginID             string
+	webAPISessions            map[*webAPISession]struct{}
+	webAPILoginID             string
 	settingsPage              string
 	extensionPage             string
 	agentSetup                agentSetupState
@@ -157,7 +157,7 @@ func Run(dataDir string, dev bool) (err error) {
 		destroyWebChatView(a.webParked)
 		a.webParked = nil
 		a.closeWebSettings()
-		a.closeDoubaoSessions("")
+		a.closeWebAPISessions("")
 		a.stop()
 		a.cancelLogin()
 		a.cancelModelRefresh()

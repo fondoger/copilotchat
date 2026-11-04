@@ -174,19 +174,19 @@ func (a *app) providerSettings(c *ui.Context) {
 				ui.Text(c, form.Error).FontSize(12).TextColor(t.Danger)
 			}
 		})
-		if p.Kind == store.ProviderKindDoubao {
+		if supportsWebAPIMode(p.Kind) {
 			apiMode := p.ExperimentalAPIMode
 			ui.Row(c).FillWidth().Gap(12).Children(func() {
 				ui.Text(c, "Experimental API Mode").Grow(1).FontWeight(500)
 				ui.Switch(c, &apiMode).Label("Experimental API Mode").OnChange(func() { a.setExperimentalAPIMode(id, apiMode) })
 			})
 			if p.ExperimentalAPIMode {
-				if a.doubaoLoginID != id {
+				if a.webAPILoginID != id {
 					a.closeWebSettings()
-					ui.Button(c, "Open Doubao").Disabled(p.Disabled).OnClick(func() { a.openDoubaoLogin(id) })
+					ui.Button(c, "Open "+strings.TrimSuffix(providerName, " Web")).Disabled(p.Disabled).OnClick(func() { a.openWebAPILogin(id) })
 					return
 				}
-				ui.Button(c, "Done").OnClick(a.finishDoubaoLogin)
+				ui.Button(c, "Done").OnClick(a.finishWebAPILogin)
 			}
 		}
 		a.webProviderView(c, id)

@@ -14,7 +14,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
-const RecoveryURL = "copilotchat://doubao/open"
+const RecoveryURL = "copilotchat://providers/doubao/open"
 
 // Only locally constructed errors may carry recovery links. Raw transport and
 // upstream error text can contain credentials and never reach the native UI.

@@ -112,7 +112,7 @@ func (a *app) closeWebChat() {
 }
 
 func (a *app) closeWebSettings() {
-	a.doubaoLoginID = ""
+	a.webAPILoginID = ""
 	p := a.webSettings
 	a.webSettings = nil
 	destroyWebChatView(p)

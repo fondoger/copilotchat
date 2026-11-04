@@ -90,6 +90,7 @@ type Message struct {
 type Request struct {
 	// ConversationState is opaque, provider-owned continuation metadata for native chat.
 	ConversationState     json.RawMessage `json:"-"`
+	AccountID             string          `json:"-"`
 	Model                 string          `json:"model"`
 	Messages              []Message       `json:"messages"`
 	Tools                 []Tool          `json:"tools,omitempty"`

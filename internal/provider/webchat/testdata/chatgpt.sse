@@ -1,0 +1,35 @@
+event: delta_encoding
+data: "v1"
+
+data: {"type":"input_message","input_message":{"id":"00000000-0000-4000-8000-000000000001","author":{"role":"user","name":null,"metadata":{}},"create_time":1793783676.639,"update_time":null,"content":{"content_type":"text","parts":["只基于本次对话回答：刚才的暗号是什么？只输出暗号，不要新增或更新长期记忆。"]},"status":"finished_successfully","end_turn":null,"weight":1,"metadata":{"message_source":null,"turn_exchange_id":"00000000-0000-4000-8000-000000000002","working_turn_id":"00000000-0000-4000-8000-000000000002","parent_id":"00000000-0000-4000-8000-000000000003"},"recipient":"all","channel":null},"conversation_id":"00000000-0000-4000-8000-000000000004"}
+
+event: delta
+data: {"p":"","o":"add","v":{"message":{"id":"00000000-0000-4000-8000-000000000005","author":{"role":"assistant","name":null,"metadata":{}},"create_time":null,"update_time":null,"content":{"content_type":"model_editable_context","model_set_context":"","repository":null,"repo_summary":null,"structured_context":null},"status":"finished_successfully","end_turn":null,"weight":1,"metadata":{"is_visually_hidden_from_conversation":true,"resolved_model_slug":"gpt-6-mini","search_result_groups":[],"cot_version":"v5","conversation_followup_suggestions_eligible":true,"message_type":"next","turn_exchange_id":"00000000-0000-4000-8000-000000000002","working_turn_id":"00000000-0000-4000-8000-000000000002","model_slug":"gpt-6-mini","default_model_slug":"auto","can_save":false,"parent_id":"00000000-0000-4000-8000-000000000001","model_switcher_deny":[]},"recipient":"all","channel":null},"conversation_id":"00000000-0000-4000-8000-000000000004","error":null,"error_code":null},"c":0}
+
+event: delta
+data: {"v":{"message":{"id":"00000000-0000-4000-8000-000000000006","author":{"role":"system","name":null,"metadata":{}},"create_time":1793783677.0798295,"update_time":null,"content":{"content_type":"text","parts":[""]},"status":"finished_successfully","end_turn":null,"weight":1,"metadata":{"is_visually_hidden_from_conversation":true,"resolved_model_slug":"gpt-6-mini","cot_version":"v5","message_type":"next","turn_exchange_id":"00000000-0000-4000-8000-000000000002","working_turn_id":"00000000-0000-4000-8000-000000000002","model_slug":"gpt-6-mini","default_model_slug":"auto","parent_id":"00000000-0000-4000-8000-000000000005","model_switcher_deny":[]},"recipient":"all","channel":null},"conversation_id":"00000000-0000-4000-8000-000000000004","error":null,"error_code":null},"c":1}
+
+event: delta
+data: {"v":{"message":{"id":"00000000-0000-4000-8000-000000000007","author":{"role":"assistant","name":null,"metadata":{}},"create_time":1793783677.347252,"update_time":null,"content":{"content_type":"text","parts":[""]},"status":"in_progress","end_turn":false,"weight":1,"metadata":{"parent_id":"00000000-0000-4000-8000-000000000006","is_visually_hidden_from_conversation":true,"turn_exchange_id":"00000000-0000-4000-8000-000000000002","working_turn_id":"00000000-0000-4000-8000-000000000002","model_switcher_deny":[]},"recipient":"all","channel":"final"},"conversation_id":"00000000-0000-4000-8000-000000000004","error":null,"error_code":null},"c":2}
+
+data: {"type":"message_marker","conversation_id":"00000000-0000-4000-8000-000000000004","message_id":"00000000-0000-4000-8000-000000000007","marker":"user_visible_token","event":"first"}
+
+data: {"type":"message_marker","conversation_id":"00000000-0000-4000-8000-000000000004","message_id":"00000000-0000-4000-8000-000000000007","marker":"final_channel_token","event":"first"}
+
+event: delta
+data: {"o":"patch","v":[{"p":"/message/content/parts/0","o":"append","v":"云杉-2915"},{"p":"/message/end_turn","o":"replace","v":null},{"p":"/message/metadata/is_visually_hidden_from_conversation","o":"remove"},{"p":"/message/metadata","o":"append","v":{"view_state":{},"citations":[],"cot_version":"v5","resolved_model_slug":"gpt-6-mini","conversation_followup_suggestions_eligible":false,"message_type":"next","default_model_slug":"auto","streaming_parent_id":"00000000-0000-4000-8000-000000000001","model_slug":"gpt-6-mini","streaming_parent_revision":0,"content_references":[]}}]}
+
+event: delta
+data: {"v":[{"p":"/message/status","o":"replace","v":"finished_successfully"},{"p":"/message/end_turn","o":"replace","v":true},{"p":"/message/metadata","o":"append","v":{"search_result_groups":[],"can_save":true,"finish_details":{"type":"stop","stop_tokens":"<redacted>"},"is_complete":true}}]}
+
+data: {"type":"message_marker","conversation_id":"00000000-0000-4000-8000-000000000004","message_id":"00000000-0000-4000-8000-000000000007","marker":"last_token","event":"last"}
+
+event: delta
+data: {"p":"/message/metadata/conversation_followup_suggestions_eligible","o":"replace","v":true}
+
+data: {"type":"message_stream_complete","conversation_id":"00000000-0000-4000-8000-000000000004"}
+
+data: {"type":"conversation_detail_metadata","banner_info":null,"blocked_features":[{"name":"file_upload","resets_after":"2026-11-04T09:38:12.237428+00:00","resets_after_text":"in 24 minutes","limit":null,"description":"You’re out of attachments for now. Upgrade your plan for more, or try again in 24 minutes.","title":null,"block_reason":null,"call_to_action":["get_plus"],"upsell_context_id":"file_upload","icon_image_url":null,"metadata":null}],"model_limits":[],"limits_progress":null,"default_model_slug":"auto","intended_default_model_slug":"auto","atlas_mode_enabled":null,"conversation_id":"00000000-0000-4000-8000-000000000004"}
+
+data: [DONE]
+

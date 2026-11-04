@@ -1,0 +1,151 @@
+{
+  "model_selector_config": [
+    {
+      "id": "chat",
+      "models": [
+        {
+          "id": "claude-fable-5-1",
+          "name": "Fable 5.1",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "main"
+        },
+        {
+          "id": "claude-opus-5-5",
+          "name": "Opus 5.5",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "main"
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Sonnet 5.5",
+          "section": "main",
+          "capabilities": {"mm_images": true},
+          "thinking": {
+            "effort_options": [
+              {"id": "low", "name": "Low"},
+              {"id": "medium", "name": "Medium", "recommended": true},
+              {"id": "high", "name": "High"},
+              {"id": "xhigh", "name": "Extra"},
+              {"id": "max", "name": "Max"}
+            ],
+            "mode_options": [{"id": "auto", "name": "Thinking"}]
+          }
+        },
+        {
+          "id": "claude-haiku-5-5",
+          "name": "Haiku 5.5",
+          "section": "main",
+          "capabilities": {"mm_images": true},
+          "thinking": {
+            "effort_options": [
+              {"id": "low", "name": "Low"},
+              {"id": "medium", "name": "Medium", "recommended": true},
+              {"id": "high", "name": "High"},
+              {"id": "xhigh", "name": "Extra"},
+              {"id": "max", "name": "Max"}
+            ],
+            "mode_options": [{"id": "auto", "name": "Thinking"}]
+          }
+        },
+        {
+          "id": "claude-fable-5",
+          "name": "Fable 5",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-opus-5",
+          "name": "Opus 5",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-opus-4-8",
+          "name": "Opus 4.8",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-opus-4-7",
+          "name": "Opus 4.7",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-opus-4-6",
+          "name": "Opus 4.6",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-3-opus-20240229",
+          "name": "Opus 3",
+          "disabled": true,
+          "disabled_reason": {"required_plan": "pro", "type": "upgrade_required"},
+          "section": "overflow"
+        },
+        {
+          "id": "claude-sonnet-5",
+          "name": "Sonnet 5",
+          "section": "overflow",
+          "capabilities": {"mm_images": true},
+          "thinking": {
+            "effort_options": [
+              {"id": "low", "name": "Low"},
+              {"id": "medium", "name": "Medium", "recommended": true},
+              {"id": "high", "name": "High"},
+              {"id": "xhigh", "name": "Extra"},
+              {"id": "max", "name": "Max"}
+            ],
+            "mode_options": [{"id": "auto", "name": "Thinking"}, {"id": "off", "name": "Off"}]
+          }
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "name": "Sonnet 4.6",
+          "section": "overflow",
+          "capabilities": {"mm_images": true},
+          "thinking": {
+            "effort_options": [
+              {"id": "low", "name": "Low", "recommended": true},
+              {"id": "medium", "name": "Medium"},
+              {"id": "high", "name": "High"},
+              {"id": "max", "name": "Max"}
+            ],
+            "mode_options": [{"id": "auto", "name": "Thinking"}, {"id": "off", "name": "Off"}]
+          }
+        },
+        {
+          "id": "claude-opus-4-5-20251101",
+          "name": "Opus 4.5",
+          "disabled": true,
+          "section": "deprecated"
+        },
+        {
+          "id": "claude-opus-4-1-20250805-claude-ai",
+          "name": "Opus 4.1",
+          "disabled": true,
+          "section": "deprecated"
+        }
+      ]
+    }
+  ],
+  "model_selector_state": [
+    {
+      "id": "chat",
+      "thinking_by_model": [
+        {"id": "claude-sonnet-5-5", "thinking": {"effort": "medium", "mode": "auto"}},
+        {"id": "claude-haiku-5-5", "thinking": {"effort": "medium", "mode": "auto"}},
+        {"id": "claude-sonnet-5", "thinking": {"effort": "medium", "mode": "auto"}},
+        {"id": "claude-sonnet-4-6", "thinking": {"effort": "low", "mode": "off"}}
+      ]
+    }
+  ]
+}

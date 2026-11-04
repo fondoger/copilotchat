@@ -82,7 +82,7 @@ func TestDoubaoCatalogAndSettingsAreLazy(t *testing.T) {
 	a.providerSettingsID = id
 	tester := ui.NewTester(a.providerSettings, 640, 500)
 	tester.Frame()
-	if !closed || a.webSettings != nil || len(a.doubaoSessions) != 0 {
+	if !closed || a.webSettings != nil || len(a.webAPISessions) != 0 {
 		t.Fatal("settings retained a previous login page or created a WebView")
 	}
 	if a.providerSecrets.(*memoryCredentials).entries[providerCredentialKey(id)] != nil {

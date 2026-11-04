@@ -85,7 +85,7 @@ func (a *app) loadProviders() {
 		r := a.providerState(p.ID)
 		if store.IsWebProvider(p.Kind) {
 			if nativeProvider(&p) {
-				a.loadDoubaoProvider(p.ID)
+				a.loadWebAPIProvider(p.ID)
 			}
 			continue
 		}
@@ -446,7 +446,7 @@ func (a *app) resetDefaultProvider() {
 }
 
 func (a *app) cancelProviderWork(id string) {
-	a.closeDoubaoSessions(id)
+	a.closeWebAPISessions(id)
 	a.closeWebProvider(id)
 	a.cancelProviderLogin(id)
 	a.cancelProviderModels(id)
@@ -747,7 +747,7 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 func (a *app) refreshProviderModels(id string) {
 	p := a.provider(id)
 	r := a.providerState(id)
-	if p == nil || p.Disabled || store.IsWebProvider(p.Kind) || r.client == nil || r.modelsBusy || a.quitting {
+	if p == nil || p.Disabled || !nativeProvider(p) || r.client == nil || r.modelsBusy || a.quitting {
 		return
 	}
 	r.modelsEpoch++

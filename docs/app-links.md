@@ -3,7 +3,7 @@
 原生回复正文和错误信息都使用 Markdown 渲染，可包含应用内操作链接：
 
 ```markdown
-请先登录豆包。[打开豆包](copilotchat://doubao/open)
+请先登录豆包。[打开豆包](copilotchat://providers/doubao/open)
 ```
 
 链接在用户点击后执行。仅渲染、接收或流式输出链接不会触发操作。
@@ -12,9 +12,11 @@
 
 | 链接 | 操作 |
 | --- | --- |
-| `copilotchat://doubao/open` | 打开这条消息所属豆包 Provider 的设置登录页 |
+| `copilotchat://providers/doubao/open` | 打开这条消息所属豆包 Provider 的设置登录页 |
+| `copilotchat://providers/chatgpt/open` | 打开这条消息所属 ChatGPT Web Provider 的设置登录页 |
+| `copilotchat://providers/claude/open` | 打开这条消息所属 Claude Web Provider 的设置登录页 |
 
-豆包适配器的登录/验证错误将链接放在普通 `message` 中，HTTP、SSE 和本地历史继续传递这段文本。打开登录页时校验 Provider 仍存在、已启用且为豆包；没有消息级 Provider 时使用会话的 Provider。完成后点击 Done 释放页面，再手动重试。
+网页 API 适配器的登录/验证错误将链接放在普通 `message` 中，HTTP、SSE 和本地历史继续传递这段文本。打开登录页时校验 Provider 仍存在、已启用且站点与链接一致；没有消息级 Provider 时使用会话的 Provider。完成后点击 Done 释放页面，再手动重试。
 
 ## 分发与边界
 

@@ -31,18 +31,8 @@ func resumeConversation(req provider.Request) conversationState {
 		return conversationState{}
 	}
 	answer := sha256.Sum256([]byte(previous.Content))
-	if state.HistoryHash == "" || state.HistoryHash != historyHash(req.ConversationID, req.Messages[:n-2]) || state.AnswerHash != hex.EncodeToString(answer[:]) {
+	if state.HistoryHash == "" || state.HistoryHash != provider.HistoryHash(req.ConversationID, req.Messages[:n-2]) || state.AnswerHash != hex.EncodeToString(answer[:]) {
 		return conversationState{}
 	}
 	return state
-}
-
-func historyHash(localID string, messages []provider.Message) string {
-	h := sha256.New()
-	encoder := json.NewEncoder(h)
-	_ = encoder.Encode(localID)
-	if encoder.Encode(messages) != nil {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }

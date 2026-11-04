@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -101,6 +102,11 @@ func (a *app) applyProviderModels(id string, client provider.Client, epoch uint6
 	}
 	if accountErr == nil {
 		a.updateProviderAccount(id, account, nil, false)
+	}
+	if store.IsWebProvider(p.Kind) && a.state.Settings.ActiveProviderID == id {
+		if !slices.ContainsFunc(models, func(m provider.Model) bool { return m.ID == a.state.Settings.Model }) {
+			a.state.Settings.Model = ""
+		}
 	}
 	r.models, r.modelsLoaded = models, true
 	p.ModelsRefreshedAt = time.Now()

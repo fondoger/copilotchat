@@ -94,7 +94,7 @@ func (c *Client) PrepareInference(ctx context.Context, req provider.Request, mod
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, inputKey{}, &inferenceInput{chatInput: input, historyHash: historyHash(req.ConversationID, req.Messages), wantTitle: req.WantConversationTitle})
+	ctx = context.WithValue(ctx, inputKey{}, &inferenceInput{chatInput: input, historyHash: provider.HistoryHash(req.ConversationID, req.Messages), wantTitle: req.WantConversationTitle})
 	return http.NewRequestWithContext(ctx, http.MethodPost, "https://"+Host+chatPath, nil)
 }
 

@@ -20,12 +20,13 @@ func TestAppLinkIsBoundToAnEnabledProvider(t *testing.T) {
 		t.Fatal("Doubao recovery route is unavailable")
 	}
 	for _, dest := range []string{
-		"copilotchat://doubao/open?provider=other",
-		"copilotchat://doubao/open#anything",
-		"copilotchat://doubao/open/../open",
-		"copilotchat://attacker.invalid/doubao/open",
-		"copilotchat://doubao/execute",
-		"app://doubao/open",
+		"copilotchat://providers/doubao/open?provider=other",
+		"copilotchat://providers/doubao/open#anything",
+		"copilotchat://providers/doubao/open/../open",
+		"copilotchat://doubao/open",
+		"copilotchat://attacker.invalid/providers/doubao/open",
+		"copilotchat://providers/doubao/execute",
+		"app://providers/doubao/open",
 	} {
 		if a.appLinkAction(id, dest) != nil {
 			t.Fatalf("unregistered operation accepted: %s", dest)
@@ -42,7 +43,7 @@ func TestAppLinkIsBoundToAnEnabledProvider(t *testing.T) {
 		t.Fatal("disabled provider accepted a recovery action")
 	}
 	action()
-	if a.doubaoLoginID != "" || a.settingsWin != nil {
+	if a.webAPILoginID != "" || a.settingsWin != nil {
 		t.Fatal("stale action opened a disabled provider")
 	}
 }
@@ -63,7 +64,7 @@ func TestErrorAndAnswerUseMarkdownLinks(t *testing.T) {
 	if !tester.HasText("Open from answer") || !tester.HasText("Open Doubao") {
 		t.Fatal("answer or error did not render its Markdown link")
 	}
-	if a.doubaoLoginID != "" || a.settingsWin != nil {
+	if a.webAPILoginID != "" || a.settingsWin != nil {
 		t.Fatal("rendering a link executed an application action")
 	}
 	a.provider(id).Disabled = true
@@ -72,14 +73,14 @@ func TestErrorAndAnswerUseMarkdownLinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if a.doubaoLoginID != "" || a.settingsWin != nil || len(tester.OpenedURLs()) != 0 {
+	if a.webAPILoginID != "" || a.settingsWin != nil || len(tester.OpenedURLs()) != 0 {
 		t.Fatal("disabled provider link executed or escaped to the system opener")
 	}
 }
 
 func TestMessageLinksKeepExternalURLSafety(t *testing.T) {
 	a := providerTestApp(t)
-	const source = "[Web](https://example.com) [Mail](mailto:test@example.com) [Script](javascript:alert(1)) [File](file:///secret) [Relative](secret.txt) [App](copilotchat://doubao/execute)"
+	const source = "[Web](https://example.com) [Mail](mailto:test@example.com) [Script](javascript:alert(1)) [File](file:///secret) [Relative](secret.txt) [App](copilotchat://providers/doubao/execute)"
 	tester := ui.NewTester(func(c *ui.Context) {
 		a.theme(c)
 		markdown.View(c, source, a.messageMarkdownOptions(c, c.Root(), "missing"))

@@ -18,6 +18,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/fondoger/copilotchat/internal/mcp"
 	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/provider/webchat"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -261,7 +262,23 @@ func (a *app) startReply(chat *store.Conversation) {
 		job.cancel()
 		delete(a.titleJobs, chat.ID)
 	}
-	request := provider.Request{Model: chat.Model, ConversationID: chat.ID, Messages: history(chat), ConversationState: takeConversationState(chat), ReasoningEffort: chat.ReasoningEffort, ThinkingBudgetTokens: chat.ThinkingBudgetTokens}
+	accountID := ""
+	if _, ok := client.(*webchat.Client); ok {
+		account, err := client.Account(context.Background()) // This client reads its discovered in-memory identity.
+		if err != nil {
+			a.status = err.Error()
+			return
+		}
+		if chat.AccountIDs == nil {
+			chat.AccountIDs = make(map[string]string)
+		}
+		accountID = chat.AccountIDs[chat.ProviderID]
+		if accountID == "" {
+			accountID = account.ID
+			chat.AccountIDs[chat.ProviderID] = accountID
+		}
+	}
+	request := provider.Request{Model: chat.Model, AccountID: accountID, ConversationID: chat.ID, Messages: history(chat), ConversationState: takeConversationState(chat), ReasoningEffort: chat.ReasoningEffort, ThinkingBudgetTokens: chat.ThinkingBudgetTokens}
 	if model, ok := a.modelForProvider(chat.ProviderID, chat.Model); ok {
 		request.NativeSearch = chat.NativeSearch && provider.SupportsNativeSearch(model)
 	}
