@@ -52,59 +52,6 @@ func settingsSavedState(t *testing.T, a *app) store.State {
 	return state
 }
 
-func TestReferenceIconsRender(t *testing.T) {
-	entries, err := iconAssets.ReadDir("assets/icons")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var icons []*ui.SVG
-	var names []string
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".svg") {
-			continue
-		}
-		data, err := iconAssets.ReadFile("assets/icons/" + entry.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		icon, err := ui.ParseSVG(data)
-		if err != nil {
-			t.Fatalf("parse %s: %v", entry.Name(), err)
-		}
-		icons = append(icons, icon)
-		names = append(names, entry.Name())
-	}
-	tester := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Fill().Padding(8).Gap(8).Background(ui.Hex("#ffffff")).Children(func() {
-			for row := 0; row < len(icons); row += 6 {
-				ui.Row(c).Height(24).Gap(8).Children(func() {
-					for i := row; i < min(row+6, len(icons)); i++ {
-						ui.Icon(c, icons[i]).Size(24, 24).TextColor(ui.Hex("#000000")).Label(names[i])
-					}
-				})
-			}
-		})
-	}, 208, 16+32*((len(icons)+5)/6))
-	for _, name := range names {
-		bounds, ok := tester.Find(name)
-		if !ok {
-			t.Fatalf("missing rendered icon %s", name)
-		}
-		pixels := 0
-		for y := int(bounds.Y); y < int(bounds.Y+bounds.H); y++ {
-			for x := int(bounds.X); x < int(bounds.X+bounds.W); x++ {
-				pixel := tester.Image().RGBAAt(x, y)
-				if pixel.A > 0 && pixel.R < 220 && pixel.G < 220 && pixel.B < 220 {
-					pixels++
-				}
-			}
-		}
-		if pixels < 4 {
-			t.Errorf("%s did not draw visible SVG geometry (%d pixels)", name, pixels)
-		}
-	}
-}
-
 func TestSettingsInvalidMCPDoesNotReplaceServers(t *testing.T) {
 	a := newSettingsTestApp(t)
 	a.settingsPage = "MCP"

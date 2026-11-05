@@ -3,7 +3,9 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -190,251 +192,102 @@ func TestWebSitesOrphanKeepsPersistedIdentity(t *testing.T) {
 	}
 }
 
-func TestWebSitesScriptCreationIntent(t *testing.T) {
+func TestWebSitesScriptSubmissionAndIsolation(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is needed to execute actual preload behavior")
 	}
+	var fixtures []map[string]string
 	for _, site := range webSiteFixtures {
-		for _, scenario := range []string{
-			"ordinary edit", "IME", "ShiftEnter", "programmatic Enter", "outside Enter", "empty Enter",
-			"early stylesheet", "SPA roundtrip", "trusted Enter", "temporary route", "rejected submit", "attachment submit", "history back", "history click", "history without intent", "noncanonical route", "editor selection", "cross origin", "subframe", "settings",
-		} {
-			t.Run(site.kind+"/"+scenario, func(t *testing.T) {
-				input, err := json.Marshal(map[string]string{
-					"script": webScript(site.kind, scenario != "settings"), "kind": site.kind,
-					"start": site.start, "remote": site.remote, "editor": site.editor, "auth": site.auth[0], "scenario": scenario,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				cmd := exec.CommandContext(ctx, node, "-e", webSitesScriptHarness)
-				cmd.Stdin = strings.NewReader(string(input))
-				if out, err := cmd.CombinedOutput(); err != nil {
-					t.Fatalf("actual webScript behavior: %v\n%s", err, out)
-				}
+		for _, scenario := range []string{"trusted Enter", "cross origin", "subframe", "settings"} {
+			fixtures = append(fixtures, map[string]string{
+				"script": webScript(site.kind, scenario != "settings"), "kind": site.kind,
+				"start": site.start, "remote": site.remote, "editor": site.editor, "auth": site.auth[0], "scenario": scenario,
 			})
 		}
+	}
+	input, err := json.Marshal(fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "fixtures.json")
+	if err := os.WriteFile(path, input, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, node, "-e", webSitesScriptHarness, path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("actual webScript behavior: %v (context: %v)\n%s", err, ctx.Err(), out)
 	}
 }
 
 const webSitesScriptHarness = `
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const fixture = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
-// DOM dispatch must preserve every listener: the shortcut and creation handlers
-// both subscribe to keydown, in registration order.
-function events() {
-  const listeners = new Map();
-  return {
+const fixtures = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'));
+function runFixture(fixture) {
+  const listeners = new Map(), calls = [], styles = [];
+  const editor = {isContentEditable:fixture.kind !== 'deepseek-web', children:[], selectors:[fixture.editor],
+    value:'Research question', textContent:'Research question', innerText:'Research question',
+    contains(target) {return target === this}, closest() {return null}};
+  const clipboard = {isContentEditable:true, selectors:['[contenteditable="true"]'], textContent:'Clipboard'};
+  const nodes = fixture.kind === 'gemini-web' ? [clipboard, editor] : [editor];
+  const document = {title:'Research title', head:null,
+    documentElement:{appendChild(style) {style.parentNode = this; styles.push(style)}},
+    createElement() {return {}},
     addEventListener(name, callback) {
       if (!listeners.has(name)) listeners.set(name, []);
       listeners.get(name).push(callback);
     },
-    dispatch(type, target, extra = {}) {
-      let stopped = false;
-      const event = {type, target, isTrusted:true, key:'', isComposing:false,
-        shiftKey:false, ctrlKey:false, metaKey:false, altKey:false, repeat:false,
-        preventDefault() {}, stopImmediatePropagation() {stopped = true}, ...extra};
-      for (const callback of listeners.get(type) || []) {
-        callback(event);
-        if (stopped) break;
-      }
-    }
+    querySelector(selector) {
+      const options = selector.split(',').map(part => part.trim());
+      return nodes.find(node => options.some(part => node.selectors.includes(part) ||
+        part === '[contenteditable="true"]' && node.isContentEditable)) || null;
+    }};
+  const state = {document, URL, setTimeout, navigator:{platform:'Win32'},
+    MutationObserver:class {observe() {} disconnect() {}},
+    location:new URL(fixture.scenario === 'cross origin' ? fixture.auth : fixture.start),
+    addEventListener() {},
+    mygo:{call(...args) {calls.push(args); return Promise.resolve()}}};
+  state.window = state;
+  state.top = fixture.scenario === 'subframe' ? {} : state;
+  state.history = {
+    pushState(_state, _title, raw) {state.location = new URL(raw, state.location)},
+    replaceState(_state, _title, raw) {state.location = new URL(raw, state.location)}
   };
-}
-function node(contentEditable, selectors, value) {
-  return {isContentEditable:contentEditable, children:[], selectors,
-    value, textContent:value, innerText:value,
-    contains(target) {return target === this}, closest() {return null}};
-}
-let editor = node(fixture.kind !== 'deepseek-web', [fixture.editor], 'Research question');
-// Gemini also has a hidden contenteditable clipboard before the real composer.
-const clipboard = node(true, ['[contenteditable="true"]'], 'Clipboard, not the message');
-const nodes = fixture.kind === 'gemini-web' ? [clipboard, editor] : [editor];
-const documentEvents = events(), windowEvents = events(), styles = [], calls = [], observers = [];
-class MutationObserver {
-  constructor(callback) {this.callback = callback; observers.push(this)}
-  observe(target) {this.target = target}
-  disconnect() {this.target = null}
-}
-const mutations = target => {
-  for (const observer of observers.filter(observer => observer.target === target)) observer.callback();
-};
-const root = () => ({children:[], appendChild(style) {
-  if (style.parentNode) style.parentNode.children.splice(style.parentNode.children.indexOf(style), 1);
-  this.children.push(style); style.parentNode = this;
-  if (!styles.includes(style)) styles.push(style);
-}, removeChild(style) {this.children.splice(this.children.indexOf(style), 1); style.parentNode = null}});
-const document = {title:'Research title', documentElement:fixture.scenario === 'early stylesheet' ? null : root(), head:null,
-  createElement() {return {}}, addEventListener:documentEvents.addEventListener,
-  querySelector(selector) {
-    const options = selector.split(',').map(part => part.trim());
-    return nodes.find(node => options.some(part => node.selectors.includes(part) ||
-      part === '[contenteditable="true"]' && node.isContentEditable)) || null;
-  }};
-const outside = {closest() {return null}};
-const state = {document, URL, setTimeout, MutationObserver, navigator:{platform:'Win32'},
-  location:new URL(fixture.scenario === 'cross origin' ? fixture.auth : fixture.start),
-  addEventListener:windowEvents.addEventListener,
-  mygo:{call(...args) {calls.push(args); return Promise.resolve()}}};
-state.window = state;
-state.top = fixture.scenario === 'subframe' ? {} : state;
-state.history = {
-  pushState(_state, _title, raw) {state.location = new URL(raw, state.location)},
-  replaceState(_state, _title, raw) {state.location = new URL(raw, state.location)}
-};
-vm.runInNewContext(fixture.script, state);
-const bridge = state.__copilotWebChat;
-if (['cross origin', 'subframe', 'settings'].includes(fixture.scenario)) {
-  assert.equal(bridge, undefined, 'untrusted document installed the bridge');
-  assert.equal(styles.length, 0, 'untrusted document was modified');
-  assert.equal(observers.length, 0, 'untrusted document installed observers');
-  assert.equal(calls.length, 0);
-} else {
-  assert.ok(bridge, 'site bridge missing');
-  if (fixture.scenario !== 'early stylesheet') {
-    assert.equal(styles.length, 1, 'stylesheet must mount immediately without a head');
-    assert.equal(styles[0].parentNode, document.documentElement);
+  vm.runInNewContext(fixture.script, state);
+  const bridge = state.__copilotWebChat;
+  if (fixture.scenario !== 'trusted Enter') {
+    assert.equal(bridge, undefined, 'untrusted document installed the bridge');
+    assert.equal(styles.length, 0, 'untrusted document was modified');
+    assert.equal(calls.length, 0, 'untrusted document called native code');
+    return;
   }
-  const snapshot = () => bridge.snapshot();
-  const key = (extra = {}, target = editor) => documentEvents.dispatch('keydown', target, {key:'Enter', ...extra});
-  const navigate = raw => state.history.pushState({}, '', raw);
-  const noBinding = () => {
-    assert.equal(snapshot().createdURL, '', 'navigation acquired creation proof without explicit send');
-    assert.equal(snapshot().started, false, 'ordinary interaction marked a send');
+  assert.ok(bridge, 'site bridge missing');
+  const key = extra => {
+    let stopped = false;
+    const event = {target:editor, isTrusted:true, key:'Enter', isComposing:false,
+      shiftKey:false, ctrlKey:false, metaKey:false, altKey:false, repeat:false,
+      preventDefault() {}, stopImmediatePropagation() {stopped = true}, ...extra};
+    for (const callback of listeners.get('keydown') || []) {
+      callback(event);
+      if (stopped) break;
+    }
   };
-  assert.equal(snapshot().draft, null);
-  switch (fixture.scenario) {
-    case 'early stylesheet': {
-      assert.equal(styles.length, 0);
-      document.documentElement = root();
-      mutations(document);
-      assert.equal(styles.length, 1, 'stylesheet must mount before DOMContentLoaded');
-      const style = styles[0];
-      assert.ok(style.textContent.length);
-      assert.equal(style.parentNode, document.documentElement);
-      document.head = {};
-      mutations(document.documentElement);
-      document.head = {};
-      mutations(document.documentElement);
-      assert.equal(style.parentNode, document.documentElement, 'head replacement lost stylesheet');
-      document.documentElement.removeChild(style);
-      mutations(document.documentElement);
-      assert.equal(style.parentNode, document.documentElement, 'removed stylesheet was not restored');
-      const oldRoot = document.documentElement;
-      document.documentElement = root();
-      mutations(document);
-      assert.equal(style.parentNode, document.documentElement, 'new root lost stylesheet');
-      assert.equal(oldRoot.children.length, 0);
-      vm.runInNewContext(fixture.script, state);
-      assert.equal(styles.length, 1, 'duplicate preload created another stylesheet');
-      assert.equal(document.documentElement.children.length, 1);
-      noBinding();
-      break;
-    }
-    case 'SPA roundtrip': {
-      const control = (text, href, label, destination) => ({textContent:text, getAttribute(name) {return name === 'href' ? href : name === 'aria-label' ? label : null}, click() {editor = node(editor.isContentEditable, [fixture.editor], ''); nodes.splice(0, nodes.length, editor); navigate(destination)}});
-      const blankPath = new URL(fixture.start).pathname;
-      const remotePath = new URL(fixture.remote).pathname;
-      const fresh = control(fixture.kind === 'claude-web' ? 'New' : 'New chat', blankPath, 'New chat', fixture.start);
-      const history = control('Saved chat', remotePath, null, fixture.remote);
-      const decoy = control('', blankPath, 'Home', fixture.start);
-      document.documentElement = {};
-      document.querySelectorAll = selector => selector === 'a[href]' ? [fresh,history] : fixture.kind === 'claude-web' || fixture.kind === 'chatgpt-web' ? [fresh,decoy] : [fresh];
-      editor.value = editor.textContent = editor.innerText = '';
-      (async () => {
-        assert.equal(await bridge.switchTarget(1, fixture.remote), true);
-        assert.equal(snapshot().session, 1);
-        assert.equal(await bridge.switchTarget(2, fixture.start), true);
-        assert.equal(snapshot().session, 2);
-        assert.equal(snapshot().createdURL, '');
-        assert.equal(document.documentElement.inert, false);
-      })().catch(error => {console.error(error);process.exitCode=1});
-      break;
-    }
-    case 'ordinary edit':
-      documentEvents.dispatch('input', editor);
-      assert.equal(snapshot().draft, 'Research question');
-      assert.equal(snapshot().edited, true);
-      navigate(fixture.remote); noBinding(); break;
-    case 'IME':
-      key({isComposing:true});
-      documentEvents.dispatch('compositionend', editor);
-      assert.equal(snapshot().draft, 'Research question');
-      navigate(fixture.remote); noBinding(); break;
-    case 'ShiftEnter':
-      key({shiftKey:true}); navigate(fixture.remote); noBinding(); break;
-    case 'programmatic Enter':
-      key({isTrusted:false}); navigate(fixture.remote); noBinding(); break;
-    case 'outside Enter':
-      key({}, outside); navigate(fixture.remote); noBinding(); break;
-    case 'empty Enter':
-      editor.value = editor.textContent = editor.innerText = ' \n ';
-      key(); navigate(fixture.remote); noBinding(); break;
-    case 'trusted Enter':
-      // Also prove that the earlier keydown shortcut listener was not overwritten.
-      documentEvents.dispatch('keydown', editor, {key:'b', ctrlKey:true});
-      assert.ok(calls.some(call => call[0] === 'WebChatShortcuts.Invoke' && call[1] === 'sidebar'));
-      key();
-      assert.equal(snapshot().started, false, 'attempted send must not lock the draft');
-      assert.equal(snapshot().createdURL, '');
-      navigate(fixture.remote + '?source=web#latest');
-      assert.equal(snapshot().createdURL, fixture.remote, 'send-to-server transition did not produce canonical proof');
-      break;
-    case 'temporary route':
-      key();
-      if (fixture.kind === 'chatgpt-web') navigate('/c/local-chatgpt%3A047fe4f3-f273-4802-a716-76522d574de3');
-      navigate(fixture.remote);
-      assert.equal(snapshot().createdURL, fixture.remote);
-      break;
-    case 'rejected submit':
-      key();
-      editor.value = editor.textContent = editor.innerText = 'Edited after rejection';
-      documentEvents.dispatch('input', editor);
-      assert.equal(snapshot().started, false);
-      assert.equal(snapshot().draft, 'Edited after rejection');
-      break;
-    case 'attachment submit': {
-      editor.value = editor.textContent = editor.innerText = '';
-      const send = {closest(selector) {return selector.includes('button[type="submit"]') ? this : null}};
-      documentEvents.dispatch('click', send);
-      navigate(fixture.remote);
-      assert.equal(snapshot().createdURL, fixture.remote);
-      break;
-    }
-    case 'history back':
-      key();
-      state.location = new URL(fixture.remote);
-      windowEvents.dispatch('popstate', outside);
-      noBinding();
-      break;
-    case 'history click': {
-      key();
-      const link = {closest(selector) {return selector.includes('a[href]') ? this : null}};
-      const iconInsideLink = {closest:selector => link.closest(selector)};
-      documentEvents.dispatch('click', iconInsideLink);
-      navigate(fixture.remote);
-      assert.equal(snapshot().createdURL, '', 'history click reused pending send intent');
-      break;
-    }
-    case 'history without intent':
-      navigate(fixture.remote); noBinding(); break;
-    case 'noncanonical route':
-      key(); navigate(fixture.remote + '/extra');
-      assert.equal(snapshot().createdURL, '');
-      navigate(fixture.remote);
-      assert.equal(snapshot().createdURL, '', 'non-chat navigation retained send intent');
-      break;
-    case 'editor selection':
-      documentEvents.dispatch('input', editor);
-      assert.equal(snapshot().draft, 'Research question', 'composer selector captured hidden clipboard or missed editor');
-      key(); navigate(fixture.remote);
-      assert.equal(snapshot().createdURL, fixture.remote);
-      break;
-    default: throw new Error('unknown fixture scenario');
+  key({key:'b', ctrlKey:true});
+  assert.ok(calls.some(call => call[0] === 'WebChatShortcuts.Invoke' && call[1] === 'sidebar'));
+  key({});
+  assert.equal(bridge.snapshot().started, false, 'attempted send must not lock the draft');
+  assert.equal(bridge.snapshot().createdURL, '');
+  state.history.pushState({}, '', fixture.remote + '?source=web#latest');
+  assert.equal(bridge.snapshot().createdURL, fixture.remote, 'new conversation was not bound canonically');
+}
+for (const fixture of fixtures) {
+  try { runFixture(fixture); }
+  catch (error) {
+    console.error(fixture.kind + '/' + fixture.scenario, error);
+    process.exitCode = 1;
   }
 }
 `

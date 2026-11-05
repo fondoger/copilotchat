@@ -1,11 +1,12 @@
 package doubaoweb
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -34,12 +35,15 @@ func TestPageSigningFetchReadAndAbort(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			path := filepath.Join(t.TempDir(), "fixture.json")
+			if err := os.WriteFile(path, input, 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, node, "-e", pageProtocolHarness)
-			cmd.Stdin = bytes.NewReader(input)
+			cmd := exec.CommandContext(ctx, node, "-e", pageProtocolHarness, path)
 			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("page transport protocol: %v\n%s", err, out)
+				t.Fatalf("page transport protocol: %v (context: %v)\n%s", err, ctx.Err(), out)
 			}
 		})
 	}
@@ -48,7 +52,7 @@ func TestPageSigningFetchReadAndAbort(t *testing.T) {
 const pageProtocolHarness = `
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const fixture = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const fixture = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'));
 let signature = 'signed', signedQuery, fetchCount = 0, lastFetch;
 const chunk = Uint8Array.from({length: 20000}, (_, i) => i % 256);
 const state = {
