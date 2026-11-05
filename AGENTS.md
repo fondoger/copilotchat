@@ -10,6 +10,7 @@ Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天
 
 - `go run .`：隔离 Dev；Gateway 39322(debug)/39321(stable)。
 - `make dev`：替换本机安装版并重启，复用其数据/账号/端口。
+- `make publish-stable`: 发布新stable版本，无需检查其他文档。
 - UI 自动化：mygo-automation SKILL for Native UI.
 - 请求调试: copilot-chat-incoming-request-debugger MCP
 - Webview调试：docs\webview_debug.md
