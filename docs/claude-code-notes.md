@@ -14,3 +14,4 @@ Notes:
 - 优先使用 modelPicker + replaceBuiltInOptions 配置模型选择器。
 - 启用Auto权限模式时，CC会额外调用LLM API对请求安全分级。配置页复用 `ANTHROPIC_DEFAULT_SONNET_MODEL`，自动生成 `CLAUDE_CODE_AUTO_MODE_MODEL`，无需单独选择安全分类模型。(官方订阅的安全检查请求免费，第三方可能产生额外 token 费用)
 - Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。已通过 `ENABLE_TOOL_SEARCH` 启用。详见: [客户端工具按需加载](details/tool-search-on-demand-loading.md)
+- CC 会随请求发送 `context_management: {"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`。Messages → Responses 桥接接受这个保留全部思考历史的配置，也接受空 `edits`；清理思考、清理工具结果及服务端压缩等操作尚不支持，传入会明确报错。

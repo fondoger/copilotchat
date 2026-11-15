@@ -145,8 +145,88 @@ func TestMessagesBridgeRejectsUnsupportedExperimentalSemantics(t *testing.T) {
 			t.Fatalf("%s silently discarded: %v", key, err)
 		}
 	}
+
 	body := `{"tools":[{"name":"run","allowed_callers":["code_execution_20260120"]}],"messages":[{"role":"user","content":"hi"}]}`
 	if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "test"}); err == nil || !strings.Contains(err.Error(), "allowed_callers") {
 		t.Fatal("programmatic execution semantics silently discarded", err)
+	}
+}
+
+func TestMessagesContextManagementPreservesReasoningReplay(t *testing.T) {
+	reasoning := object{
+		"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque",
+		"summary": []any{object{"type": "summary_text", "text": "Thinking"}},
+	}
+	src := object{
+		"stream": true,
+		"messages": []any{
+			object{"role": "user", "content": "first"},
+			object{"role": "assistant", "content": []any{
+				object{"type": "thinking", "thinking": "Thinking", "signature": reasoningSignature(reasoning)},
+				object{"type": "tool_use", "id": "call_1", "name": "read", "input": object{"n": json.Number("9007199254740993")}},
+			}},
+			object{"role": "user", "content": []any{
+				object{"type": "tool_result", "tool_use_id": "call_1", "content": "result"},
+			}},
+		},
+	}
+	body, err := json.Marshal(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, _, err := messagesToResponses(body, provider.Model{ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edits := range []any{
+		[]any{},
+		[]any{object{"type": "clear_thinking_20251015", "keep": "all"}},
+	} {
+		src["context_management"] = object{"edits": edits}
+		body, err := json.Marshal(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, stream, err := messagesToResponses(body, provider.Model{ID: "test"})
+		if err != nil || !stream {
+			t.Fatal("Claude Code retention configuration rejected", err)
+		}
+		if !reflect.DeepEqual(parsed(t, string(encoded)), parsed(t, string(baseline))) {
+			t.Fatal("retention configuration changed the upstream request", string(encoded))
+		}
+		input := array(parsed(t, string(encoded))["input"])
+		if !reflect.DeepEqual(obj(input[1]), reasoning) {
+			t.Fatal("encrypted reasoning replay was not retained", input)
+		}
+	}
+}
+
+func TestMessagesContextManagementRejectsUnsupportedEdits(t *testing.T) {
+	for _, config := range []string{
+		`true`,
+		`[]`,
+		`{}`,
+		`{"edits":null}`,
+		`{"edits":{}}`,
+		`{"edits":[],"extra":true}`,
+		`{"edits":[null]}`,
+		`{"edits":[{"type":"clear_thinking_20251015"}]}`,
+		`{"edits":[{"type":"clear_thinking_20251015","keep":"none"}]}`,
+		`{"edits":[{"type":"clear_thinking_20251015","keep":{"type":"thinking_turns","value":1}}]}`,
+		`{"edits":[{"type":"clear_thinking_20251015","keep":"all","extra":true}]}`,
+		`{"edits":[{"type":"clear_tool_uses_20250919"}]}`,
+		`{"edits":[{"type":"compact_20260112"}]}`,
+		`{"edits":[{"type":"clear_thinking_20251015","keep":"all"},{"type":"compact_20260112"}]}`,
+	} {
+		t.Run(config, func(t *testing.T) {
+			body := `{"context_management":` + config + `,"messages":[{"role":"user","content":"hi"}]}`
+			if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "test"}); err == nil || !strings.Contains(err.Error(), "context_management") {
+				t.Fatal("unsupported context management accepted", err)
+			}
+		})
+	}
+	body := `{"messages":[{"role":"user","content":"hi","context_management":{"edits":[]}}]}`
+	if _, _, err := messagesToResponses([]byte(body), provider.Model{ID: "test"}); err == nil || !strings.Contains(err.Error(), "message context_management") {
+		t.Fatal("per-message context management accepted", err)
 	}
 }

@@ -64,9 +64,14 @@ func resolveMessagesTools(src object) ([]any, error) {
 }
 
 func validateMessagesBridgeFeatures(src object) error {
+	if value := src["context_management"]; value != nil {
+		if err := validateMessagesContextManagement(value); err != nil {
+			return err
+		}
+	}
 	// These alter server-side state/execution, not just transport hints. Never
 	// silently discard them when clients enable experimental API features.
-	for _, key := range []string{"context_management", "container", "mcp_servers", "inference_geo", "speed"} {
+	for _, key := range []string{"container", "mcp_servers", "inference_geo", "speed"} {
 		if src[key] != nil {
 			return fmt.Errorf("%s is not supported by the Responses bridge", key)
 		}
@@ -74,6 +79,23 @@ func validateMessagesBridgeFeatures(src object) error {
 	for _, value := range array(src["messages"]) {
 		if obj(value)["context_management"] != nil {
 			return errors.New("message context_management is not supported by the Responses bridge")
+		}
+	}
+	return nil
+}
+
+func validateMessagesContextManagement(value any) error {
+	config := obj(value)
+	edits := array(config["edits"])
+	if len(config) != 1 || edits == nil {
+		return errors.New("context_management requires an edits array for the Responses bridge")
+	}
+	for _, value := range edits {
+		edit := obj(value)
+		// Claude Code sends keep: all even on ordinary requests. Retaining
+		// every thinking block matches the bridge's existing reasoning replay.
+		if len(edit) != 2 || edit["type"] != "clear_thinking_20251015" || edit["keep"] != "all" {
+			return errors.New("context_management only supports clear_thinking_20251015 with keep: all in the Responses bridge")
 		}
 	}
 	return nil

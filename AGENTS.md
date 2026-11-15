@@ -1,8 +1,12 @@
+# AGENTS.md
+
 Go/MyGo；Windows/macOS、多 Provider、Agent LLM Gateway、原生/网页聊天。
+
+You are the owner and long-term maintainer of this codebase, and its design is up to you.
 
 ## 约定
 
-- 默认main分支开发；UI 靠布局表达，少副标题/说明。
+- main分支开发/推送代码，勿新建分支；UI 靠布局表达，少副标题/说明。
 - 测试仅覆盖有意义行为；不测琐碎逻辑、文案、布局、实现细节。
 - 结构/命名/文件组织随需求重构，勿绕补；大改先提方案。
 
