@@ -157,7 +157,7 @@ func TestWebDraftPreservesAttachmentsOnlyWithoutTextEdits(t *testing.T) {
 			if a.draft != tc.text || (len(a.attachments) == 1) != tc.keep {
 				t.Fatalf("draft %q, attachments %d", a.draft, len(a.attachments))
 			}
-			if (len(a.drafts["local"].Attachments) == 1) != tc.keep {
+			if (len(a.state.Drafts["local"].Attachments) == 1) != tc.keep {
 				t.Fatal("saved draft retained stale attachments")
 			}
 		})

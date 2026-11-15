@@ -20,24 +20,33 @@ func TestRestartPrunesOnlyUntouchedWebPlaceholders(t *testing.T) {
 		{ID: "renamed", WebKind: store.ProviderKindDoubao, Title: "New Chat", TitleManual: true},
 		{ID: "favorite", WebKind: store.ProviderKindDoubao, Title: "New Chat", Favorite: true},
 		{ID: "native", Title: "New Chat"},
+		{ID: "draft-text", WebKind: store.ProviderKindDoubao, Title: "New Chat"},
+		{ID: "draft-file", WebKind: store.ProviderKindDoubao, Title: "New Chat"},
 	}
-	a.state.ActiveID = "existing"
+	a.state.Drafts = map[string]store.Draft{
+		"draft-text": {Text: "Keep this draft"},
+		"draft-file": {Attachments: []store.Attachment{{Name: "notes.txt", Data: "ZmlsZQ=="}}},
+	}
+	a.state.ActiveID = "draft-text"
+	a.restoreComposer()
 	a.save()
 	state, err := s.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.state = state
+	a.restoreComposer()
 	a.pruneEmptyWebChats()
-	if a.conversation("empty") != nil || len(a.state.Conversations) != 5 || a.state.ActiveID != "existing" {
-		t.Fatal("restart removed meaningful records or changed the selected existing chat")
+	if a.conversation("empty") != nil || len(a.state.Conversations) != 7 || a.state.ActiveID != "draft-text" || a.draft != "Keep this draft" {
+		t.Fatal("restart removed meaningful records or changed the selected draft")
 	}
 	state, err = s.Load()
-	if err != nil || len(state.Conversations) != 5 {
+	if err != nil || len(state.Conversations) != 7 || len(state.Drafts["draft-file"].Attachments) != 1 {
 		t.Fatalf("cleanup not persisted: %v", err)
 	}
 	a.state.Conversations = append(a.state.Conversations, store.Conversation{ID: "active-empty", WebKind: store.ProviderKindDoubao, Title: "New Chat"})
 	a.state.ActiveID = "active-empty"
+	a.restoreComposer()
 	a.pruneEmptyWebChats()
 	if a.state.ActiveID != "" {
 		t.Fatal("removed placeholder remained selected")
@@ -107,7 +116,7 @@ func TestUnsentProviderSwitchReusesConversationAndDraft(t *testing.T) {
 		}
 	}
 	a.newChat()
-	if a.state.ActiveID == chatID || a.drafts[chatID].Text != "草稿\nsecond line 🙂" {
+	if a.state.ActiveID == chatID || a.state.Drafts[chatID].Text != "草稿\nsecond line 🙂" {
 		t.Fatal("explicit New Chat did not preserve the separate draft")
 	}
 }

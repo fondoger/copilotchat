@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,6 +122,7 @@ func TestChannelSwitchCommitsOnlyAfterTargetVersionStarts(t *testing.T) {
 			a.configureUpdates()
 			a.updateChannelTarget = "dev"
 			a.draft = "Keep this draft before restarting."
+			a.streaming = true // Do not invoke the real application relaunch in this test.
 			a.updater.CheckWith(desktopUpdateClient{enabled: true, check: func(context.Context) (*appupdate.Release, error) { return release, nil }})
 			a.handleChannelUpdate(waitForDesktopUpdate(t, a, changed, appupdate.Available))
 			waitForDesktopUpdate(t, a, changed, appupdate.Downloading)
@@ -133,6 +133,7 @@ func TestChannelSwitchCommitsOnlyAfterTargetVersionStarts(t *testing.T) {
 			}
 			mygo.App.SetVersion(tc.running)
 			restarted := &app{state: settingsSavedState(t, a), storage: a.storage}
+			restarted.restoreComposer()
 			restarted.restoreUpdateChannel()
 			state := settingsSavedState(t, restarted)
 			if state.Settings.UpdateChannel != tc.channel || state.Settings.PendingUpdate != nil {
@@ -211,11 +212,13 @@ func TestManualUpdateCheckAndInstallWorkWithAutomaticUpdatesOff(t *testing.T) {
 		t.Fatalf("manual installation did not reach ready state: %+v", a.updateSnapshot())
 	}
 	assertInWindow(t, tester, "Restart to update", 900, 620)
-	// Render restart protection, but never invoke the real application relaunch.
 	a.draft = "An unsent message"
 	tester.Frame()
-	if !tester.HasText("Send or clear your draft before restarting.") {
-		t.Fatal("ready update did not explain why restarting is blocked")
+	if !a.prepareUpdateRestart() {
+		t.Fatal("an unsent draft blocked restarting after a manual installation")
+	}
+	if got := settingsSavedState(t, a).Drafts[a.state.ActiveID].Text; got != a.draft {
+		t.Fatal("restart preparation did not persist the draft")
 	}
 	chat := ui.NewTester(a.view, 1060, 720)
 	if !chat.HasText("Update ready") {
@@ -258,59 +261,73 @@ func TestDevelopmentBuildExplainsUpdateAvailability(t *testing.T) {
 	}
 }
 
-func TestUpdateRestartProtectsWorkWithoutBlockingStaleCurrentDraft(t *testing.T) {
-	image := store.Attachment{Name: "unsent.png", MIME: "image/png", Data: testPreviewPNG}
-	for _, tc := range []struct {
-		name, want string
-		setup      func(*app)
-	}{
-		{"streaming", "current response", func(a *app) { a.streaming = true }},
-		{"editing", "message edit", func(a *app) { a.editMessageID = "editing" }},
-		{"current text", "your draft", func(a *app) { a.draft = "Unsent text" }},
-		{"current image", "your draft", func(a *app) { a.attachments = []store.Attachment{image} }},
-		{"other chat text", "other chats", func(a *app) { a.drafts["other"] = chatDraft{Text: "Other unsent text"} }},
-		{"other chat image", "other chats", func(a *app) { a.drafts["other"] = chatDraft{Attachments: []store.Attachment{image}} }},
-		{"empty drafts", "", func(a *app) { a.draft = " \n\t"; a.drafts["other"] = chatDraft{Text: " \n\t"} }},
-		{"stale current draft", "", func(a *app) {
-			a.drafts["current"] = chatDraft{Text: "Old draft", Attachments: []store.Attachment{image}}
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			a := &app{state: store.DefaultState(), drafts: map[string]chatDraft{}}
-			a.state.ActiveID = "current"
-			tc.setup(a)
-			got := a.updateRestartBlockReason()
-			if (tc.want == "" && got != "") || (tc.want != "" && !strings.Contains(got, tc.want)) {
-				t.Fatalf("restart protection = %q, want %q", got, tc.want)
+func readyDesktopUpdateTestApp(t *testing.T) *app {
+	t.Helper()
+	a, changed := newDesktopUpdateTestApp(t, desktopUpdateClient{enabled: true, check: func(context.Context) (*appupdate.Release, error) {
+		return &appupdate.Release{Version: "9.9.9", Install: func(context.Context, func(int64, int64)) error { return nil }}, nil
+	}})
+	a.checkForUpdates()
+	waitForDesktopUpdate(t, a, changed, appupdate.Available)
+	a.installAvailableUpdate()
+	waitForDesktopUpdate(t, a, changed, appupdate.Ready)
+	return a
+}
+
+func TestUpdateRestartPreservesDraftsAttachmentsAndMessageEdit(t *testing.T) {
+	for _, role := range []string{"user", "assistant"} {
+		t.Run(role, func(t *testing.T) {
+			a := readyDesktopUpdateTestApp(t)
+			a.state.Conversations = []store.Conversation{
+				{ID: "first", Title: "First chat"},
+				{ID: "second", Title: "Second chat", Messages: []store.Message{{ID: "editing", Role: role, Content: "Original message"}}},
+			}
+			a.state.ActiveID = "first"
+			a.draft = "First draft\n草稿 🙂"
+			a.attachments = []store.Attachment{{Name: "notes.txt", MIME: "text/plain", Data: "ZmlsZQ==", Size: 4}}
+			a.selectChat("second")
+			a.draft = "Second draft"
+			a.attachments = []store.Attachment{{Name: "unsent.png", MIME: "image/png", Data: testPreviewPNG}}
+			a.editMessageID, a.editText = "editing", "Uncommitted edit\n🙂"
+			a.state.Drafts["second"] = store.Draft{Text: "Stale current draft"}
+			if !a.prepareUpdateRestart() {
+				t.Fatalf("drafts or a message edit blocked restarting: %s", a.updateError)
+			}
+
+			restarted := &app{state: settingsSavedState(t, a), storage: a.storage}
+			restarted.restoreComposer()
+			if restarted.state.ActiveID != "second" || restarted.draft != a.draft || !slices.Equal(restarted.attachments, a.attachments) {
+				t.Fatal("restart lost the current draft or attachments, or restored stale content")
+			}
+			if restarted.editMessageID != "editing" || restarted.editText != a.editText || restarted.current().Messages[0].Content != "Original message" || restarted.streaming {
+				t.Fatal("restart lost the edit, committed it, or triggered regeneration")
+			}
+			restarted.selectChat("first")
+			if restarted.draft != "First draft\n草稿 🙂" || len(restarted.attachments) != 1 || restarted.attachments[0].Data != "ZmlsZQ==" {
+				t.Fatal("restart lost another chat's draft or attachment bytes")
+			}
+			restarted.draft, restarted.attachments = "", nil
+			restarted.save()
+			state := settingsSavedState(t, restarted)
+			if _, exists := state.Drafts["first"]; exists || state.MessageEdit != nil {
+				t.Fatal("clearing a draft or leaving an edit retained stale persisted buffers")
 			}
 		})
 	}
 }
 
-func TestDeletingOtherChatClearsDraftAndUpdateRestartBlock(t *testing.T) {
-	a := newSettingsTestApp(t)
-	a.state.Conversations = []store.Conversation{
-		{ID: "first", Title: "First chat"},
-		{ID: "second", Title: "Second chat"},
+func TestUpdateRestartBlocksLiveResponseAndSaveFailure(t *testing.T) {
+	a := readyDesktopUpdateTestApp(t)
+	a.streaming = true
+	a.draft = "Keep this draft"
+	if a.prepareUpdateRestart() {
+		t.Fatal("restart interrupted a live response")
 	}
-	a.state.ActiveID = "first"
-	a.draft = "Unsent text in the first chat"
-	a.attachments = []store.Attachment{{Name: "unsent.png", MIME: "image/png", Data: testPreviewPNG}}
-	a.selectChat("second")
-	if !strings.Contains(a.updateRestartBlockReason(), "other chats") {
-		t.Fatal("cached draft in the first chat did not block restarting")
+	a.streaming = false
+	a.state.Settings.Providers = append(a.state.Settings.Providers, a.state.Settings.Providers[0])
+	if a.prepareUpdateRestart() || a.updateError == "" {
+		t.Fatal("restart did not stop and report a snapshot save failure")
 	}
-
-	a.requestDeleteChats([]string{"first"})
-	tester := ui.NewTester(a.dialogs, 900, 620)
-	settingsClick(t, tester, "Delete")
-	if a.conversation("first") != nil || a.state.ActiveID != "second" {
-		t.Fatal("delete dialog did not remove only the first chat")
-	}
-	if _, exists := a.drafts["first"]; exists {
-		t.Fatal("deleted chat retained its cached draft")
-	}
-	if reason := a.updateRestartBlockReason(); reason != "" {
-		t.Fatalf("deleted chat still blocks restarting: %s", reason)
+	if len(settingsSavedState(t, a).Drafts) != 0 {
+		t.Fatal("failed restart preparation replaced the previous snapshot")
 	}
 }

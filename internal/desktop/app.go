@@ -27,11 +27,6 @@ type toolApproval struct {
 	Reply                   chan bool
 }
 
-type chatDraft struct {
-	Text        string
-	Attachments []store.Attachment
-}
-
 // All application state is owned by the UI thread. Workers publish through update.
 type app struct {
 	win, settingsWin          *mygo.Window
@@ -47,7 +42,6 @@ type app struct {
 	updateQuitWaiting         bool
 	draft, query, status      string
 	attachments               []store.Attachment
-	drafts                    map[string]chatDraft
 	sidebarHidden, searchOpen bool
 	sidebarSelection          sidebarSelection
 	webModelToggle            bool
@@ -133,6 +127,7 @@ func Run(dataDir string, dev bool) (err error) {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return nil
 	}
+	a.restoreComposer()
 	a.restoreUpdateChannel()
 	a.pruneEmptyWebChats()
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
@@ -245,12 +240,21 @@ func (a *app) update(fn func()) {
 }
 
 func (a *app) save() {
-	if a.storage == nil {
-		return
-	}
-	if err := a.storage.Save(a.state); err != nil {
+	if err := a.saveState(); err != nil {
 		a.status = "Could not save: " + err.Error()
 	}
+}
+
+func (a *app) saveState() error {
+	a.rememberDraft()
+	a.state.MessageEdit = nil
+	if a.editMessageID != "" {
+		a.state.MessageEdit = &store.MessageEdit{ChatID: a.state.ActiveID, MessageID: a.editMessageID, Text: a.editText}
+	}
+	if a.storage == nil {
+		return nil
+	}
+	return a.storage.Save(a.state)
 }
 
 func (a *app) show() {
@@ -323,7 +327,7 @@ func (a *app) reusableNewChat(chat *store.Conversation) bool {
 	if chat.ProviderID != a.state.Settings.ActiveProviderID || chat.Model != a.newChatModel() || chat.ReasoningEffort != a.state.Settings.ReasoningEffort || chat.ThinkingBudgetTokens != a.state.Settings.ThinkingBudgetTokens || len(chat.Messages) != 0 || chat.WebURL != "" || chat.WebStarted || chat.TitleManual || chat.Favorite || (chat.Title != "New Chat" && chat.Title != "") {
 		return false
 	}
-	draft := a.drafts[chat.ID]
+	draft := a.state.Drafts[chat.ID]
 	if draft.Text != "" || len(draft.Attachments) != 0 {
 		return false
 	}
@@ -333,17 +337,6 @@ func (a *app) reusableNewChat(chat *store.Conversation) bool {
 		}
 	}
 	return true
-}
-
-func (a *app) rememberDraft() {
-	if a.drafts == nil {
-		a.drafts = make(map[string]chatDraft)
-	}
-	if a.draft == "" && len(a.attachments) == 0 {
-		delete(a.drafts, a.state.ActiveID)
-		return
-	}
-	a.drafts[a.state.ActiveID] = chatDraft{Text: a.draft, Attachments: append([]store.Attachment(nil), a.attachments...)}
 }
 
 func (a *app) selectChat(id string) {
@@ -361,7 +354,7 @@ func (a *app) finishSelectChat(id string) {
 		a.editMessageID, a.editText = "", ""
 		a.rememberDraft()
 		a.state.ActiveID = id
-		draft := a.drafts[id]
+		draft := a.state.Drafts[id]
 		a.draft, a.attachments = draft.Text, append([]store.Attachment(nil), draft.Attachments...)
 		a.list = ui.ListState{}
 		a.save()

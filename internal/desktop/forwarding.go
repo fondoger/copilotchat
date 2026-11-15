@@ -82,7 +82,7 @@ func (a *app) startForwarding() {
 	// Persist the key before exposing the endpoint so restart cannot silently
 	// change a copied configuration after a failed settings write.
 	if a.storage != nil {
-		if err := a.storage.Save(a.state); err != nil {
+		if err := a.saveState(); err != nil {
 			a.forwardError = "Could not save forwarding settings: " + err.Error()
 			return
 		}

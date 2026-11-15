@@ -123,7 +123,7 @@ func TestNewChatReusesMatchingPlaceholderAfterVisitingHistory(t *testing.T) {
 	}
 	a.draft = "keep draft"
 	a.newChat()
-	if a.state.ActiveID == blankID || a.drafts[blankID].Text != "keep draft" {
+	if a.state.ActiveID == blankID || a.state.Drafts[blankID].Text != "keep draft" {
 		t.Fatal("New Chat reused a nonempty draft")
 	}
 }
@@ -171,7 +171,7 @@ func TestDraftNavigationAndNewChatKeepUnsentContent(t *testing.T) {
 		t.Fatal("New Chat discarded the old draft")
 	}
 	a.attachments[0].Name = "edited.txt"
-	if a.drafts["first"].Attachments[0].Name != "notes.txt" {
+	if a.state.Drafts["first"].Attachments[0].Name != "notes.txt" {
 		t.Fatal("draft attachment snapshots share mutable backing arrays")
 	}
 }

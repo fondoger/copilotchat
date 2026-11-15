@@ -59,7 +59,7 @@ func TestSidebarShiftRangeAndContextDelete(t *testing.T) {
 				t.Fatal(err)
 			}
 			settingsClick(t, tt, "Delete")
-			if len(a.state.Conversations) != 0 || a.state.ActiveID != "" || a.draft != "" || len(a.drafts) != 0 {
+			if len(a.state.Conversations) != 0 || a.state.ActiveID != "" || a.draft != "" || len(a.state.Drafts) != 0 {
 				t.Fatal("confirmed range deletion left conversations or drafts behind")
 			}
 		})
@@ -149,7 +149,7 @@ func TestBulkDeleteCleansViewsDraftsJobsAndPendingNavigation(t *testing.T) {
 	a := newSidebarTestApp(t)
 	a.state.Conversations[0].WebKind = store.ProviderKindDoubao
 	a.state.Conversations[0].WebURL = "https://www.doubao.com/chat/local-only"
-	a.drafts = map[string]chatDraft{"current": {Text: "first"}, "second": {Text: "second"}, "past": {Text: "keep"}}
+	a.state.Drafts = map[string]store.Draft{"current": {Text: "first"}, "second": {Text: "second"}, "past": {Text: "keep"}}
 	a.draft = "active draft"
 	a.attachments = []store.Attachment{{Name: "draft.txt"}}
 	a.editMessageID, a.editText = "edit", "editing"
@@ -174,7 +174,7 @@ func TestBulkDeleteCleansViewsDraftsJobsAndPendingNavigation(t *testing.T) {
 	if a.pendingChat != "" || a.modelSelection <= generation || a.state.ActiveID != "" || a.draft != "" || len(a.attachments) != 0 || a.editMessageID != "" || a.editText != "" {
 		t.Fatal("deleted active chat retained composer or deferred navigation state")
 	}
-	if len(a.drafts) != 1 || a.drafts["past"].Text != "keep" || len(a.sidebarSelection.ids) != 0 || a.sidebarSelection.anchor != "" {
+	if len(a.state.Drafts) != 1 || a.state.Drafts["past"].Text != "keep" || len(a.sidebarSelection.ids) != 0 || a.sidebarSelection.anchor != "" {
 		t.Fatal("cleanup left deleted drafts/selection or removed unrelated draft")
 	}
 	saved := settingsSavedState(t, a)

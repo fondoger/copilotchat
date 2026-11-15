@@ -136,6 +136,18 @@ type Attachment struct {
 	Size int64  `json:"size"`
 }
 
+type Draft struct {
+	Text        string       `json:"text,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
+// An uncommitted edit is separate from history; restoring it must not regenerate.
+type MessageEdit struct {
+	ChatID    string `json:"chatId"`
+	MessageID string `json:"messageId"`
+	Text      string `json:"text"`
+}
+
 type Message struct {
 	ConversationState json.RawMessage     `json:"conversationState,omitempty"`
 	CreatedAt         time.Time           `json:"createdAt,omitempty"`
@@ -174,10 +186,12 @@ type Conversation struct {
 }
 
 type State struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Settings      Settings       `json:"settings"`
-	Conversations []Conversation `json:"conversations"`
-	ActiveID      string         `json:"activeId,omitempty"`
+	SchemaVersion int              `json:"schemaVersion"`
+	Settings      Settings         `json:"settings"`
+	Conversations []Conversation   `json:"conversations"`
+	ActiveID      string           `json:"activeId,omitempty"`
+	Drafts        map[string]Draft `json:"drafts,omitempty"`
+	MessageEdit   *MessageEdit     `json:"messageEdit,omitempty"`
 }
 
 func DefaultState() State {

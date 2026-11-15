@@ -142,7 +142,8 @@ func (a *app) pruneEmptyWebChats() {
 	kept := a.state.Conversations[:0]
 	removed := false
 	for _, chat := range a.state.Conversations {
-		if a.isWebChat(&chat) && chat.WebURL == "" && !chat.WebStarted && len(chat.Messages) == 0 && !chat.TitleManual && !chat.Favorite && (chat.Title == "New Chat" || chat.Title == "") {
+		draft := a.state.Drafts[chat.ID]
+		if a.isWebChat(&chat) && chat.WebURL == "" && !chat.WebStarted && len(chat.Messages) == 0 && !chat.TitleManual && !chat.Favorite && (chat.Title == "New Chat" || chat.Title == "") && draft.Text == "" && len(draft.Attachments) == 0 {
 			removed = true
 			if a.state.ActiveID == chat.ID {
 				a.state.ActiveID = ""

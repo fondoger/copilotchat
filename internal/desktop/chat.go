@@ -64,7 +64,7 @@ func (a *app) send() bool {
 	if a.current() == nil {
 		originID := a.state.ActiveID
 		a.newChat()
-		delete(a.drafts, originID)
+		delete(a.state.Drafts, originID)
 	}
 	chat := a.current()
 	chat.Model = model
@@ -77,7 +77,7 @@ func (a *app) send() bool {
 	}
 	a.draft = ""
 	a.attachments = nil
-	delete(a.drafts, chat.ID)
+	delete(a.state.Drafts, chat.ID)
 	a.status = ""
 	a.startReply(chat)
 	return true
@@ -697,12 +697,12 @@ func (a *app) pickAttachments() {
 			if chatID != "" && a.conversation(chatID) == nil {
 				return
 			}
-			draft := a.drafts[chatID]
+			draft := a.state.Drafts[chatID]
 			if chat := a.conversation(chatID); chat != nil {
 				providerID, modelID = chat.ProviderID, chat.Model
 			}
 			if a.state.ActiveID == chatID {
-				draft = chatDraft{Text: a.draft, Attachments: a.attachments}
+				draft = store.Draft{Text: a.draft, Attachments: a.attachments}
 			}
 			for _, f := range files {
 				if err := a.validateAttachments(providerID, modelID, []store.Attachment{f}); err != nil {
@@ -719,10 +719,10 @@ func (a *app) pickAttachments() {
 			if a.state.ActiveID == chatID {
 				a.attachments = draft.Attachments
 			} else {
-				if a.drafts == nil {
-					a.drafts = make(map[string]chatDraft)
+				if a.state.Drafts == nil {
+					a.state.Drafts = make(map[string]store.Draft)
 				}
-				a.drafts[chatID] = draft
+				a.state.Drafts[chatID] = draft
 			}
 			a.status = strings.Join(problems, "\n")
 		})

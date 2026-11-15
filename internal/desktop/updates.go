@@ -107,7 +107,7 @@ func (a *app) installAvailableUpdate() {
 			a.updateError = "Could not save the pending channel switch."
 			return
 		}
-		if err := a.storage.Save(a.state); err != nil {
+		if err := a.saveState(); err != nil {
 			a.state.Settings.PendingUpdate = previous
 			a.updateError = "Could not save the pending channel switch: " + err.Error()
 			return
@@ -305,39 +305,37 @@ func updateStatus(snapshot appupdate.Snapshot) string {
 	}
 }
 
-// Never discard a response, unsent attachment, message edit or another chat's
-// draft just to restart. The installed update can wait until a normal launch.
+// Drafts and uncommitted edits are saved before restarting; a live response is not.
 func (a *app) updateRestartBlockReason() string {
 	if a.streaming {
 		return "Wait for the current response before restarting."
 	}
-	if a.editMessageID != "" {
-		return "Save or cancel your message edit before restarting."
-	}
-	if strings.TrimSpace(a.draft) != "" || len(a.attachments) > 0 {
-		return "Send or clear your draft before restarting."
-	}
-	for id, draft := range a.drafts {
-		if id != a.state.ActiveID && (strings.TrimSpace(draft.Text) != "" || len(draft.Attachments) > 0) {
-			return "Send or clear drafts in other chats before restarting."
-		}
-	}
 	return ""
+}
+
+func (a *app) prepareUpdateRestart() bool {
+	if a.updateSnapshot().Phase != appupdate.Ready || a.updateRestartBlockReason() != "" {
+		return false
+	}
+	if err := a.saveState(); err != nil {
+		a.updateError = "Could not save your conversations: " + err.Error()
+		return false
+	}
+	return true
 }
 
 func (a *app) restartForUpdate() {
 	if a.updateSnapshot().Phase != appupdate.Ready || a.updateRestartBlockReason() != "" {
 		return
 	}
-	if a.storage != nil {
-		if err := a.storage.Save(a.state); err != nil {
-			a.updateError = "Could not save your conversations: " + err.Error()
+	a.captureWebChatDeparture(func() {
+		if !a.prepareUpdateRestart() {
 			return
 		}
-	}
-	if a.updateChannelTarget != "" {
-		// Selecting a channel already requested the automatic restart.
-		a.forwardQuitApproved = true
-	}
-	mygo.App.Relaunch()
+		if a.updateChannelTarget != "" {
+			// Selecting a channel already requested the automatic restart.
+			a.forwardQuitApproved = true
+		}
+		mygo.App.Relaunch()
+	})
 }

@@ -99,7 +99,7 @@ func (a *app) deleteChats(ids []string) {
 	removed := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		removed[id] = true
-		delete(a.drafts, id)
+		delete(a.state.Drafts, id)
 		delete(a.sidebarSelection.ids, id)
 		if job := a.titleJobs[id]; job != nil {
 			job.cancel()
