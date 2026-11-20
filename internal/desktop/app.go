@@ -408,7 +408,6 @@ func (a *app) theme(c *ui.Context) *ui.Theme {
 		t.Text = ui.Hex("#09090b")
 	}
 	t.FontSize = 14
-	t.Font = appFontFamily()
 	t.Radius = 6
 	t.Spacing = 4
 	c.SetTheme(t)

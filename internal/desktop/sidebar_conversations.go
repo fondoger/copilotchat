@@ -57,7 +57,7 @@ func (a *app) sidebarConversations(c *ui.Context, selected, hovered ui.Color, si
 			} else {
 				ui.Icon(c, iChat).Size(16, 16).Shrink(0)
 			}
-			ui.Text(c, chat.Title).Font(chatTitleFontFamily()).FontSize(14).FontWeight(500).SingleLine().Grow(1)
+			ui.Text(c, chat.Title).FontSize(14).FontWeight(500).SingleLine().Grow(1)
 			a.sidebarChatActions(c, chat, over)
 		})
 		row.OnClick(func() { a.selectSidebarChat(chat.ID, row.ClickModifiers()&ui.Shift != 0, visible) })

@@ -6,20 +6,26 @@ go 1.27.3
 require (
 	github.com/doganarif/govisual/mcp v1.0.1
 	github.com/doganarif/govisual/v2 v2.0.1
-	github.com/egoist/mygo v0.7.5-0.20261104032729-2bd03e09c673
+	github.com/egoist/mygo v0.10.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/image v0.46.0
 )
 
 require (
+	github.com/ProtonMail/go-crypto v1.4.1 // indirect
+	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	go.digitalxero.dev/rpm v0.3.4 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
