@@ -44,6 +44,7 @@ type app struct {
 	attachments               []store.Attachment
 	sidebarHidden, searchOpen bool
 	sidebarSelection          sidebarSelection
+	simplifiedSidebarTitles   bool
 	webModelToggle            bool
 	modelSelection            uint64
 	pendingChat               string
@@ -163,6 +164,7 @@ func Run(dataDir string, dev bool) (err error) {
 		a.save()
 	})
 	mygo.App.WhenReady(func() {
+		a.simplifiedSidebarTitles = systemPrefersSimplifiedSidebarTitles()
 		a.applyAppearance()
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title: appName, Width: 1060, Height: 720, MinWidth: 720, MinHeight: 480,
