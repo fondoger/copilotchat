@@ -22,13 +22,15 @@ func TestImplicitCacheKeepsToolResultShapeAcrossTurns(t *testing.T) {
 		return parsed(t, string(data))
 	}
 	first := convert()
-	if obj(first["prompt_cache_options"])["mode"] != "implicit" || obj(array(first["input"])[0])["output"] != "result" {
+	input := array(first["input"])
+	if obj(first["prompt_cache_options"])["mode"] != "implicit" || len(input) != 2 || obj(input[0])["role"] != "developer" || obj(input[1])["output"] != "result" {
 		t.Fatal(first)
 	}
+	delete(obj(array(src["system"])[0]), "cache_control")
 	delete(obj(array(obj(array(src["messages"])[0])["content"])[0]), "cache_control")
 	src["messages"] = append(array(src["messages"]), object{"role": "user", "content": []any{object{"type": "text", "text": "next", "cache_control": object{"type": "ephemeral"}}}})
 	next := convert()
-	if !reflect.DeepEqual(first["instructions"], next["instructions"]) || !reflect.DeepEqual(first["input"], array(next["input"])[:1]) {
+	if nextInput := array(next["input"]); len(nextInput) != 3 || !reflect.DeepEqual(input, nextInput[:2]) {
 		t.Fatal("moving cache marker changed prefix", next)
 	}
 }
@@ -284,7 +286,9 @@ func TestCacheBridgeLeavesUnflaggedRequestsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(forward), "prompt_cache_") || parsed(t, string(forward))["instructions"] != "a\n\nb" {
+	got := parsed(t, string(forward))
+	want := parsed(t, `{"input":[{"role":"developer","content":[{"type":"input_text","text":"a\n\nb"}]},{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	if _, hasInstructions := got["instructions"]; hasInstructions || strings.Contains(string(forward), "prompt_cache_") || !reflect.DeepEqual(got["input"], want["input"]) {
 		t.Fatal(string(forward))
 	}
 	for _, options := range []string{``, `,"prompt_cache_options":{"mode":"explicit"}`} {

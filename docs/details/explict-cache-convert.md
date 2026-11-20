@@ -27,7 +27,7 @@ Claude Desktop会在执行会话压缩时，会在压缩前的最后一条消息
 
 ## Messages → Responses
 
-system 中有显式断点时，每个文本块分别转换为开头 developer 消息的 `input_text`，保留原有块边界和断点位置。user 和轮次内 system/developer 文本块上的断点同样保留在原位置。
+顶层 `system` 转换为 `input` 开头的 `developer` 消息。有显式断点时，每个文本块分别转换为 `input_text`，保留原有块边界和断点位置。`user` 和轮次内 `system` / `developer` 文本块上的断点同样保留在原位置。无断点时的处理见[系统提示词与 `instructions` 转换](system-prompt-conversion.md)。
 
 工具定义及其顺序保持不变，纳入后续 system 断点覆盖的前缀。
 

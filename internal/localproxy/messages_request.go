@@ -136,8 +136,9 @@ func convertMessagesRequest(body []byte, model provider.Model, explicit bool) ([
 	dst := object{"model": model.ID, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
 	input := []any{}
 	if system := src["system"]; system != nil {
+		parts := []any{}
+		// Retained cache markers need the original block boundaries.
 		if hasCacheMarker(array(system), "cache_control") {
-			parts := []any{}
 			for _, value := range array(system) {
 				block := obj(value)
 				if text(block["type"]) != "text" {
@@ -149,13 +150,17 @@ func convertMessagesRequest(body []byte, model provider.Model, explicit bool) ([
 				}
 				parts = append(parts, part)
 			}
-			input = append(input, object{"role": "developer", "content": parts})
 		} else {
 			instructions, err := systemText(system)
 			if err != nil {
 				return nil, false, nil, err
 			}
-			dst["instructions"] = instructions
+			if instructions != "" {
+				parts = append(parts, object{"type": "input_text", "text": instructions})
+			}
+		}
+		if len(parts) != 0 {
+			input = append(input, object{"role": "developer", "content": parts})
 		}
 	}
 	for index, value := range array(src["messages"]) {

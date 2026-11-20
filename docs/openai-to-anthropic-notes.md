@@ -6,7 +6,7 @@
 - 工具调用：`tool_use` / `tool_result` ↔ function call / output；保留调用 ID、JSON 参数和错误结果，转换工具选择与并行开关。
 - 思考：thinking 配置/预算 → 模型支持的 reasoning effort；用桥接签名保留完整 reasoning 项，供无状态续聊回放。签名在有体积收益时采用 zlib + Base64（`copilotchat-responses:z1:`），继续支持旧的未压缩签名；解压最多 32 MiB，损坏或超限时拒绝请求。Desktop 超出的 effort 向下适配。
 - 上下文管理：Messages `context_management` 支持空 `edits` 或 `clear_thinking_20251015` + `keep: "all"`，保留全部 reasoning 回放；清理历史、服务端压缩及其他编辑配置会明确报错。
-- 内容：system → 上游指令，轮次内 system/developer 保持顺序；图片/PDF 转 Responses 内容格式，文本附件转文本，JSON Schema 输出转 `text.format`。
+- 内容：顶层 `system` → Responses `input` 开头的 `developer` 消息，轮次内 `system` / `developer` 保持顺序，见[系统提示词与 `instructions` 转换](details/system-prompt-conversion.md)；图片/PDF 转 Responses 内容格式，文本附件转文本，JSON Schema 输出转 `text.format`。
 - 响应：JSON/SSE 双向适配，转换结束原因和错误；用量拆分普通输入与缓存命中，避免重复计数。
 - 路由：Desktop 模型别名还原上游 ID；转换后移除 Anthropic 专用版本/beta 请求头。token 计数走 `/responses/input_tokens` (Github Provider暂不支持, 404原样返回)，不生成回答。原生 Messages 路由不经过上述协议转换。
 - 反向桥接（Codex → Anthropic）：仅在模型没有原生 Responses 时，将 `/responses` 转为 Messages；函数工具和自由文本工具（如 `apply_patch`）一并转换，后者用字符串参数包装，不保证 OpenAI CFG 约束。原生 Responses 优先；Messages-only 模型不支持 Responses compact/input_tokens 辅助端点，轮次中的新增 system/developer 指令也不能无损转换（仅支持开头指令）。

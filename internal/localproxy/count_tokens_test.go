@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -85,12 +86,13 @@ func TestCountTokensForwarding(t *testing.T) {
 					t.Fatal("model or tool schema not preserved", string(call.Body))
 				}
 				if call.Endpoint == "/responses/input_tokens" {
-					for _, field := range []string{"messages", "stream", "store", "include", "max_output_tokens", "temperature"} {
+					for _, field := range []string{"messages", "instructions", "stream", "store", "include", "max_output_tokens", "temperature"} {
 						if _, exists := fields[field]; exists {
-							t.Fatal("generation-only field in count request", field)
+							t.Fatal("unexpected field in Responses count request", field)
 						}
 					}
-					if text(fields["instructions"]) != "system instructions" || len(array(fields["input"])) != 1 || text(obj(array(fields["tools"])[0])["type"]) != "function" || call.Header.Get("Anthropic-Beta") != "" || call.RawQuery != "" {
+					want := parsed(t, `{"input":[{"role":"developer","content":[{"type":"input_text","text":"system instructions"}]},{"role":"user","content":[{"type":"input_text","text":"foo 中文"}]}]}`)
+					if !reflect.DeepEqual(fields["input"], want["input"]) || text(obj(array(fields["tools"])[0])["type"]) != "function" || call.Header.Get("Anthropic-Beta") != "" || call.RawQuery != "" {
 						t.Fatal("incorrect Responses count translation", string(call.Body))
 					}
 				} else if call.RawQuery != "beta=true" || call.Header.Get("Anthropic-Beta") != "example-beta" {

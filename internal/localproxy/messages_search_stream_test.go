@@ -78,8 +78,8 @@ func assertMessagesAppendOnlyPrefix(t *testing.T, request object) object {
 		next := convert()
 		input, _ := json.Marshal(next["input"])
 		nextTools, _ := json.Marshal(next["tools"])
-		if !bytes.HasPrefix(input, previous[:len(previous)-1]) || !bytes.Equal(tools, nextTools) || !reflect.DeepEqual(first["instructions"], next["instructions"]) {
-			t.Fatal("appending a turn changed the upstream history, tool catalog or instructions")
+		if !bytes.HasPrefix(input, previous[:len(previous)-1]) || !bytes.Equal(tools, nextTools) {
+			t.Fatal("appending a turn changed the upstream input prefix or tool catalog")
 		}
 		previous = input
 	}
@@ -141,16 +141,16 @@ func TestMessagesRotatingItemIDsKeepReplayAndCachePrefix(t *testing.T) {
 			}}
 			first := assertMessagesAppendOnlyPrefix(t, request)
 			input := array(first["input"])
-			if !reflect.DeepEqual(input[1], reasoning) {
-				t.Fatal("stream completion replaced original reasoning replay", input[1])
+			if len(input) < 4 || !reflect.DeepEqual(input[2], reasoning) {
+				t.Fatal("stream completion replaced original reasoning replay", input)
 			}
 			if mode == "client" {
-				call := obj(input[2])
+				call := obj(input[3])
 				original := obj(array(reply["output"])[1])
 				if call["call_id"] != original["call_id"] || !reflect.DeepEqual(call["arguments"], original["arguments"]) {
 					t.Fatal("client search identity or arguments changed", call)
 				}
-			} else if !reflect.DeepEqual(input[2:len(array(reply["output"]))+1], array(reply["output"])[1:]) {
+			} else if original := array(reply["output"])[1:]; len(input) < 3+len(original) || !reflect.DeepEqual(input[3:3+len(original)], original) {
 				t.Fatal("completion replaced the native replay IDs or content", input)
 			}
 		})

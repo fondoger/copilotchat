@@ -31,21 +31,23 @@ func TestMessagesRequestConversionPreservesToolsAndImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := parsed(t, string(encoded))
-	if text(o["model"]) != "gpt-6.1-sol" || o["instructions"] != "first\n\nsecond" || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
+	if text(o["model"]) != "gpt-6.1-sol" || number(o["max_output_tokens"]) != 16 || text(obj(o["reasoning"])["effort"]) != "xhigh" || o["store"] != false {
 		t.Fatal(string(encoded))
 	}
 	input := array(o["input"])
-	if len(input) != 4 || obj(o["prompt_cache_options"])["mode"] != "implicit" || strings.Contains(string(encoded), "prompt_cache_breakpoint") {
+	wantSystem := parsed(t, `{"role":"developer","content":[{"type":"input_text","text":"first\n\nsecond"}]}`)
+	if _, hasInstructions := o["instructions"]; hasInstructions || len(input) != 5 || !reflect.DeepEqual(input[0], wantSystem) ||
+		obj(o["prompt_cache_options"])["mode"] != "implicit" || strings.Contains(string(encoded), "prompt_cache_breakpoint") {
 		t.Fatal(string(encoded))
 	}
-	parts := array(obj(input[0])["content"])
+	parts := array(obj(input[1])["content"])
 	if text(obj(parts[1])["image_url"]) != "data:image/png;base64,AAAA" || text(obj(parts[2])["file_url"]) != "https://example.com/file.pdf" {
 		t.Fatal(parts)
 	}
-	if text(obj(input[2])["call_id"]) != "call_1" || text(obj(input[2])["arguments"]) != `{"number":9007199254740993}` {
+	if text(obj(input[3])["call_id"]) != "call_1" || text(obj(input[3])["arguments"]) != `{"number":9007199254740993}` {
 		t.Fatal(input)
 	}
-	output := array(obj(input[3])["output"])
+	output := array(obj(input[4])["output"])
 	if len(output) != 2 || text(obj(output[1])["type"]) != "input_image" {
 		t.Fatal(output)
 	}
@@ -108,6 +110,7 @@ func TestMessagesRequestConversionPreservesTurnInstructions(t *testing.T) {
 	}
 	got := parsed(t, string(encoded))
 	want := parsed(t, `{"input":[
+		{"role":"developer","content":[{"type":"input_text","text":"Stable instructions"}]},
 		{"role":"user","content":[{"type":"input_text","text":"Read the file"}]},
 		{"role":"system","content":[{"type":"input_text","text":"# Environment"}]},
 		{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"},
@@ -115,7 +118,7 @@ func TestMessagesRequestConversionPreservesTurnInstructions(t *testing.T) {
 		{"role":"system","content":[{"type":"input_text","text":"Remember the instructions"}]},
 		{"role":"developer","content":[{"type":"input_text","text":"Be concise"}]}
 	]}`)
-	if !reflect.DeepEqual(got["input"], want["input"]) || got["instructions"] != "Stable instructions" || text(obj(got["reasoning"])["effort"]) != "low" {
+	if _, hasInstructions := got["instructions"]; hasInstructions || !reflect.DeepEqual(got["input"], want["input"]) || text(obj(got["reasoning"])["effort"]) != "low" {
 		t.Fatal(string(encoded))
 	}
 	if strings.Contains(string(encoded), "output_config") || strings.Contains(string(encoded), "cache_control") {
@@ -131,12 +134,35 @@ func TestMessagesRequestConversionPreservesTurnInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	nextGot := parsed(t, string(encoded))
-	if !reflect.DeepEqual(array(nextGot["input"])[:len(array(got["input"]))], got["input"]) || nextGot["instructions"] != got["instructions"] {
+	if nextInput := array(nextGot["input"]); len(nextInput) != len(array(got["input"]))+1 || !reflect.DeepEqual(nextInput[:len(nextInput)-1], got["input"]) {
 		t.Fatal("per-turn instructions changed the previous prompt prefix", string(encoded))
+	}
+	src["system"] = "Updated instructions"
+	updated, _, err := messagesToResponses(encodedDiscovery(t, src), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedInput := array(parsed(t, string(updated))["input"])
+	wantSystem := parsed(t, `{"role":"developer","content":[{"type":"input_text","text":"Updated instructions"}]}`)
+	if len(updatedInput) == 0 || !reflect.DeepEqual(updatedInput[0], wantSystem) || !reflect.DeepEqual(updatedInput[1:], array(nextGot["input"])[1:]) {
+		t.Fatal("updating the top-level system changed more than the first input item", string(updated))
 	}
 	encoded, _, err = messagesToResponses(next, provider.Model{ID: model.ID})
 	if err != nil || parsed(t, string(encoded))["reasoning"] != nil {
 		t.Fatal("effort enabled reasoning on a model without advertised efforts", err, string(encoded))
+	}
+}
+
+func TestMessagesRequestOmitsEmptyTopLevelSystem(t *testing.T) {
+	for _, system := range []string{`""`, `[]`, `[{"type":"text","text":""}]`} {
+		encoded, _, err := messagesToResponses([]byte(`{"system":`+system+`,"messages":[{"role":"user","content":"hi"}]}`), provider.Model{ID: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := parsed(t, string(encoded))
+		if _, hasInstructions := o["instructions"]; hasInstructions || !reflect.DeepEqual(o["input"], parsed(t, `{"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)["input"]) {
+			t.Fatal(string(encoded))
+		}
 	}
 }
 
@@ -200,7 +226,7 @@ func TestClaudeCodeTurnSystemMessagesThroughGateway(t *testing.T) {
 				if upstream["model"] != "mai-code-2-flash" {
 					t.Fatal("public model prefix reached upstream", upstream["model"])
 				}
-				if endpoint == "/v1/messages" && upstream["messages"] == nil {
+				if endpoint == "/v1/messages" && (upstream["system"] != "Stable instructions" || upstream["messages"] == nil || upstream["input"] != nil || upstream["instructions"] != nil) {
 					t.Fatal("native Messages unexpectedly converted")
 				}
 			}
@@ -267,10 +293,15 @@ func TestClaudeCompactionCacheMarkersThroughGateway(t *testing.T) {
 				}
 				got := parsed(t, string(raw.Body))
 				input := array(got["input"])
-				if len(input) != 418 || !reflect.DeepEqual(obj(input[413]), reasoning) ||
-					obj(input[414])["role"] != "assistant" || obj(array(obj(input[414])["content"])[0])["text"] != "Reading the file" ||
-					obj(input[415])["call_id"] != "last_call" || obj(input[415])["arguments"] != `{"cache_control":"keep"}` ||
-					obj(input[416])["output"] != "File contents" || obj(array(obj(input[417])["content"])[0])["text"] != "Summarize this conversation" {
+				wantSystem := parsed(t, `{"role":"developer","content":[{"type":"input_text","text":"Summarize the full history"}]}`)
+				if len(input) != 419 || !reflect.DeepEqual(input[0], wantSystem) {
+					t.Fatal("unexpected compaction system prefix or input length", len(input))
+				}
+				tail := input[len(input)-5:]
+				if !reflect.DeepEqual(obj(tail[0]), reasoning) ||
+					obj(tail[1])["role"] != "assistant" || obj(array(obj(tail[1])["content"])[0])["text"] != "Reading the file" ||
+					obj(tail[2])["call_id"] != "last_call" || obj(tail[2])["arguments"] != `{"cache_control":"keep"}` ||
+					obj(tail[3])["output"] != "File contents" || obj(array(obj(tail[4])["content"])[0])["text"] != "Summarize this conversation" {
 					t.Fatal("compaction history, reasoning or tool arguments changed", string(raw.Body))
 				}
 				if !reflect.DeepEqual(got["prompt_cache_options"], object{"mode": "implicit"}) || strings.Contains(string(raw.Body), "prompt_cache_breakpoint") {

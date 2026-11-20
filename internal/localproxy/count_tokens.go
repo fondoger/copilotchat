@@ -53,7 +53,7 @@ func writeCountTokens(w http.ResponseWriter, r *http.Request, ctx context.Contex
 		count := object{}
 		// Official input_tokens parameters, excluding generation-only options
 		// such as stream, store, include, max_output_tokens and temperature.
-		for _, key := range []string{"model", "input", "instructions", "tools", "tool_choice", "parallel_tool_calls", "reasoning", "text"} {
+		for _, key := range []string{"model", "input", "tools", "tool_choice", "parallel_tool_calls", "reasoning", "text"} {
 			if value, ok := fields[key]; ok {
 				count[key] = value
 			}
