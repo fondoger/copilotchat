@@ -6,7 +6,7 @@ go 1.27.3
 require (
 	github.com/doganarif/govisual/mcp v1.0.1
 	github.com/doganarif/govisual/v2 v2.0.1
-	github.com/egoist/mygo v0.10.0
+	github.com/egoist/mygo v0.10.1-0.20261121000350-2d814ef103f6
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/image v0.46.0
 	golang.org/x/sys v0.48.0
