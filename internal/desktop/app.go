@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/agentviz"
 	"github.com/fondoger/copilotchat/internal/appinfo"
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/localproxy"
@@ -30,6 +31,9 @@ type toolApproval struct {
 // All application state is owned by the UI thread. Workers publish through update.
 type app struct {
 	win, settingsWin          *mygo.Window
+	visualizerWin             *mygo.Window
+	visualizerAPI             *gatewayVisualizerAPI
+	openVisualizerWindow      func() error
 	tray                      *mygo.Tray
 	state                     store.State
 	storage                   *store.Store
@@ -131,6 +135,9 @@ func Run(dataDir string, dev bool) (err error) {
 	a.restoreComposer()
 	a.restoreUpdateChannel()
 	a.pruneEmptyWebChats()
+	mygo.SetFrontend(agentviz.Frontend())
+	a.visualizerAPI = &gatewayVisualizerAPI{}
+	mygo.BindAs("GatewayVisualizer", a.visualizerAPI)
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
 	a.loadProviders()
 	a.syncForwardingProviders()
@@ -147,6 +154,7 @@ func Run(dataDir string, dev bool) (err error) {
 		}
 		a.quitting = true
 		a.stopForwarding()
+		a.closeGatewayVisualizer()
 		a.stopUpdates()
 		a.closePreview()
 		a.closeWebChat()

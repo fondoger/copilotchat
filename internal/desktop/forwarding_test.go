@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +39,98 @@ func TestGatewayInspectionTogglePersistsWithoutRestart(t *testing.T) {
 	settingsClick(t, tester, "Enable HTTP request inspection")
 	if settingsSavedState(t, a).Settings.GatewayInspection || code() != 404 || a.forwarder != server {
 		t.Fatal("disabling inspection left dashboard active or restarted forwarding")
+	}
+}
+
+func startVisualizerTestForwarder(t *testing.T, a *app) {
+	t.Helper()
+	a.state.Settings.LocalForwarding = true
+	a.forwarder = localproxy.New(localproxy.DefaultKey)
+	t.Cleanup(a.stopForwarding)
+	if err := a.forwarder.Start(0); err != nil {
+		t.Fatal(err)
+	}
+	a.syncForwardingProviders()
+}
+
+func recordVisualizerOpens(a *app) *int {
+	calls := new(int)
+	a.openVisualizerWindow = func() error { *calls++; return nil }
+	return calls
+}
+
+func TestGatewayVisualizerTogglePersistsWithoutRestartOrRepeatedOpen(t *testing.T) {
+	a := newSettingsTestApp(t)
+	opens := recordVisualizerOpens(a)
+	if a.state.Settings.GatewayVisualizer || settingsSavedState(t, a).Settings.GatewayVisualizer {
+		t.Fatal("visualizer enabled by default")
+	}
+	a.state.Settings.GatewayInspection = true
+	startVisualizerTestForwarder(t, a)
+	server := a.forwarder
+	visible := true
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() {
+			if visible {
+				a.forwardingSettings(c)
+			}
+		})
+	}, 800, 800)
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	url := server.VisualizerURL()
+	if !settingsSavedState(t, a).Settings.GatewayVisualizer || url == "" || a.forwarder != server {
+		t.Fatal("enabling the visualizer was not persisted or restarted forwarding")
+	}
+	if *opens != 1 || len(tester.OpenedURLs()) != 0 {
+		t.Fatal("enable must open one native window, no external browser")
+	}
+	for range 3 {
+		a.saveSettings()
+		tester.Frame()
+	}
+	visible = false
+	tester.Frame()
+	visible = true
+	tester.Frame()
+	if *opens != 1 {
+		t.Fatal("save or rebuild reopened the visualizer")
+	}
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	if settingsSavedState(t, a).Settings.GatewayVisualizer || server.VisualizerURL() != "" || a.forwarder != server {
+		t.Fatal("disabling the visualizer left it active or restarted forwarding")
+	}
+	if !settingsSavedState(t, a).Settings.GatewayInspection || server.InspectionURL() == "" {
+		t.Fatal("visualizer toggles changed independent GoVisual inspection")
+	}
+	if *opens != 1 {
+		t.Fatal("disable reopened the visualizer")
+	}
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	if *opens != 2 || len(tester.OpenedURLs()) != 0 {
+		t.Fatal("enable did not reopen native visualizer")
+	}
+}
+
+func TestGatewayVisualizerToggleShowsOpenFailure(t *testing.T) {
+	a := newSettingsTestApp(t)
+	startVisualizerTestForwarder(t, a)
+	opens := 0
+	a.openVisualizerWindow = func() error { opens++; return errors.New("WebView unavailable") }
+	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.forwardingSettings(c) }) }, 800, 800)
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	if !tester.HasText("WebView unavailable") || !settingsSavedState(t, a).Settings.GatewayVisualizer {
+		t.Fatal("window failure was not visible")
+	}
+	a.saveSettings()
+	tester.Frame()
+	if opens != 1 {
+		t.Fatal("window failure retried without an action")
+	}
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	a.openVisualizerWindow = func() error { opens++; return nil }
+	settingsClick(t, tester, "Enable LLM Gateway Visualizer")
+	if tester.HasText("WebView unavailable") || opens != 2 || len(tester.OpenedURLs()) != 0 {
+		t.Fatal("explicit retry did not clear the old window error")
 	}
 }
 

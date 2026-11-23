@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>LLM Gateway Visualizer</title>
+  <link rel="stylesheet" href="./visualizer.css">
+  <script type="module" src="./visualizer.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#matrix-scroll">Skip to activity</a>
+  <div class="app-shell">
+    <h1 class="sr-only">LLM Gateway Visualizer</h1>
+    <form id="filters" class="toolbar" role="search" aria-label="Filter activity">
+      <label class="search-field"><span class="sr-only">Search sessions, models, or instructions</span><input id="search" type="search" placeholder="Search sessions, models, instructions" autocomplete="off" spellcheck="false"></label>
+      <label class="status-filter"><span>Status</span><select id="status"><option value="all">All</option><option value="running">Running</option><option value="waiting">Waiting for tools</option><option value="completed">Completed</option><option value="failed">Failed</option></select></label>
+      <button id="clear-filters" class="quiet-button" type="button" hidden>Clear filters</button>
+    </form>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <main>
+      <section class="activity" aria-label="Agent activity">
+        <div class="activity-summary"><dl id="totals" class="totals" aria-label="Filtered activity totals"></dl><span id="time-range" class="time-range"></span></div>
+        <div class="activity-surface">
+          <div id="empty-state" class="empty-state" role="status"><h2 id="empty-title">Loading activity</h2><p id="empty-message">Waiting for the Gateway.</p></div>
+          <div id="matrix-panel" hidden>
+            <p id="matrix-help" class="sr-only">Each row is a session. Columns share compressed chronology. Arrow keys move between turns; Home and End move to the first or last turn in a row. Enter or Space opens details. Session names open the latest turn. Click empty space to clear selection. Color indicates input cache hit rate.</p>
+            <div id="matrix-scroll" class="matrix-scroll" tabindex="0" aria-label="Session activity" aria-describedby="matrix-help"><div id="matrix" class="matrix" role="grid" aria-label="Turns by session and time"></div></div>
+          </div>
+          <div class="matrix-legend">
+            <div class="cache-legend"><span>Cache hit</span><ol id="cache-legend" class="legend-scale" aria-label="Input cache hit rate"></ol></div>
+            <div class="state-legend" aria-label="Turn status markers"><span><i class="legend-marker" data-status="running" aria-hidden="true"></i>Running</span><span><i class="legend-marker" data-status="waiting" aria-hidden="true"></i>Waiting</span><span><i class="legend-marker" data-status="failed" aria-hidden="true">×</i>Failed</span><span><i class="fork-key" aria-hidden="true"></i>Fork</span></div>
+          </div>
+        </div>
+      </section>
+      <section id="inspector" class="inspector" aria-labelledby="detail-title">
+        <div class="inspector-heading"><h2 id="detail-title">Turn details</h2><p id="detail-context">Select a turn to inspect its work.</p></div>
+        <p id="detail-state" class="detail-state" role="status"></p>
+        <div id="detail-content" hidden>
+          <div class="detail-overview"><div id="detail-models" class="detail-models"></div><span id="detail-status" class="status-label"></span></div>
+          <dl id="detail-metrics" class="detail-metrics"></dl>
+          <p id="detail-error" class="detail-error" hidden></p>
+          <p id="detail-capture-notice" class="detail-capture-notice" role="status" hidden></p>
+          <div id="detail-sections" class="detail-sections"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="turn-tooltip" class="turn-tooltip" role="tooltip" hidden></div>
+  <noscript><p class="noscript">Enable JavaScript to view Gateway activity.</p></noscript>
+</body>
+</html>

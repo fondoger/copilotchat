@@ -15,6 +15,7 @@ import (
 func TestDesktopClassifierRouting(t *testing.T) {
 	type classifierRef struct{ ProviderID, ModelID string }
 	const system = `[{"type":"text","text":"prefix"},{"type":"text","text":"check safety","cache_control":{"type":"ephemeral"}}]`
+	const fingerprintSystem = `[{"type":"text","text":"prefix"},{"type":"text","text":"You are a security monitor for autonomous AI coding agents.\nOutput \u003cseverity\u003eN\u003c/severity\u003e.","cache_control":{"type":"ephemeral"}}]`
 	for _, endpoint := range []string{"/v1/messages", "/responses"} {
 		for _, test := range []struct {
 			name, key, path, profile, requested, system, stops string
@@ -32,6 +33,8 @@ func TestDesktopClassifierRouting(t *testing.T) {
 			{"different stop", ClaudeDesktopKey, "/v1/messages", "test", "primary", system, `["severity"]`, classifierRef{"second", "fast"}, "first", 200},
 			{"extra stop", ClaudeDesktopKey, "/v1/messages", "test", "primary", system, `["</severity>","other"]`, classifierRef{"second", "fast"}, "first", 200},
 			{"no stop", ClaudeDesktopKey, "/v1/messages", "test", "primary", system, `null`, classifierRef{"second", "fast"}, "first", 200},
+			{"system fingerprint without stop", ClaudeDesktopKey, "/v1/messages", "test", "unknown", fingerprintSystem, `null`, classifierRef{"second", "fast"}, "second", 200},
+			{"system fingerprint ordinary key", "key", "/v1/messages", "test", "primary", fingerprintSystem, `null`, classifierRef{"second", "fast"}, "first", 200},
 			{"unconfigured", ClaudeDesktopKey, "/v1/messages", "test", "primary", system, `["</severity>"]`, classifierRef{}, "first", 200},
 			{"unconfigured unknown", ClaudeDesktopKey, "/v1/messages", "test", "unknown", system, `["</severity>"]`, classifierRef{}, "", 400},
 			{"missing model", ClaudeDesktopKey, "/v1/messages", "test", "primary", system, `["</severity>"]`, classifierRef{"second", "removed"}, "", 400},
@@ -41,6 +44,8 @@ func TestDesktopClassifierRouting(t *testing.T) {
 		} {
 			t.Run(endpoint+"/"+test.name, func(t *testing.T) {
 				called := ""
+				wantExplicit := test.key == ClaudeDesktopKey &&
+					((strings.Contains(test.system, `"ephemeral"`) && test.stops == `["</severity>"]`) || test.system == fingerprintSystem)
 				targets := map[string]Target{}
 				for _, account := range []string{"first", "second"} {
 					targets[account] = Target{Client: &rawClient{fn: func(_ context.Context, raw provider.RawRequest) (*http.Response, error) {
@@ -65,14 +70,14 @@ func TestDesktopClassifierRouting(t *testing.T) {
 							}
 						} else if raw.Endpoint != "/responses" || !strings.Contains(string(raw.Body), `"input"`) {
 							t.Fatalf("missing Responses conversion: %s", raw.Body)
-						} else if strings.Contains(test.system, `"ephemeral"`) && test.key == ClaudeDesktopKey && test.stops == `["</severity>"]` {
+						} else if wantExplicit {
 							converted := parsed(t, string(raw.Body))
 							system := array(obj(array(converted["input"])[0])["content"])
 							if len(system) != 2 || obj(obj(system[1])["prompt_cache_breakpoint"])["mode"] != "explicit" || obj(converted["prompt_cache_options"])["mode"] != "explicit" {
 								t.Fatalf("classifier cache boundary lost: %s", raw.Body)
 							}
 						}
-						if endpoint == "/responses" && !(strings.Contains(test.system, `"ephemeral"`) && test.key == ClaudeDesktopKey && test.stops == `["</severity>"]`) {
+						if endpoint == "/responses" && !wantExplicit {
 							if strings.Contains(string(raw.Body), "prompt_cache_breakpoint") || obj(parsed(t, string(raw.Body))["prompt_cache_options"])["mode"] == "explicit" {
 								t.Fatalf("ordinary request used explicit caching: %s", raw.Body)
 							}
@@ -117,6 +122,37 @@ func TestDesktopClassifierRouting(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestDesktopClassifierSystemFingerprint(t *testing.T) {
+	const role = "You are a security monitor for autonomous AI coding agents."
+	const format = "Output <severity>N</severity>."
+	for _, test := range []struct {
+		name   string
+		system []any
+		want   bool
+	}{
+		{"without cache marker", []any{object{"type": "text", "text": role + "\n" + format}}, true},
+		{"role only", []any{object{"type": "text", "text": role}}, false},
+		{"format only", []any{object{"type": "text", "text": format}}, false},
+		{"quoted role", []any{object{"type": "text", "text": "Quoted: " + role + "\n" + format}}, false},
+		{"separate blocks", []any{object{"type": "text", "text": role}, object{"type": "text", "text": format}}, false},
+		{"non-text block", []any{object{"type": "other", "text": role + "\n" + format}}, false},
+		{"user message only", nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(object{
+				"system":   test.system,
+				"messages": []any{object{"role": "user", "content": role + "\n" + format}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := isDesktopClassifierRequest(body); got != test.want {
+				t.Fatalf("classifier=%v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

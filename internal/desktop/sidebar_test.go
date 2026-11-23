@@ -1,8 +1,10 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"image/png"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -247,6 +250,120 @@ func TestSidebarSettingsDropdown(t *testing.T) {
 	}
 	if tt.HasText("Appearance") {
 		t.Fatal("theme choice left the settings dropdown open")
+	}
+}
+
+func TestSidebarVisualizerEnablesPersistsAndOpensNativeWindow(t *testing.T) {
+	a := newSidebarTestApp(t)
+	opens := recordVisualizerOpens(a)
+	tester := ui.NewTester(a.sidebar, 300, 600)
+	settingsClick(t, tester, "Settings")
+	if tester.HasText("LLM Gateway Visualizer") {
+		t.Fatal("visualizer shortcut shown with local forwarding disabled")
+	}
+	startVisualizerTestForwarder(t, a)
+	server := a.forwarder
+	tester.Frame()
+	settingsClick(t, tester, "LLM Gateway Visualizer")
+	if tester.HasText("Appearance") || tester.HasText("Check for updates") {
+		t.Fatal("visualizer shortcut left the settings popover open")
+	}
+	saved := settingsSavedState(t, a).Settings
+	if !saved.GatewayVisualizer || saved.GatewayInspection || a.forwarder != server {
+		t.Fatal("shortcut did not persist visualizer enablement independently")
+	}
+	if *opens != 1 || len(tester.OpenedURLs()) != 0 {
+		t.Fatal("shortcut must open a native window only")
+	}
+	a.saveSettings()
+	tester.Frame()
+	settingsClick(t, tester, "Settings")
+	tester.Frame()
+	if *opens != 1 {
+		t.Fatal("save or popup rebuild reopened the native window")
+	}
+	settingsClick(t, tester, "LLM Gateway Visualizer")
+	if *opens != 2 || a.forwarder != server || len(tester.OpenedURLs()) != 0 {
+		t.Fatal("enabled visualizer did not reuse native open action")
+	}
+	a.stopForwarding()
+	a.state.Settings.LocalForwarding = false
+	tester.Frame()
+	settingsClick(t, tester, "Settings")
+	if tester.HasText("LLM Gateway Visualizer") || !tester.HasText("Check for updates") {
+		t.Fatal("stopping forwarding did not remove the shortcut while retaining the settings menu")
+	}
+}
+
+func TestSidebarVisualizerFailuresAreActionable(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		setup     func(*testing.T, *app)
+		message   string
+		windowErr bool
+	}{
+		{name: "missing forwarder", message: "not running"},
+		{
+			name: "bind failure", message: "not running",
+			setup: func(t *testing.T, a *app) {
+				listener, err := net.Listen("tcp4", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { listener.Close() })
+				a.state.Settings.LocalPort = listener.Addr().(*net.TCPAddr).Port
+				a.startForwarding()
+				if a.forwarder != nil || a.forwardError == "" {
+					t.Fatal("test requires a reported bind failure")
+				}
+			},
+		},
+		{
+			name: "unavailable URL", message: "unavailable",
+			setup: func(t *testing.T, a *app) {
+				a.forwarder = localproxy.New(localproxy.DefaultKey)
+				t.Cleanup(a.stopForwarding)
+			},
+		},
+		{
+			name: "window failure", message: "WebView unavailable", windowErr: true,
+			setup: startVisualizerTestForwarder,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newSidebarTestApp(t)
+			a.state.Settings.LocalForwarding = true
+			if tc.setup != nil {
+				tc.setup(t, a)
+			}
+			forwardError := a.forwardError
+			tester := ui.NewTester(a.sidebar, 800, 600)
+			opens := recordVisualizerOpens(a)
+			if tc.windowErr {
+				a.openVisualizerWindow = func() error { *opens++; return errors.New("WebView unavailable") }
+			}
+			settingsClick(t, tester, "Settings")
+			settingsClick(t, tester, "LLM Gateway Visualizer")
+			if tester.HasText("Appearance") || !tester.HasText(tc.message) || !tester.HasText("Open LLM Gateway settings") {
+				t.Fatalf("failure did not replace the popover with actionable status: %q", tester.Texts())
+			}
+			if !settingsSavedState(t, a).Settings.GatewayVisualizer || a.forwardError != forwardError {
+				t.Fatal("failure lost visualizer preference or replaced the forwarding diagnostic")
+			}
+			wantOpens := 0
+			if tc.windowErr {
+				wantOpens = 1
+			}
+			if *opens != wantOpens || len(tester.OpenedURLs()) != 0 {
+				t.Fatal("failure opened an unexpected window or browser")
+			}
+			settingsClick(t, tester, "Close")
+			a.saveSettings()
+			tester.Frame()
+			if tester.HasText(tc.message) || *opens != wantOpens {
+				t.Fatal("dismissed failure or open action replayed on a settings save")
+			}
+		})
 	}
 }
 

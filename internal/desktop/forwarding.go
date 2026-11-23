@@ -25,10 +25,14 @@ func (a *app) syncForwardingProviders() {
 			ClaudeDefaults: a.claudeDefaults(profile)}
 		a.syncForwardCatalog(profile.ID, models)
 	}
+	if a.visualizerAPI != nil {
+		a.visualizerAPI.setServer(a.forwarder)
+	}
 	if a.forwarder == nil {
 		return
 	}
 	a.forwarder.SetInspection(a.state.Settings.GatewayInspection)
+	a.forwarder.SetVisualizer(a.state.Settings.GatewayVisualizer)
 	targets := map[string]localproxy.Target{}
 	for _, p := range a.state.Settings.Providers {
 		client, ok := a.clientForProvider(p.ID).(provider.RawClient)
@@ -102,9 +106,42 @@ func (a *app) startForwarding() {
 }
 
 func (a *app) stopForwarding() {
+	if a.visualizerAPI != nil {
+		a.visualizerAPI.setServer(nil)
+	}
 	if a.forwarder != nil {
 		a.forwarder.Close()
 		a.forwarder = nil
+	}
+}
+
+// openGatewayVisualizer is an explicit action; saving unrelated settings never
+// opens a window. Both native entry points reuse the same page and capture.
+func (a *app) openGatewayVisualizer(failed func(string)) {
+	if !a.state.Settings.GatewayVisualizer {
+		a.state.Settings.GatewayVisualizer = true
+		a.saveSettings()
+	}
+	server := a.forwarder
+	if server == nil {
+		failed("LLM Gateway is not running. Enable or retry local forwarding in LLM Gateway settings.")
+		return
+	}
+	if err := server.Err(); err != nil {
+		failed("LLM Gateway stopped: " + err.Error() + ". Retry local forwarding in LLM Gateway settings.")
+		return
+	}
+	url := server.VisualizerURL()
+	if url == "" {
+		failed("LLM Gateway Visualizer is unavailable. Turn local forwarding off and on in LLM Gateway settings, then try again.")
+		return
+	}
+	open := a.openVisualizerWindow
+	if open == nil {
+		open = a.showGatewayVisualizer
+	}
+	if err := open(); err != nil {
+		failed("Could not open LLM Gateway Visualizer: " + err.Error())
 	}
 }
 
@@ -156,6 +193,7 @@ func (a *app) startupControl(c *ui.Context) {
 
 func (a *app) forwardingSettings(c *ui.Context) {
 	s, page, t := &a.state.Settings, &a.agentSetup, c.Theme()
+	visualizerError := ui.Local(c.Root(), "gateway-visualizer-error", func() string { return "" })
 	if !page.portInitialized {
 		page.portText = strconv.Itoa(s.LocalPort)
 		page.portInitialized = true
@@ -186,18 +224,33 @@ func (a *app) forwardingSettings(c *ui.Context) {
 			startup = "Open at login: enabled"
 		}
 		ui.Text(c, tray+" · "+startup).FontSize(11).TextColor(t.TextMuted)
-		ui.Row(c).FillWidth().Gap(10).Children(func() {
-			ui.Text(c, "HTTP request inspection (GoVisual)").FontSize(12).Grow(1)
+		ui.Row(c.Key("gateway-dashboards")).FillWidth().Gap(10).Children(func() {
+			ui.Text(c, "LLM Gateway Visualizer").FontSize(12).Grow(1)
+			ui.Switch(c.Key("gateway-visualizer"), &s.GatewayVisualizer).Label("Enable LLM Gateway Visualizer").OnChange(func() {
+				*visualizerError = ""
+				a.saveSettings()
+				if s.GatewayVisualizer {
+					a.openGatewayVisualizer(func(message string) { *visualizerError = message })
+				}
+			})
 			if a.forwarder != nil {
 				if url := a.forwarder.InspectionURL(); url != "" {
-					ui.Button(c, "Open dashboard").Height(26).FontSize(11).OnClick(func() {
+					ui.Button(c.Key("inspection-dashboard"), "Open dashboard").Tooltip("Open GoVisual request inspection").Height(26).FontSize(11).OnClick(func() {
 						if err := mygo.Shell.OpenExternal(url); err != nil {
 							a.forwardError = "Could not open GoVisual: " + err.Error()
 						}
 					})
 				}
+			}
+		})
+		if *visualizerError != "" {
+			ui.Text(c, *visualizerError).FontSize(11).TextColor(t.TextMuted)
+		}
+		ui.Row(c.Key("gateway-inspection-controls")).FillWidth().Gap(10).Children(func() {
+			ui.Text(c, "HTTP request inspection (GoVisual)").FontSize(12).Grow(1)
+			if a.forwarder != nil {
 				if url := a.forwarder.InspectionMCPURL(); url != "" {
-					ui.Button(c, "Copy MCP URL").Height(26).FontSize(11).OnClick(func() { mygo.Clipboard.WriteText(url) })
+					ui.Button(c.Key("inspection-mcp-url"), "Copy MCP URL").Height(26).FontSize(11).OnClick(func() { mygo.Clipboard.WriteText(url) })
 				}
 			}
 			ui.Switch(c.Key("gateway-inspection"), &s.GatewayInspection).Label("Enable HTTP request inspection").OnChange(a.saveSettings)

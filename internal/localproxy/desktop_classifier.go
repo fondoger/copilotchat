@@ -39,10 +39,12 @@ func isDesktopClassifierRequest(body []byte) bool {
 		System        json.RawMessage `json:"system"`
 		StopSequences []string        `json:"stop_sequences"`
 	}
-	if json.Unmarshal(body, &request) != nil || len(request.StopSequences) != 1 || request.StopSequences[0] != "</severity>" {
+	if json.Unmarshal(body, &request) != nil {
 		return false
 	}
 	var system []struct {
+		Type         string `json:"type"`
+		Text         string `json:"text"`
 		CacheControl struct {
 			Type string `json:"type"`
 		} `json:"cache_control"`
@@ -51,7 +53,12 @@ func isDesktopClassifierRequest(body []byte) bool {
 		return false
 	}
 	for _, block := range system {
-		if block.CacheControl.Type == "ephemeral" {
+		if len(request.StopSequences) == 1 && request.StopSequences[0] == "</severity>" && block.CacheControl.Type == "ephemeral" {
+			return true
+		}
+		if block.Type == "text" &&
+			strings.HasPrefix(block.Text, "You are a security monitor for autonomous AI coding agents.") &&
+			strings.Contains(block.Text, "<severity>N</severity>") {
 			return true
 		}
 	}

@@ -216,6 +216,8 @@ func (a *app) renameChat(chat *store.Conversation) {
 
 func (a *app) sidebarSettingsButton(c *ui.Context) {
 	open := ui.Local(c.Root(), "sidebar-settings-open", func() bool { return false })
+	visualizerError := ui.Local(c.Root(), "sidebar-visualizer-error", func() string { return "" })
+	visualizerErrorOpen := ui.Local(c.Root(), "sidebar-visualizer-error-open", func() bool { return false })
 	button := ui.ButtonBase(c.Key("sidebar-settings")).Label("Settings").Height(28).PaddingX(4).Gap(4).Radius(6).Justify(ui.Start)
 	if button.Hovered() || *open {
 		fill := ui.RGBA(0, 0, 0, .08)
@@ -247,19 +249,30 @@ func (a *app) sidebarSettingsButton(c *ui.Context) {
 			}
 		})
 		ui.Divider(c).MarginY(3)
+		if a.state.Settings.LocalForwarding {
+			sidebarPopupItem(c.Key("sidebar-visualizer"), settingsIcons["LLM Gateway"], "LLM Gateway Visualizer").OnClick(func() {
+				*open = false
+				a.openGatewayVisualizer(func(message string) {
+					*visualizerError, *visualizerErrorOpen = message, true
+				})
+			})
+		}
 		updateLabel := "Check for updates"
 		if a.updateSnapshot().Phase == appupdate.Ready {
 			updateLabel = "Update ready…"
 		}
-		sidebarPopupItem(c, iRetry, updateLabel).OnClick(func() {
+		sidebarPopupItem(c.Key("sidebar-updates"), iRetry, updateLabel).OnClick(func() {
 			*open = false
 			a.openUpdateSettings()
 		})
-		sidebarPopupItem(c, iSettings, "Settings").Label("Open Settings").OnClick(func() {
+		sidebarPopupItem(c.Key("sidebar-open-settings"), iSettings, "Settings").Label("Open Settings").OnClick(func() {
 			*open = false
 			a.openSettings("General")
 		})
 	})
+	if ui.AlertDialog(c.Key("sidebar-visualizer-error"), visualizerErrorOpen, "LLM Gateway Visualizer", *visualizerError, "Close", "Open LLM Gateway settings") == 1 {
+		a.openSettings("LLM Gateway")
+	}
 }
 
 func sidebarPopupItem(c *ui.Context, icon *ui.SVG, label string) ui.Element {

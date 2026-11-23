@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fondoger/copilotchat/internal/agentviz"
 	"github.com/fondoger/copilotchat/internal/provider"
 )
 
@@ -62,6 +63,7 @@ type Server struct {
 	err         error
 	closed      bool
 	inspection  atomic.Pointer[requestInspection]
+	visualizer  atomic.Pointer[requestVisualizer]
 	mcpErrorLog *log.Logger
 }
 
@@ -184,6 +186,9 @@ func (s *Server) Err() error      { s.mu.RLock(); defer s.mu.RUnlock(); return s
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if visualizer := s.visualizer.Swap(nil); visualizer != nil {
+		visualizer.store.Close()
+	}
 	if inspection := s.inspection.Swap(nil); inspection != nil {
 		inspection.cancel()
 	}
@@ -217,6 +222,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil || host != "127.0.0.1" || r.URL.IsAbs() {
 		apiError(w, http.StatusForbidden, "This endpoint accepts local agent requests only.")
+		return
+	}
+	if isVisualizerPath(r.URL.Path) {
+		s.serveVisualizer(w, r)
 		return
 	}
 	inspection := s.inspection.Load()
@@ -323,6 +332,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "A JSON request with a model ID is required.")
 		return
 	}
+	var capture *agentviz.Capture
+	if viz := s.visualizer.Load(); viz != nil && (endpoint == "/v1/messages" || endpoint == "/responses" || endpoint == "/chat/completions") {
+		capture = viz.store.Begin(profileID, endpoint, r.Header, body, time.Now())
+		if capture != nil {
+			w = capture.Wrap(w)
+			defer func() { capture.Finish(time.Now(), r.Context().Err()) }()
+		}
+	}
 	protocol := strings.TrimSuffix(endpoint, "/count_tokens")
 	if endpoint == "/responses/compact" || endpoint == "/responses/input_tokens" {
 		protocol = "/responses"
@@ -348,6 +365,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, unavailableModelMessage(desktop, routeModelID, classifierRequest, subagentRequest))
 		return
 	}
+	capture.SetModel(model.Model.ID, model.Model.Name)
 	if envelope.Model != model.Model.ID {
 		// Only the routing field changes. RawMessage retains unknown fields,
 		// numeric precision, cache markers, tool arguments and thinking signatures.
