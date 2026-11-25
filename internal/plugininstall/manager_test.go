@@ -15,13 +15,15 @@ import (
 )
 
 // A top-level throw makes a runtime evaluation fail: installation only compiles.
-const module = `throw new Error("must not run at install time"); export function catalog(){} export function models(){} export function inference(){}`
+const module = `throw new Error("must not run at install time"); export function catalog(){} export function models(){} export function inference(){} export function signIn(){ return host.wam.signIn() }`
 
 func manifest(id, version, origin, wam string) string {
-	m := plugin.Manifest{ID: id, Name: "Example", Version: version, Main: "index.js", Network: []string{origin}, WAMProfile: wam}
+	m := plugin.Manifest{ID: id, Name: "Example", Version: version, Main: "index.js", Network: []string{origin}, WAMResource: wam}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
+
+const fixtureAudience = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 const origin = "https://api.example.com"
 
@@ -83,7 +85,7 @@ func TestLocalLifecycle(t *testing.T) {
 	}
 	requireUnchanged(t, m, first)
 	write(t, filepath.Join(dir, "index.js"), module)
-	for _, change := range []string{manifest("example", "2", "https://other.example.com", ""), manifest("example", "2", origin, "work"), manifest("changed", "2", origin, "")} {
+	for _, change := range []string{manifest("example", "2", "https://other.example.com", ""), manifest("example", "2", origin, fixtureAudience), manifest("changed", "2", origin, "")} {
 		write(t, filepath.Join(dir, "plugin.json"), change)
 		if _, err = m.Update(ctx, first.ID); err == nil {
 			t.Fatal("unapproved update")
@@ -126,7 +128,7 @@ func TestReviewActivatesOnlyApprovedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	newOrigin := "https://new.example.com"
-	write(t, filepath.Join(dir, "plugin.json"), manifest("example", "2", newOrigin, "work"))
+	write(t, filepath.Join(dir, "plugin.json"), manifest("example", "2", newOrigin, fixtureAudience))
 	decline := errors.New("declined")
 	_, err = m.InstallReviewed(ctx, dir, "", true, func(context.Context, plugin.Manifest) error { return decline })
 	if !errors.Is(err, decline) {
@@ -138,10 +140,10 @@ func TestReviewActivatesOnlyApprovedSnapshot(t *testing.T) {
 		t.Fatal("stale review overwrote changes")
 	}
 	second, err := m.InstallReviewed(ctx, dir, "", false, func(_ context.Context, p plugin.Manifest) error {
-		if p.WAMProfile != "work" || len(p.Network) != 1 || p.Network[0] != newOrigin {
+		if p.WAMResource != fixtureAudience || len(p.Network) != 1 || p.Network[0] != newOrigin {
 			t.Fatalf("wrong review: %+v", p)
 		}
-		write(t, filepath.Join(dir, "plugin.json"), manifest("example", "3", origin, "other"))
+		write(t, filepath.Join(dir, "plugin.json"), manifest("example", "3", origin, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"))
 		return nil
 	})
 	if err != nil {

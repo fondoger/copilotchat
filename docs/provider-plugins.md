@@ -34,16 +34,18 @@
 
 ## Windows WAM 登录
 
-需要工作账号的插件在 manifest 添加 `"wamProfile": "example-work"`。组织管理员或用户在插件目录之外创建配置文件，并将环境变量 `COPILOT_CHAT_WAM_PROFILES` 指向其**绝对路径**，再启动应用。例如：
+支持交互登录的宿主提供 `host.apiVersion`（当前为 `2`）。需登录的插件应在返回请求前检查版本：旧宿主看不懂新的认证声明时，提示升级并停止请求。
 
-```json
-{
-  "example-work": {
-    "clientId": "<组织批准、属于本客户端的 Entra 应用 GUID>",
-    "resource": "<该服务的 audience GUID>",
-    "origins": ["https://models.example.org"]
-  }
+在 `plugin.json` 中用 `wamResource` 声明模型服务的 Entra API audience（非零 GUID），用 `network` 列出目录与推理所需的 HTTPS 地址。入口模块再导出一个同步函数：
+
+```js
+export function signIn() {
+  return host.wam.signIn();
 }
 ```
 
-WAM 以 `api://<resource>/.default` 请求授权。所有插件网络地址都必须由该 profile 批准。Windows 负责账号选择和续期；系统凭据库只保存账号绑定。令牌由宿主在发送时附加，JS 不接触令牌。更换应用注册、资源或允许的地址后，重启并重新登录。macOS 可以使用无 WAM 的插件。
+用户点击 **Sign in** 时，宿主调用 `signIn`。`host.wam.signIn()` 不接受参数，返回本次登录请求；宿主在函数成功返回该请求后打开 Windows 账号选择器。模块初始化、目录刷新、推理和自动更新都无法调用这个能力。
+
+**首次配置账号：** 在 **Settings → Providers** 选择插件账号，按服务管理员提供的信息填写应用的 Application (client) ID、API resource GUID 和允许接收令牌的 HTTPS origins，保存注册后点击 **Sign in**。这些值由用户在宿主中授权。宿主比对插件声明的 audience 和网络地址后，为 `api://<resource>/.default` 请求授权。同一账号后续启动可恢复绑定并静默续期。
+
+系统凭据库保存账号绑定，JS 接触不到账号引用或令牌。更换应用、资源或获准的地址后需重新登录。macOS 可继续使用无需 WAM 的插件。

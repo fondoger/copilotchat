@@ -70,7 +70,7 @@ func NewSource(ref Reference, profile Profile) (*Source, error) {
 	if ref.ProfileHash != profile.hash() {
 		return nil, errors.New("the WAM profile has changed; sign in again")
 	}
-	if strings.TrimSpace(ref.ID) == "" || !validID(ref.Account.ID) || !validID(ref.Account.TenantID) {
+	if strings.TrimSpace(ref.ID) == "" || !ValidID(ref.Account.ID) || !ValidID(ref.Account.TenantID) {
 		return nil, errors.New("invalid saved WAM account; sign in again")
 	}
 	ref.Account.ID = strings.ToLower(ref.Account.ID)

@@ -35,7 +35,7 @@ func newParams() requestParams {
 	return requestParams{Version: appinfo.Version(), CallID: provider.RequestID(), CorrelationID: provider.RequestID()}
 }
 func (c *Client) allowed(u *url.URL) bool {
-	return u != nil && u.Scheme == "https" && u.User == nil && u.Opaque == "" && u.Fragment == "" && slices.Contains(c.plugin.Manifest.Network, "https://"+u.Host)
+	return u != nil && u.Scheme == "https" && u.User == nil && u.Opaque == "" && u.Fragment == "" && slices.Contains(c.origins, "https://"+u.Host)
 }
 
 func (c *Client) request(ctx context.Context, method string, spec requestSpec, body []byte) (*http.Request, error) {

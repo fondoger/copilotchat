@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,17 +18,22 @@ import (
 	"github.com/fondoger/copilotchat/internal/plugininstall"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
+	"github.com/fondoger/copilotchat/internal/wam"
 )
+
+const fixtureResource = "00000000-0000-4000-8000-000000000002"
 
 func examplePlugin(t *testing.T, authenticated bool) plugininstall.Entry {
 	t.Helper()
 	dir := t.TempDir()
 	auth := ""
+	script := `export function catalog(){throw Error("offline fixture")} export function models(){return []} export function inference(){return {}}`
 	if authenticated {
-		auth = `,"wamProfile":"fixture"`
+		auth = `,"wamResource":"` + fixtureResource + `"`
+		script += ` export function signIn(){return host.wam.signIn()}`
 	}
 	manifest := `{"id":"example","name":"Example Models","version":"1.0","main":"index.js","network":["https://example.invalid"]` + auth + `}`
-	for name, contents := range map[string]string{"plugin.json": manifest, "index.js": `export function catalog(){throw Error("offline fixture")} export function models(){return []} export function inference(){return {}}`} {
+	for name, contents := range map[string]string{"plugin.json": manifest, "index.js": script} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -35,11 +41,11 @@ func examplePlugin(t *testing.T, authenticated bool) plugininstall.Entry {
 	return plugininstall.Entry{ID: "example", Name: "Example Models", Source: dir, Revision: "revision-one", Dir: dir}
 }
 
-func TestPluginPickerAddsIndependentAccounts(t *testing.T) {
+func TestPluginRegistrationRequiresExplicitPerInstanceApproval(t *testing.T) {
 	a := providerTestApp(t)
 	a.installedPlugins = []plugininstall.Entry{examplePlugin(t, true)}
 	a.settingsPage = "Providers"
-	tester := ui.NewTester(a.settingsView, 900, 800)
+	tester := ui.NewTester(a.settingsView, 1000, 1000)
 	for i := 0; i < 2; i++ {
 		settingsClick(t, tester, "Add provider")
 		settingsClick(t, tester, "Add Example Models")
@@ -50,6 +56,49 @@ func TestPluginPickerAddsIndependentAccounts(t *testing.T) {
 	ps := settingsSavedState(t, a).Settings.Providers
 	if len(ps) != 4 || ps[2].Kind != "plugin:example" || ps[2].Kind != ps[3].Kind || ps[2].ID == ps[3].ID || ps[2].PluginSource != a.installedPlugins[0].Source || ps[3].Name != "Example Models 2" || a.clientForProvider("work") == nil {
 		t.Fatalf("account setup: %+v", ps)
+	}
+	enter := func(label, value string) {
+		t.Helper()
+		settingsClick(t, tester, label)
+		tester.Command("selectAll")
+		tester.Type(value)
+	}
+	const clientID = "00000000-0000-4000-8000-000000000001"
+	enter("Client ID", clientID)
+	settingsClick(t, tester, "Save registration")
+	if a.provider(ps[3].ID).WAMGrant != nil {
+		t.Fatal("the manifest supplied its own audience or trusted origins")
+	}
+	enter("Resource ID", fixtureResource)
+	enter("Trusted HTTPS origins", "https://other.invalid")
+	settingsClick(t, tester, "Save registration")
+	if a.provider(ps[3].ID).WAMGrant != nil {
+		t.Fatal("saved registration with unapproved destinations")
+	}
+	enter("Trusted HTTPS origins", "https://example.invalid\nhttps://other.invalid")
+	if settingsSavedState(t, a).Settings.Providers[3].WAMGrant != nil {
+		t.Fatal("typing saved a registration without approval")
+	}
+	settingsClick(t, tester, "Save registration")
+	ps = settingsSavedState(t, a).Settings.Providers
+	if ps[3].WAMGrant == nil || ps[3].WAMGrant.ClientID != clientID || ps[3].WAMGrant.Resource != fixtureResource || len(ps[3].WAMGrant.Origins) != 2 || ps[3].WAMGrant.Origins[0] != "https://example.invalid" || ps[3].WAMGrant.Origins[1] != "https://other.invalid" || ps[2].WAMGrant != nil || a.clientForProvider(ps[3].ID) != nil {
+		t.Fatal("saving a grant must authorize just this instance and leave it signed out", a.providers[ps[3].ID].status)
+	}
+	// A valid saved grant must not make Sign in use an unsaved edit. With no
+	// native window, an enabled handler would report that sign-in needs one.
+	enter("Resource ID", clientID)
+	status := a.providers[ps[3].ID].status
+	settingsClick(t, tester, "Sign in")
+	if a.providers[ps[3].ID].status != status {
+		t.Fatal("sign-in ran with an unsaved edit")
+	}
+	settingsClick(t, tester, "Save registration")
+	if g := settingsSavedState(t, a).Settings.Providers[3].WAMGrant; g == nil || g.Resource != fixtureResource {
+		t.Fatal("an unapproved edit replaced the saved registration")
+	}
+	settingsClick(t, tester, "Clear registration")
+	if settingsSavedState(t, a).Settings.Providers[3].WAMGrant != nil {
+		t.Fatal("cleared grant persisted")
 	}
 }
 
@@ -121,27 +170,28 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	a := providerTestApp(t)
 	entry := examplePlugin(t, true)
 	a.installedPlugins = []plugininstall.Entry{entry}
-	profile := `{"clientId":"00000000-0000-4000-8000-000000000001","resource":"00000000-0000-4000-8000-000000000002","origins":["https://example.invalid"]}`
-	profilePath := filepath.Join(t.TempDir(), "profiles.json")
-	writeProfile := func(raw string) {
-		t.Helper()
-		if err := os.WriteFile(profilePath, []byte(`{"fixture":`+raw+`}`), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeProfile(profile)
-	t.Setenv("COPILOT_CHAT_WAM_PROFILES", profilePath)
+	grant := &wam.Profile{ClientID: "00000000-0000-4000-8000-000000000001", Resource: fixtureResource, Origins: []string{"https://example.invalid"}}
 	id, err := a.addProviderKind("plugin:example", "My account", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := pluginAccountBinding{Plugin: entry.ID, Source: entry.Source, Instance: id, RepoID: entry.RepoID}
-	saved := []byte(fmt.Sprintf(`{"plugin":"example","profile":"fixture","reference":{"id":"opaque-wam-account","profileHash":"%x","account":{"id":"00000000-0000-4000-8000-000000000003","tenant_id":"00000000-0000-4000-8000-000000000004","username":"account@example.test"}}}`, sha256.Sum256([]byte(profile))))
-	if err := b.save(a.credentials(), saved); err != nil {
+	if err := a.setPluginGrant(id, grant); err != nil {
 		t.Fatal(err)
 	}
-	a.loadProviders()
+	b := pluginAccountBinding{Plugin: entry.ID, Source: entry.Source, Instance: id, RepoID: entry.RepoID}
+	profile, _ := json.Marshal(grant)
+	saved := []byte(fmt.Sprintf(`{"plugin":"example","reference":{"id":"opaque-wam-account","profileHash":"%x","account":{"id":"00000000-0000-4000-8000-000000000003","tenant_id":"00000000-0000-4000-8000-000000000004","username":"account@example.test"}}}`, sha256.Sum256(profile)))
 	r := a.providerState(id)
+	r.authBusy = true
+	a.finishPluginLogin(id, r.authEpoch, t.Context(), saved, nil)
+	state := settingsSavedState(t, a)
+	data, _ := json.Marshal(state)
+	if strings.Contains(string(data), "opaque-wam-account") || strings.Contains(string(data), "profileHash") {
+		t.Fatal("account reference leaked into settings")
+	}
+	a = &app{state: state, installedPlugins: []plugininstall.Entry{entry}, storage: a.storage, providerSecrets: a.providerSecrets}
+	a.loadProviders()
+	r = a.providerState(id)
 	if r.client == nil || a.provider(id).Login != "account@example.test" || r.modelsLoaded {
 		t.Fatal("pinned account not shown before model discovery", r.status, r.credentialNotice)
 	}
@@ -158,7 +208,14 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	if cache.AccountID == account.ID || strings.Contains(cache.Binding, "opaque-wam-account") {
 		t.Fatal("cache exposed the saved account reference")
 	}
-	writeProfile(strings.Replace(profile, "000000000002", "000000000005", 1))
+	changed := *grant
+	changed.Origins = []string{"https://example.invalid", "https://extra.invalid"}
+	if err := a.setPluginGrant(id, &changed); err == nil {
+		t.Fatal("changed a connected instance's registration")
+	}
+	// A settings snapshot restored separately from its vault must be checked
+	// even when the updated grant still covers everything the plugin requests.
+	a.provider(id).WAMGrant = &changed
 	a.reloadPluginProviders(entry.ID)
 	if r.client != nil || a.provider(id).Login != "" || len(a.providerModels(id)) != 0 || r.credentialNotice == "" {
 		t.Fatal("changed grant inherited old login or models")
@@ -166,9 +223,47 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	if _, err := old.Account(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatal("previous grant was not revoked")
 	}
-	a.signOutProvider(id)
+	// Re-approving even the original registration must forget the stale vault
+	// reference. Cancel a pending picker and deliver its result after reapproval.
+	if err := a.setPluginGrant(id, grant); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) {
-		t.Fatal("forget sign-in left the saved account", err)
+		t.Fatal("restoring the original grant revived its account", err)
+	}
+	r.authBusy = true
+	epoch := r.authEpoch
+	if err := a.setPluginGrant(id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.setPluginGrant(id, grant); err != nil {
+		t.Fatal(err)
+	}
+	r.authBusy = true
+	a.finishPluginLogin(id, epoch, t.Context(), saved, nil)
+	if r.client != nil || !r.authBusy {
+		t.Fatal("stale picker result changed the new login")
+	}
+	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) {
+		t.Fatal("stale picker saved its reference", err)
+	}
+	a.finishPluginLogin(id, r.authEpoch, t.Context(), saved, nil)
+	if r.client == nil {
+		t.Fatal("fresh sign-in failed", r.status)
+	}
+	a.signOutProvider(id)
+	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) || r.client != nil || a.provider(id).WAMGrant == nil {
+		t.Fatal("sign-out should retain the registration only", err)
+	}
+	anon := examplePlugin(t, false)
+	anon.Source, anon.Revision = entry.Source, "now-anonymous"
+	a.installedPlugins = []plugininstall.Entry{anon}
+	a.reloadPluginProviders(entry.ID)
+	if r.client != nil {
+		t.Fatal("anonymous update inherited account authority")
+	}
+	if err := a.setPluginGrant(id, nil); err != nil || r.client == nil || a.provider(id).Login != "" {
+		t.Fatal("clearing the registration did not recover anonymous access", err)
 	}
 }
 

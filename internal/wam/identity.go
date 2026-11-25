@@ -44,7 +44,7 @@ func validateAccessToken(token string, expected Account, reg registration, now t
 		Expires    int64  `json:"exp"`
 		NotBefore  int64  `json:"nbf"`
 	}
-	if json.Unmarshal(payload, &claims) != nil || !validID(claims.ObjectID) || !validID(claims.Tenant) || claims.Expires <= 0 {
+	if json.Unmarshal(payload, &claims) != nil || !ValidID(claims.ObjectID) || !ValidID(claims.Tenant) || claims.Expires <= 0 {
 		return Account{}, time.Time{}, errors.New("WAM returned an incomplete access token")
 	}
 	if !strings.EqualFold(claims.Audience, reg.resource) {
