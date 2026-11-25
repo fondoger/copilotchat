@@ -28,9 +28,11 @@
 
 - `catalog({version, callId, correlationId})` 返回 `{url, headers?, redirects?}`。宿主发送 GET；目录跳转需要同时匹配 `redirects` 中的完整 URL 和 `network` 中的 HTTPS origin。
 - `models(body)` 将上游目录 JSON 转为模型数组。每项需要 `id`、`name` 和 `endpoint`。`picker: false` 保留按 ID 推理的能力并从选择器隐藏。对于含 `supported_endpoints`、`capabilities` 的目录，`host.model(entry, endpoint)` 使用宿主的共享转换器。
-- `inference({catalogURL, endpoint, conversationId, agent, version, callId, correlationId})` 返回 `{url, headers?}`。`catalogURL` 是本账号最近一次成功发现的最终目录地址。宿主发送 POST；原生聊天使用共享协议编码器，Gateway 保留原始请求体、查询和流式响应。推理请求不跟随重定向。
+- `inference({catalogURL, endpoint, conversationId, agent, version, callId, correlationId, requestHeaders?})` 返回 `{url, headers?, forwardHeaders?}`。`catalogURL` 是本账号最近一次成功发现的最终目录地址。宿主发送 POST；原生聊天使用共享协议编码器，Gateway 保留原始请求体、查询和流式响应。推理请求不跟随重定向。
 
-`network` 使用小写、无端口的 HTTPS origin。插件可提供 `X-*` 和协议扩展头；宿主设置授权和内容类型。JS 不能读取文件、启动进程或直接发网络请求。
+`network` 使用小写、无端口的 HTTPS origin。插件可在 `headers` 中提供 `X-*` 和协议扩展头；宿主设置授权和默认内容类型。JS 不能读取文件、启动进程或直接发网络请求。
+
+Gateway 请求的 `requestHeaders` 按标准 HTTP 大小写提供头名，每个头的值都是字符串数组。宿主保留认证头（如 `Authorization`、`X-Api-Key`）、Cookie、`Host`、连接和消息传输相关的头。默认只转发 `Anthropic-Version`、`Anthropic-Beta` 和 `OpenAI-Beta`；插件可用 `forwardHeaders` 覆盖、删除或添加其他端到端头。用数组设置全部值，用 `null` 或空数组删除。比如 `{forwardHeaders: {"Anthropic-Beta": ["feature-a"], "X-Custom-Feature": ["on"]}}` 会替换 beta 列表并添加自定义头。
 
 ## Windows WAM 登录
 

@@ -6,29 +6,92 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fondoger/copilotchat/internal/appinfo"
-	"github.com/fondoger/copilotchat/internal/provider"
 	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fondoger/copilotchat/internal/appinfo"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"golang.org/x/net/http/httpguts"
 )
 
 type requestSpec struct {
-	URL       string            `json:"url"`
-	Headers   map[string]string `json:"headers"`
-	Redirects []string          `json:"redirects"`
+	URL            string            `json:"url"`
+	Headers        map[string]string `json:"headers"`
+	Redirects      []string          `json:"redirects"`
+	ForwardHeaders http.Header       `json:"forwardHeaders"`
 }
 type requestParams struct {
-	Version        string `json:"version"`
-	CallID         string `json:"callId"`
-	CorrelationID  string `json:"correlationId"`
-	CatalogURL     string `json:"catalogURL,omitempty"`
-	Endpoint       string `json:"endpoint,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
-	Agent          bool   `json:"agent"`
+	Version        string      `json:"version"`
+	CallID         string      `json:"callId"`
+	CorrelationID  string      `json:"correlationId"`
+	CatalogURL     string      `json:"catalogURL,omitempty"`
+	Endpoint       string      `json:"endpoint,omitempty"`
+	ConversationID string      `json:"conversationId,omitempty"`
+	Agent          bool        `json:"agent"`
+	RequestHeaders http.Header `json:"requestHeaders,omitempty"`
+}
+
+func reservedHeader(key string) bool {
+	switch key {
+	case "Authorization", "Proxy-Authorization", "Proxy-Authenticate", "Cookie", "Cookie2", "Set-Cookie",
+		"X-Api-Key", "Api-Key", "X-Auth-Token", "X-Access-Token", "X-Goog-Api-Key",
+		"Host", "Content-Length", "Content-Encoding", "Connection", "Proxy-Connection",
+		"Keep-Alive", "Te", "Trailer", "Transfer-Encoding", "Upgrade", "Expect":
+		return true
+	}
+	return false
+}
+
+func connectionHeaders(headers http.Header) map[string]bool {
+	hop := make(map[string]bool)
+	for key, values := range headers {
+		if !strings.EqualFold(key, "Connection") {
+			continue
+		}
+		for _, value := range values {
+			for token := range strings.SplitSeq(value, ",") {
+				hop[http.CanonicalHeaderKey(strings.TrimSpace(token))] = true
+			}
+		}
+	}
+	return hop
+}
+
+func pluginRequestHeaders(headers http.Header, hop map[string]bool) http.Header {
+	safe := make(http.Header)
+	for name, values := range headers {
+		key := http.CanonicalHeaderKey(name)
+		if httpguts.ValidHeaderFieldName(name) && !reservedHeader(key) && !hop[key] {
+			safe[key] = append(safe[key], values...)
+		}
+	}
+	return safe
+}
+
+func applyForwardHeaders(dst, changes http.Header, hop map[string]bool) error {
+	seen := make(map[string]bool, len(changes))
+	for name, values := range changes {
+		key := http.CanonicalHeaderKey(name)
+		if !httpguts.ValidHeaderFieldName(name) || reservedHeader(key) || hop[key] || seen[key] {
+			return fmt.Errorf("plugin forward header %q is invalid, reserved, or duplicated", name)
+		}
+		seen[key] = true
+		if len(values) == 0 {
+			dst.Del(key)
+			continue
+		}
+		for _, value := range values {
+			if !httpguts.ValidHeaderFieldValue(value) {
+				return fmt.Errorf("plugin forward header %q has an invalid value", name)
+			}
+		}
+		dst[key] = values
+	}
+	return nil
 }
 
 func newParams() requestParams {
@@ -48,7 +111,8 @@ func (c *Client) request(ctx context.Context, method string, spec requestSpec, b
 	}
 	for key, value := range spec.Headers {
 		k := strings.ToLower(key)
-		if !strings.HasPrefix(k, "x-") && k != "anthropic-version" && k != "openai-beta" && k != "anthropic-beta" {
+		if reservedHeader(http.CanonicalHeaderKey(key)) ||
+			(!strings.HasPrefix(k, "x-") && k != "anthropic-version" && k != "openai-beta" && k != "anthropic-beta") {
 			return nil, fmt.Errorf("plugin header %q is not permitted", key)
 		}
 		r.Header.Set(key, value)
@@ -173,7 +237,11 @@ func (c *Client) LookupModel(ctx context.Context, id string) (provider.Model, er
 	return provider.Model{}, fmt.Errorf("model %q is unavailable for this plugin account", id)
 }
 func (c *Client) PrepareInference(ctx context.Context, r provider.Request, m provider.Model, encoded []byte, _ bool) (*http.Request, error) {
-	if !provider.InferencePath(m.Endpoint) {
+	return c.prepareInference(ctx, r, m.Endpoint, encoded, nil)
+}
+
+func (c *Client) prepareInference(ctx context.Context, r provider.Request, endpoint string, encoded []byte, incoming http.Header) (*http.Request, error) {
+	if !provider.InferencePath(endpoint) {
 		return nil, errors.New("unsupported inference endpoint")
 	}
 	getURL := func() string { c.mu.RLock(); defer c.mu.RUnlock(); return c.catalogURL }
@@ -185,30 +253,39 @@ func (c *Client) PrepareInference(ctx context.Context, r provider.Request, m pro
 		base = getURL()
 	}
 	params := newParams()
-	params.CatalogURL, params.Endpoint, params.ConversationID = base, m.Endpoint, r.ConversationID
+	params.CatalogURL, params.Endpoint, params.ConversationID = base, endpoint, r.ConversationID
 	if params.ConversationID == "" {
 		params.ConversationID = provider.RequestID()
 	}
 	params.Agent = r.Background || (len(r.Messages) > 0 && r.Messages[len(r.Messages)-1].Role != "user")
+	hop := connectionHeaders(incoming)
+	params.RequestHeaders = pluginRequestHeaders(incoming, hop)
 	var spec requestSpec
 	if err := c.plugin.call(ctx, "inference", params, &spec); err != nil {
 		return nil, err
 	}
 	req, err := c.request(ctx, http.MethodPost, spec, encoded)
-	if err == nil && strings.HasPrefix(m.Endpoint, "/v1/messages") && req.Header.Get("Anthropic-Version") == "" {
-		req.Header.Set("Anthropic-Version", "2023-06-01")
-	}
-	return req, err
-}
-func (c *Client) Forward(ctx context.Context, r provider.RawRequest) (*http.Response, error) {
-	req, err := c.PrepareInference(ctx, provider.Request{ConversationID: r.ConversationID, Background: r.AgentInitiated}, provider.Model{Endpoint: r.Endpoint}, r.Body, r.Vision)
 	if err != nil {
 		return nil, err
 	}
-	provider.CopyProtocolHeaders(req.Header, r.Header)
-	switch r.Endpoint {
+	if strings.HasPrefix(endpoint, "/v1/messages") && req.Header.Get("Anthropic-Version") == "" {
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+	}
+	provider.CopyProtocolHeaders(req.Header, params.RequestHeaders)
+	switch endpoint {
 	case "/responses/compact", "/responses/input_tokens", "/v1/messages/count_tokens":
 		req.Header.Set("Accept", "application/json")
+	}
+	if err := applyForwardHeaders(req.Header, spec.ForwardHeaders, hop); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+func (c *Client) Forward(ctx context.Context, r provider.RawRequest) (*http.Response, error) {
+	req, err := c.prepareInference(ctx, provider.Request{ConversationID: r.ConversationID, Background: r.AgentInitiated}, r.Endpoint, r.Body, r.Header)
+	if err != nil {
+		return nil, err
 	}
 	req.URL.RawQuery = r.RawQuery
 	return c.Do(req)

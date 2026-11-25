@@ -108,6 +108,77 @@ func TestCatalogToNativeAndGateway(t *testing.T) {
 		t.Fatal("revoked account made a request")
 	}
 }
+
+func TestPluginCanModifyGatewayHeaders(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{
+		"id":"header-fixture","name":"Header Fixture","version":"1.0.0","main":"index.js",
+		"network":["https://fixture.example.org"]
+	}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte(`
+		export function catalog() {}
+		export function models() {}
+		export function inference({requestHeaders: h}) {
+			for (const name of ['Authorization', 'Cookie', 'X-Api-Key', 'Connection', 'Internal-Hop', 'Content-Length']) {
+				if (name in h) throw new Error('reserved header reached plugin: ' + name);
+			}
+			const changes = {
+				'anthropic-beta': null,
+				'Custom-Feature': h['Custom-Feature'].map(v => 'upstream-' + v),
+			};
+			if (h['Test-Mode']?.[0] === 'reserved') changes['X-Api-Key'] = ['blocked'];
+			if (h['Test-Mode']?.[0] === 'invalid') changes['Custom-Feature'] = ['bad\r\nvalue'];
+			return {url: 'https://fixture.example.org/v1/messages', forwardHeaders: changes};
+		}
+	`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newClient(p, provider.AccountInfo{ID: "account"}, fixtureCredential{})
+	c.catalogURL = "https://fixture.example.org/models"
+	defer c.Revoke()
+	calls := 0
+	c.http.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if got := strings.Join(r.Header.Values("Custom-Feature"), ","); got != "upstream-a,upstream-b" {
+			t.Errorf("custom values: %q", got)
+		}
+		if r.Header.Get("Authorization") != "Bearer fixture" || r.Header.Get("Anthropic-Version") != "2023-06-01" {
+			t.Error("missing host authorization or version")
+		}
+		for _, name := range []string{"Anthropic-Beta", "X-Api-Key", "Cookie", "Internal-Hop", "Unselected-Custom"} {
+			if r.Header.Get(name) != "" {
+				t.Errorf("unexpected outbound header %q", name)
+			}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})
+	raw := provider.RawRequest{Endpoint: "/v1/messages", Header: http.Header{
+		"Anthropic-Beta": {"unwanted"}, "Custom-Feature": {"a", "b"}, "Unselected-Custom": {"ignored"},
+		"authorization": {"local"}, "Cookie": {"session=local"}, "X-Api-Key": {"local"},
+		"Connection": {"keep-alive, Internal-Hop"}, "Internal-Hop": {"local"}, "Content-Length": {"0"},
+	}}
+	resp, err := c.Forward(t.Context(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	for _, mode := range []string{"reserved", "invalid"} {
+		raw.Header.Set("Test-Mode", mode)
+		if _, err := c.Forward(t.Context(), raw); err == nil || !strings.Contains(err.Error(), "plugin forward header") {
+			t.Errorf("%s override: %v", mode, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("made %d upstream calls; want 1", calls)
+	}
+}
+
 func TestCatalogRedirectMustBeExplicit(t *testing.T) {
 	p, err := Load("../../examples/catalog-provider")
 	if err != nil {

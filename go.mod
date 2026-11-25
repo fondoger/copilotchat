@@ -10,6 +10,7 @@ require (
 	github.com/egoist/mygo v0.10.1-0.20261121000350-2d814ef103f6
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/image v0.46.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.43.0
 )
@@ -29,7 +30,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.digitalxero.dev/rpm v0.3.4 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
