@@ -219,6 +219,10 @@ func (s *Store) Begin(profile, protocol string, h http.Header, body []byte, now 
 	delta := tail(requestHead, prefix)
 	trigger := triggerFor(delta)
 	last := latest(chosen)
+	toolInput := toolContinuation(last, delta)
+	if len(toolInput) != 0 {
+		trigger = "continuation"
+	}
 	if parsed.scheduled && (last == nil || last.Status == "completed" || last.Status == "failed") {
 		trigger = "scheduler"
 	}
@@ -300,6 +304,14 @@ func (s *Store) Begin(profile, protocol string, h http.Header, body []byte, now 
 					last.calls[i].IsError, _ = v["is_error"].(bool)
 					last.calls[i].EndedAt = now.UnixMilli()
 				}
+			}
+		}
+	}
+	for _, a := range toolInput {
+		if a.role == "user" && a.kind != "tool_result" {
+			b := s.intern(a.data)
+			if !slices.Contains(last.injections, b) {
+				last.injections = append(last.injections, b)
 			}
 		}
 	}

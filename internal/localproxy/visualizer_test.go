@@ -89,6 +89,19 @@ func TestVisualizerObservesClientFacingConversion(t *testing.T) {
 		if r.Endpoint != "/responses" {
 			t.Errorf("wrong upstream protocol: %s", r.Endpoint)
 		}
+		// Inspect before any upstream response exists, including its first chunk.
+		snapshot := visualizerSnapshot(t, s)
+		if len(snapshot.Sessions) != 1 || len(snapshot.Sessions[0].Turns) != 1 {
+			t.Fatalf("running capture=%+v", snapshot)
+		}
+		turn := snapshot.Sessions[0].Turns[0]
+		if turn.Status != "running" || turn.ModelID != "actual" || turn.ModelName != "Actual model" {
+			t.Errorf("routed model missing before response: %+v", turn)
+		}
+		detail, err := s.VisualizerDetail(turn.ID)
+		if err != nil || len(detail.Models) != 1 || detail.Models[0] != (agentviz.Model{ID: "actual", Name: "Actual model"}) {
+			t.Errorf("running model detail=%+v", detail.Models)
+		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(upstream))}, nil
 	}}
 	s.Update(map[string]Target{"p": {Client: client}}, map[string]Profile{"test": {ID: "p", Models: []Model{{ProviderID: "p", ID: "alias", Model: provider.Model{ID: "actual", Name: "Actual model", Endpoint: "/responses"}}}}})

@@ -373,13 +373,29 @@ type Capture struct {
 	finished   bool
 }
 
+// SetModel publishes the routed model before inference starts so live snapshots
+// and details use the same name as the completed turn.
 func (c *Capture) SetModel(id, name string) {
-	if c != nil {
-		if name == "" {
-			name = id
-		}
-		c.model = Model{ID: id, Name: name}
+	if c == nil {
+		return
 	}
+	if name == "" {
+		name = id
+	}
+	c.model = Model{ID: id, Name: name}
+	s := c.store
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	t := c.turn
+	t.ModelID = c.model.ID
+	t.ModelName = c.model.Name
+	if !slices.Contains(t.models, c.model) {
+		t.models = append(t.models, c.model)
+	}
+	s.revision++
 }
 func (c *Capture) Wrap(w http.ResponseWriter) http.ResponseWriter {
 	return &captureWriter{ResponseWriter: w, capture: c}

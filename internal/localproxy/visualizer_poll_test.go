@@ -33,6 +33,15 @@ func TestVisualizerPollVersionsAndNotModified(t *testing.T) {
 	if next.Snapshot == nil || next.Version == first.Version || next.Snapshot.Sessions[0].Turns[0].InstructionPreview != "first task" {
 		t.Fatal("new turn or instruction was not published")
 	}
+	capture.SetModel("actual", "Actual model")
+	routed := s.VisualizerPoll(next.Version)
+	if routed.Snapshot == nil || routed.Version == next.Version {
+		t.Fatal("routed model was not published to native polling")
+	}
+	turn := routed.Snapshot.Sessions[0].Turns[0]
+	if turn.Status != "running" || turn.ModelID != "actual" || turn.ModelName != "Actual model" {
+		t.Fatalf("running routed model=%+v", turn)
+	}
 	capture.Finish(time.Now(), nil)
 	s.SetVisualizer(false)
 	s.SetVisualizer(true)
