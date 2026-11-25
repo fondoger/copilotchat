@@ -36,6 +36,7 @@ type installed struct {
 	Entry       // Dir is a generated basename on disk, an absolute path in the public API.
 	Network     []string
 	WAMResource string
+	WAMClientID string
 }
 
 type Manager struct {
@@ -128,6 +129,40 @@ func (m *Manager) List() ([]Entry, error) {
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, err
+}
+
+// Load verifies that the installed manifest still matches the reviewed permissions.
+func (m *Manager) Load(entry Entry) (*plugin.Plugin, error) {
+	var record installed
+	err := m.withIndex(func(index map[string]installed) error {
+		var ok bool
+		record, ok = index[entry.ID]
+		if !ok {
+			return fs.ErrNotExist
+		}
+		if m.entry(record) != entry {
+			return errors.New("plugin installation changed; reload the provider")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	p, err := plugin.Load(m.entry(record).Dir)
+	if err != nil {
+		return nil, err
+	}
+	manifest := p.Manifest
+	if manifest.ID != record.ID || manifest.WAMClientID != record.WAMClientID || manifest.WAMResource != record.WAMResource || !slices.Equal(normalizeNetwork(manifest.Network), record.Network) {
+		return nil, errors.New("installed plugin permissions differ from the approved installation; reinstall to review")
+	}
+	return p, nil
+}
+
+func normalizeNetwork(origins []string) []string {
+	network := slices.Clone(origins)
+	slices.Sort(network)
+	return slices.Compact(network)
 }
 
 func (m *Manager) SetAuto(id string, on bool) error {
@@ -257,11 +292,9 @@ func (m *Manager) install(ctx context.Context, source, ref string, auto bool, ex
 				return Entry{}, err
 			}
 		}
-		network := slices.Clone(manifest.Network)
-		slices.Sort(network)
-		network = slices.Compact(network)
-		r = installed{Entry: Entry{ID: manifest.ID, Name: manifest.Name, Dir: "version-" + rand.Text(), Source: s.name, Ref: ref, Revision: revision, Auto: auto, RepoID: repoID}, Network: network, WAMResource: manifest.WAMResource}
-		if expected != nil && (expected.ID != r.ID || expected.WAMResource != r.WAMResource || !slices.Equal(expected.Network, r.Network)) {
+		network := normalizeNetwork(manifest.Network)
+		r = installed{Entry: Entry{ID: manifest.ID, Name: manifest.Name, Dir: "version-" + rand.Text(), Source: s.name, Ref: ref, Revision: revision, Auto: auto, RepoID: repoID}, Network: network, WAMResource: manifest.WAMResource, WAMClientID: manifest.WAMClientID}
+		if expected != nil && (expected.ID != r.ID || expected.WAMResource != r.WAMResource || expected.WAMClientID != r.WAMClientID || !slices.Equal(expected.Network, r.Network)) {
 			return Entry{}, errors.New("plugin identity or permissions changed; explicit installation required")
 		}
 		if review != nil {

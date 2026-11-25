@@ -123,7 +123,7 @@ func (a *app) installPlugin() {
 			}
 			detail := fmt.Sprintf("%s (%s), version %s\nSource: %s\n\nMay send chats to:\n%s", m.Name, m.ID, m.Version, source, strings.Join(m.Network, "\n"))
 			if m.WAMResource != "" {
-				detail += "\n\nRequested Windows sign-in resource: " + m.WAMResource
+				detail += "\n\nWindows sign-in application: " + m.WAMClientID + "\nResource: " + m.WAMResource + "\nThe listed network origins may receive the sign-in token."
 			}
 			if auto {
 				detail += "\n\nAutomatic updates enabled."

@@ -9,7 +9,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
-	"github.com/fondoger/copilotchat/internal/wam"
 )
 
 type providerForm struct{ Name, Host, Error string }
@@ -154,71 +153,6 @@ func (a *app) addProviderButton(c *ui.Context) {
 	})
 }
 
-type registrationForm struct{ clientID, resource, origins string }
-
-func registrationDraft(grant *wam.Profile) registrationForm {
-	if grant == nil {
-		return registrationForm{}
-	}
-	return registrationForm{grant.ClientID, grant.Resource, strings.Join(grant.Origins, "\n")}
-}
-
-func (f registrationForm) grant() *wam.Profile {
-	g := &wam.Profile{ClientID: strings.TrimSpace(f.clientID), Resource: strings.TrimSpace(f.resource)}
-	for line := range strings.SplitSeq(f.origins, "\n") {
-		if origin := strings.TrimSpace(line); origin != "" {
-			g.Origins = append(g.Origins, origin)
-		}
-	}
-	return g
-}
-
-// Only the operator's saved grant populates these fields. Manifest values are
-// shown separately for comparison. Typing never touches settings or the vault.
-func (a *app) registrationSettings(c *ui.Context, p *store.Provider, r *providerRuntime) bool {
-	requested := r.plugin != nil && r.plugin.Manifest.WAMResource != ""
-	if !requested && p.WAMGrant == nil {
-		return false
-	}
-	saved := registrationDraft(p.WAMGrant)
-	draft := ui.Local(c.Root(), "registration-"+p.ID, func() registrationForm { return saved })
-	apply := func(grant *wam.Profile) {
-		if err := a.setPluginGrant(p.ID, grant); err != nil {
-			r.status = err.Error()
-			return
-		}
-		*draft = registrationDraft(grant)
-		if grant != nil {
-			r.status = "Registration saved."
-		}
-	}
-	busy := r.authBusy || r.credentialsBusy
-	ui.Column(c).Gap(6).Children(func() {
-		ui.Text(c, "Windows sign-in registration").FontWeight(600)
-		if requested {
-			ui.Text(c, "Plugin request: "+r.plugin.Manifest.WAMResource+"\n"+strings.Join(r.plugin.Manifest.Network, "\n")).FontSize(12).TextColor(c.Theme().TextMuted).Selectable()
-			ui.Text(c, "Enter the registration supplied by your service administrator.").FontSize(12)
-			ui.Text(c, "Application (client) ID")
-			ui.TextInput(c.Key("wam-client-"+p.ID), &draft.clientID).FillWidth().Label("Client ID").ReadOnly(busy)
-			ui.Text(c, "Resource (audience) ID")
-			ui.TextInput(c.Key("wam-resource-"+p.ID), &draft.resource).FillWidth().Label("Resource ID").ReadOnly(busy)
-			ui.Text(c, "Trusted HTTPS origins (one per line)")
-			ui.TextArea(c.Key("wam-origins-"+p.ID), &draft.origins).FillWidth().Lines(2, 4).Label("Trusted HTTPS origins").ReadOnly(busy)
-		}
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			if requested {
-				ui.Button(c, "Save registration").Disabled(busy || *draft == saved).OnClick(func() {
-					apply(draft.grant())
-				})
-			}
-			if p.WAMGrant != nil {
-				ui.Button(c, "Clear registration").Disabled(r.credentialsBusy).OnClick(func() { apply(nil) })
-			}
-		})
-	})
-	return requested && *draft == saved && r.plugin.ValidateGrant(p.WAMGrant) == nil
-}
-
 func (a *app) providerSettings(c *ui.Context) {
 	p := a.provider(a.providerSettingsID)
 	if p == nil {
@@ -276,10 +210,6 @@ func (a *app) providerSettings(c *ui.Context) {
 			ui.Text(c, form.Error).FontSize(12).TextColor(t.Danger)
 		}
 	})
-	registrationReady := false
-	if r.client == nil && store.PluginID(p.Kind) != "" {
-		registrationReady = a.registrationSettings(c, p, r)
-	}
 	if r.client != nil {
 		identity := p.Host
 		if p.Login != "" {
@@ -300,7 +230,7 @@ func (a *app) providerSettings(c *ui.Context) {
 		if githubProvider {
 			ui.PrimaryButton(c, "Sign in with GitHub").Disabled(p.Disabled || form.Error != "" || r.credentialsBusy).OnClick(func() { a.beginProviderLogin(id) })
 		} else if r.plugin != nil && r.plugin.Manifest.WAMResource != "" {
-			ui.PrimaryButton(c, "Sign in").Disabled(!registrationReady || p.Disabled || r.credentialsBusy || runtime.GOOS != "windows").OnClick(func() { a.beginProviderLogin(id) })
+			ui.PrimaryButton(c, "Sign in").Disabled(p.Disabled || r.credentialsBusy || runtime.GOOS != "windows").OnClick(func() { a.beginProviderLogin(id) })
 			if runtime.GOOS != "windows" {
 				ui.Text(c, "This plugin requires Windows account sign-in.").FontSize(12).TextColor(t.TextMuted)
 			}

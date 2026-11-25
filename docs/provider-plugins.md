@@ -34,9 +34,21 @@
 
 ## Windows WAM 登录
 
-支持交互登录的宿主提供 `host.apiVersion`（当前为 `2`）。需登录的插件应在返回请求前检查版本：旧宿主看不懂新的认证声明时，提示升级并停止请求。
+在 `plugin.json` 中用 `wamClientId` 声明 Entra 应用的 Application (client) ID，用 `wamResource` 声明模型服务的 Entra API audience；两者均为非零 GUID。`network` 列出目录与推理所需的 HTTPS 地址，安装时用户会审阅这些权限。
 
-在 `plugin.json` 中用 `wamResource` 声明模型服务的 Entra API audience（非零 GUID），用 `network` 列出目录与推理所需的 HTTPS 地址。入口模块再导出一个同步函数：
+```json
+{
+  "id": "example-wam-provider",
+  "name": "Example WAM provider",
+  "version": "1.0.0",
+  "main": "index.js",
+  "network": ["https://models.example.org"],
+  "wamClientId": "11111111-1111-4111-8111-111111111111",
+  "wamResource": "22222222-2222-4222-8222-222222222222"
+}
+```
+
+入口模块再导出一个同步函数：
 
 ```js
 export function signIn() {
@@ -46,6 +58,6 @@ export function signIn() {
 
 用户点击 **Sign in** 时，宿主调用 `signIn`。`host.wam.signIn()` 不接受参数，返回本次登录请求；宿主在函数成功返回该请求后打开 Windows 账号选择器。模块初始化、目录刷新、推理和自动更新都无法调用这个能力。
 
-**首次配置账号：** 在 **Settings → Providers** 选择插件账号，按服务管理员提供的信息填写应用的 Application (client) ID、API resource GUID 和允许接收令牌的 HTTPS origins，保存注册后点击 **Sign in**。这些值由用户在宿主中授权。宿主比对插件声明的 audience 和网络地址后，为 `api://<resource>/.default` 请求授权。同一账号后续启动可恢复绑定并静默续期。
+安装插件后，在 **Settings → Providers** 选择插件账号并点击 **Sign in**。宿主使用插件声明的应用 ID、资源 GUID 和 HTTPS origins，为 `api://<resource>/.default` 请求授权。同一账号后续启动可恢复绑定并静默续期。
 
-系统凭据库保存账号绑定，JS 接触不到账号引用或令牌。更换应用、资源或获准的地址后需重新登录。macOS 可继续使用无需 WAM 的插件。
+系统凭据库保存账号绑定，JS 接触不到账号引用或令牌。插件更新改变应用、资源或获准的地址时，需要重新审核安装；账号绑定与安装的配置不匹配时，需要重新登录。macOS 可继续使用无需 WAM 的插件。

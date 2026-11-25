@@ -19,11 +19,15 @@ const module = `throw new Error("must not run at install time"); export function
 
 func manifest(id, version, origin, wam string) string {
 	m := plugin.Manifest{ID: id, Name: "Example", Version: version, Main: "index.js", Network: []string{origin}, WAMResource: wam}
+	if wam != "" {
+		m.WAMClientID = fixtureClientID
+	}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
 
 const fixtureAudience = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const fixtureClientID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 const origin = "https://api.example.com"
 
@@ -140,7 +144,7 @@ func TestReviewActivatesOnlyApprovedSnapshot(t *testing.T) {
 		t.Fatal("stale review overwrote changes")
 	}
 	second, err := m.InstallReviewed(ctx, dir, "", false, func(_ context.Context, p plugin.Manifest) error {
-		if p.WAMResource != fixtureAudience || len(p.Network) != 1 || p.Network[0] != newOrigin {
+		if p.WAMClientID != fixtureClientID || p.WAMResource != fixtureAudience || len(p.Network) != 1 || p.Network[0] != newOrigin {
 			t.Fatalf("wrong review: %+v", p)
 		}
 		write(t, filepath.Join(dir, "plugin.json"), manifest("example", "3", origin, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"))
@@ -153,6 +157,12 @@ func TestReviewActivatesOnlyApprovedSnapshot(t *testing.T) {
 	if err != nil || p.Manifest.Version != "2" || p.Manifest.Network[0] != newOrigin {
 		t.Fatalf("wrong reviewed snapshot: %+v, %v", p, err)
 	}
+	changedClient := bytes.Replace([]byte(manifest("example", "3", newOrigin, fixtureAudience)), []byte(fixtureClientID), []byte("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), 1)
+	write(t, filepath.Join(dir, "plugin.json"), string(changedClient))
+	if _, err = m.Update(ctx, second.ID); err == nil {
+		t.Fatal("updated an unapproved WAM application")
+	}
+	requireUnchanged(t, m, second)
 	canceled, cancel := context.WithCancel(ctx)
 	_, err = m.InstallReviewed(canceled, dir, "", false, func(context.Context, plugin.Manifest) error { cancel(); return nil })
 	cancel()
@@ -160,6 +170,22 @@ func TestReviewActivatesOnlyApprovedSnapshot(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 	requireUnchanged(t, m, second)
+}
+
+func TestInstalledManifestMustMatchReviewedPermissions(t *testing.T) {
+	dir := setupSource(t)
+	m := New(t.TempDir())
+	e, err := m.InstallReviewed(t.Context(), dir, "", false, func(context.Context, plugin.Manifest) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Load(e); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(e.Dir, "plugin.json"), manifest("example", "1", "https://different.example.com", fixtureAudience))
+	if _, err := m.Load(e); err == nil {
+		t.Fatal("loaded unapproved permissions")
+	}
 }
 
 type zipEntry struct {

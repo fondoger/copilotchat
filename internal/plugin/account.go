@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -20,41 +19,24 @@ type savedAccount struct {
 	Reference wam.Reference `json:"reference"`
 }
 
-// ValidateGrant compares the plugin's request with the independent registration
-// entered in the native provider settings. JS cannot issue or modify a grant.
-func (p *Plugin) ValidateGrant(grant *wam.Profile) error {
+// profile uses exactly the permissions approved during plugin installation.
+func (p *Plugin) profile() (wam.Profile, error) {
 	if p.Manifest.WAMResource == "" {
-		if grant == nil {
-			return nil
-		}
-		return errors.New("this plugin does not declare Windows sign-in")
+		return wam.Profile{}, errors.New("this plugin does not request Windows sign-in")
 	}
-	if grant == nil {
-		return errors.New("save the Windows sign-in registration in Providers first")
-	}
-	if err := grant.Validate(); err != nil {
-		return err
-	}
-	if !strings.EqualFold(grant.Resource, p.Manifest.WAMResource) {
-		return errors.New("the approved API resource does not match the one requested by this plugin")
-	}
-	for _, origin := range p.Manifest.Network {
-		if !slices.Contains(grant.Origins, origin) {
-			return fmt.Errorf("this registration does not authorize %s", origin)
-		}
-	}
-	return nil
+	origins := slices.Clone(p.Manifest.Network)
+	slices.Sort(origins)
+	profile := wam.Profile{ClientID: p.Manifest.WAMClientID, Resource: p.Manifest.WAMResource, Origins: slices.Compact(origins)}
+	return profile, profile.Validate()
 }
 
-func (p *Plugin) SignIn(ctx context.Context, hwnd uintptr, grant *wam.Profile) ([]byte, error) {
-	return p.signIn(ctx, hwnd, grant, wam.SignIn)
+func (p *Plugin) SignIn(ctx context.Context, hwnd uintptr) ([]byte, error) {
+	return p.signIn(ctx, hwnd, wam.SignIn)
 }
 
-func (p *Plugin) signIn(ctx context.Context, hwnd uintptr, grant *wam.Profile, picker func(context.Context, uintptr, wam.Profile) (wam.Reference, error)) ([]byte, error) {
-	if p.Manifest.WAMResource == "" {
-		return nil, errors.New("this plugin does not request Windows sign-in")
-	}
-	if err := p.ValidateGrant(grant); err != nil {
+func (p *Plugin) signIn(ctx context.Context, hwnd uintptr, picker func(context.Context, uintptr, wam.Profile) (wam.Reference, error)) ([]byte, error) {
+	profile, err := p.profile()
+	if err != nil {
 		return nil, err
 	}
 	if hwnd == 0 {
@@ -62,7 +44,7 @@ func (p *Plugin) signIn(ctx context.Context, hwnd uintptr, grant *wam.Profile, p
 	}
 	// Only a native Sign in gesture enters this VM. Finish JS before opening
 	// the picker: broker UI does not consume the script's execution budget.
-	err := p.withRuntime(ctx, func(rt *moejs.Runtime, host moejs.Value) error {
+	err = p.withRuntime(ctx, func(rt *moejs.Runtime, host moejs.Value) error {
 		intent, err := rt.FromGo(map[string]any{})
 		if err != nil {
 			return err
@@ -97,7 +79,7 @@ func (p *Plugin) signIn(ctx context.Context, hwnd uintptr, grant *wam.Profile, p
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	ref, err := picker(ctx, hwnd, *grant)
+	ref, err := picker(ctx, hwnd, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -129,26 +111,26 @@ type Client struct {
 var _ provider.Client = (*Client)(nil)
 var _ provider.RawClient = (*Client)(nil)
 
-func (p *Plugin) Client(saved []byte, grant *wam.Profile) (*Client, error) {
+func (p *Plugin) Client(saved []byte) (*Client, error) {
 	var source credential
 	account := provider.AccountInfo{Host: strings.TrimPrefix(p.Manifest.Network[0], "https://")}
 	if p.Manifest.WAMResource != "" {
-		if err := p.ValidateGrant(grant); err != nil {
+		profile, err := p.profile()
+		if err != nil {
 			return nil, err
 		}
 		var s savedAccount
 		if len(saved) == 0 || json.Unmarshal(saved, &s) != nil || s.Plugin != p.Manifest.ID {
 			return nil, errors.New("sign in to connect this plugin account")
 		}
-		var err error
-		source, err = wam.NewSource(s.Reference, *grant)
+		source, err = wam.NewSource(s.Reference, profile)
 		if err != nil {
 			return nil, err
 		}
 		a := s.Reference.Account
 		account.ID = strings.ToLower(a.TenantID + "." + a.ID)
 		account.Login = a.Username
-	} else if len(saved) != 0 || grant != nil {
+	} else if len(saved) != 0 {
 		return nil, errors.New("this plugin's authentication has changed; reconnect the provider")
 	}
 	return newClient(p, account, source), nil

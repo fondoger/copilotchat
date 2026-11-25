@@ -11,9 +11,8 @@ import (
 	"strings"
 )
 
-// Profile is a host grant: an application registration owned by the host
-// operator, its API audience, and the exact origins allowed to receive tokens.
-// Never construct one from a plugin manifest or plugin-supplied arguments.
+// Profile binds a WAM registration and API audience to the exact origins
+// authorized to receive its tokens.
 type Profile struct {
 	ClientID string   `json:"clientId"`
 	Resource string   `json:"resource"`

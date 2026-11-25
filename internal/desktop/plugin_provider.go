@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/fondoger/copilotchat/internal/plugin"
 	"github.com/fondoger/copilotchat/internal/plugininstall"
 	"github.com/fondoger/copilotchat/internal/store"
-	"github.com/fondoger/copilotchat/internal/wam"
 )
 
 func (a *app) installedPlugin(id string) *plugininstall.Entry {
@@ -95,7 +93,7 @@ func (a *app) loadPluginProvider(p store.Provider, pluginID string) {
 		r.status = "This plugin has a different installation source. Add a new provider to use it."
 		return
 	}
-	plug, err := plugin.Load(entry.Dir)
+	plug, err := a.pluginManager.Load(*entry)
 	if err != nil {
 		r.status = "Could not load plugin: " + err.Error()
 		return
@@ -107,17 +105,6 @@ func (a *app) loadPluginProvider(p store.Provider, pluginID string) {
 	binding := pluginAccountBinding{Plugin: pluginID, Source: entry.Source, Instance: p.ID, RepoID: entry.RepoID}
 	r.plugin, r.pluginRevision = plug, entry.Revision
 	a.provider(p.ID).Host = strings.TrimPrefix(plug.Manifest.Network[0], "https://")
-	if plug.Manifest.WAMResource != "" && p.WAMGrant == nil {
-		return // A plugin's requested resource and network are never a host grant.
-	}
-	if plug.Manifest.WAMResource == "" && p.WAMGrant != nil {
-		r.credentialNotice = "This plugin no longer requests Windows sign-in. Clear the registration to connect."
-		return
-	}
-	if err := plug.ValidateGrant(p.WAMGrant); err != nil {
-		r.credentialNotice = err.Error()
-		return
-	}
 	saved, err := binding.load(a.credentials())
 	if errors.Is(err, mygo.ErrSecretNotFound) {
 		if plug.Manifest.WAMResource != "" {
@@ -128,7 +115,7 @@ func (a *app) loadPluginProvider(p store.Provider, pluginID string) {
 		r.credentialNotice = "Could not read saved sign-in: " + err.Error()
 		return
 	}
-	client, err := plug.Client(saved, p.WAMGrant)
+	client, err := plug.Client(saved)
 	if err != nil {
 		r.credentialNotice = err.Error()
 		return
@@ -166,50 +153,9 @@ func (a *app) reloadPluginProviders(pluginID string) {
 	a.saveSettings() // Also updates Gateway targets and cancels their old requests.
 }
 
-// Grants are immutable once published. The UI edits separate draft strings,
-// and a login worker holds its registration snapshot until its epoch ends.
-func (a *app) setPluginGrant(id string, grant *wam.Profile) error {
-	p, r := a.provider(id), a.providerState(id)
-	if p == nil || store.PluginID(p.Kind) == "" || r.credentialsBusy || r.client != nil {
-		return errors.New("sign out before changing this registration")
-	}
-	if grant != nil {
-		if r.plugin == nil {
-			return errors.New("install the original plugin before saving a registration")
-		}
-		if err := r.plugin.ValidateGrant(grant); err != nil {
-			return err
-		}
-		approved := *grant
-		approved.Origins = slices.Clone(grant.Origins)
-		grant = &approved
-	}
-	a.cancelProviderWork(id)
-	r.credentialsBusy = true
-	defer func() { r.credentialsBusy = false }()
-	// Delete even on first registration: a vault entry may have survived a
-	// failed sign-out or a restored snapshot. It must never regain authority.
-	if err := a.clearProviderCredentials(id); err != nil {
-		return fmt.Errorf("could not remove the previous sign-in: %w", err)
-	}
-	a.invalidateProviderCatalog(id)
-	previous := p.WAMGrant
-	p.WAMGrant, p.Login = grant, ""
-	r.credentialNotice = ""
-	if r.plugin != nil {
-		r.status = ""
-	}
-	if err := a.saveState(); err != nil {
-		p.WAMGrant = previous
-		return fmt.Errorf("could not save registration: %w", err)
-	}
-	a.reconnectAnonymousPlugin(id)
-	return nil
-}
-
 func (a *app) reconnectAnonymousPlugin(id string) {
 	p, r := a.provider(id), a.providerState(id)
-	if p == nil || p.WAMGrant != nil || r.plugin == nil || r.plugin.Manifest.WAMResource != "" {
+	if p == nil || r.plugin == nil || r.plugin.Manifest.WAMResource != "" {
 		return
 	}
 	r.status = ""
@@ -225,11 +171,7 @@ func (a *app) beginPluginLogin(id string) {
 	if p == nil || p.Disabled || r.plugin == nil || r.plugin.Manifest.WAMResource == "" || r.client != nil || r.authBusy || r.credentialsBusy || a.quitting {
 		return
 	}
-	plug, grant := r.plugin, p.WAMGrant
-	if err := plug.ValidateGrant(grant); err != nil {
-		r.status = err.Error()
-		return
-	}
+	plug := r.plugin
 	owner := a.settingsWin
 	if owner == nil {
 		owner = a.win
@@ -245,7 +187,7 @@ func (a *app) beginPluginLogin(id string) {
 	r.authCancel, r.authBusy, r.status = cancel, true, "Waiting for account sign-in…"
 	go func() {
 		loginCtx, done := context.WithTimeout(ctx, 10*time.Minute)
-		saved, err := plug.SignIn(loginCtx, hwnd, grant)
+		saved, err := plug.SignIn(loginCtx, hwnd)
 		done()
 		a.update(func() {
 			defer cancel()
@@ -257,7 +199,7 @@ func (a *app) beginPluginLogin(id string) {
 }
 
 func (a *app) finishPluginLogin(id string, epoch uint64, ctx context.Context, saved []byte, err error) {
-	// Registration changes, sign-out and installer reloads all cancel this epoch.
+	// Sign-out, cancellation and installer reloads all cancel this epoch.
 	if !a.currentProviderLogin(id, epoch, ctx) {
 		return
 	}
@@ -267,7 +209,7 @@ func (a *app) finishPluginLogin(id string, epoch uint64, ctx context.Context, sa
 		r.status = err.Error()
 		return
 	}
-	client, err := r.plugin.Client(saved, p.WAMGrant)
+	client, err := r.plugin.Client(saved)
 	if err != nil {
 		r.status = err.Error()
 		return
