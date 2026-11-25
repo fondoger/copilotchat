@@ -9,6 +9,8 @@ import (
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
+const mainWindowTintOpacity = .85
+
 func (a *app) view(c *ui.Context) {
 	a.applicationMenuShortcuts(c)
 	t := a.theme(c)
@@ -27,9 +29,16 @@ func (a *app) view(c *ui.Context) {
 	if a.streaming && !a.searchOpen && c.Shortcut(0, ui.KeyEscape) {
 		a.stop()
 	}
-	ui.Row(c).Fill().AlignItems(ui.Stretch).Background(t.Background).Children(func() {
+	// The root already paints the theme background when there is no material.
+	chatBackground := ui.Transparent
+	if c.Vibrancy() {
+		// Each pane paints its own tint directly over the material.
+		c.Root().Background(ui.Transparent)
+		chatBackground = t.Background.Alpha(mainWindowTintOpacity)
+	}
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		a.sidebarLayout(c, func() { a.sidebar(c) }, func() {
-			ui.Column(c).Fill().MinWidth(0).Children(func() {
+			ui.Column(c).Fill().MinWidth(0).Background(chatBackground).Children(func() {
 				a.header(c)
 				chat := a.current()
 				webChat := a.isWebChat(chat)

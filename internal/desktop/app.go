@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -174,10 +175,14 @@ func Run(dataDir string, dev bool) (err error) {
 	mygo.App.WhenReady(func() {
 		a.simplifiedSidebarTitles = systemPrefersSimplifiedSidebarTitles()
 		a.applyAppearance()
-		a.win = mygo.NewWindow(mygo.WindowOptions{
+		mainWindow := mygo.WindowOptions{
 			Title: appName, Width: 1060, Height: 720, MinWidth: 720, MinHeight: 480,
 			TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 50, StateKey: "main", Content: ui.View(a.view),
-		})
+		}
+		if runtime.GOOS == "windows" {
+			mainWindow.Vibrancy = mygo.VibrancyAcrylic
+		}
+		a.win = mygo.NewWindow(mainWindow)
 		a.win.Invalidate()
 		a.win.OnClose(func(e *mygo.CloseEvent) {
 			if !a.quitting && a.state.Settings.StayInTray && a.tray != nil {

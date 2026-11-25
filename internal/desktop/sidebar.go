@@ -22,6 +22,9 @@ func (a *app) sidebar(c *ui.Context) {
 		bg = ui.Hex("#201f21")
 		selected, hovered = ui.Hex("#3f3f46").Alpha(.8), ui.Hex("#3f3f46").Alpha(.3)
 	}
+	if c.Vibrancy() {
+		bg = bg.Alpha(mainWindowTintOpacity)
+	}
 	container := ui.Column(c.Key("sidebar-content")).Fill().Background(bg)
 	_, _, sidebarOver := container.PointerPosition()
 	container.Children(func() {
