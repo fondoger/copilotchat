@@ -6,9 +6,8 @@ import (
 )
 
 var (
-	microsoftCopilotIcon = loadIcon("microsoft-365-copilot-gray-bold")
-	doubaoIcon           = loadIcon("doubao-mono")
-	webProviderIcons     = map[string]*ui.SVG{
+	doubaoIcon       = loadIcon("doubao-mono")
+	webProviderIcons = map[string]*ui.SVG{
 		store.ProviderKindDeepSeekWeb: loadIcon("deepseek-mono"),
 		store.ProviderKindChatGPTWeb:  loadIcon("openai-mono"),
 		store.ProviderKindClaudeWeb:   loadIcon("claude-mono"),
@@ -20,10 +19,13 @@ func providerKindName(kind string) string {
 	if web, ok := store.WebProviderFor(kind); ok {
 		return web.Name
 	}
-	if kind == store.ProviderKindM365 {
-		return "Microsoft 365 Copilot"
+	if store.IsGitHubProvider(kind) {
+		return "GitHub Copilot"
 	}
-	return "GitHub Copilot"
+	if id := store.PluginID(kind); id != "" {
+		return id
+	}
+	return kind
 }
 
 func providerIcon(c *ui.Context, kind string, size float32) ui.Element {
@@ -33,9 +35,8 @@ func providerIcon(c *ui.Context, kind string, size float32) ui.Element {
 	if kind == store.ProviderKindDoubao {
 		return ui.Image(c, doubaoIcon).Size(size, size).Shrink(0).Label(providerKindName(kind) + " icon")
 	}
-	if kind == store.ProviderKindM365 {
-		// Image preserves the supplied icon's grayscale shading.
-		return ui.Image(c, microsoftCopilotIcon).Size(size, size).Shrink(0).Label("Microsoft 365 Copilot icon")
+	if !store.IsGitHubProvider(kind) {
+		return ui.Icon(c, settingsIcons["Extensions"]).Size(size, size).Shrink(0).Label("Provider plugin icon")
 	}
 	return ui.Icon(c, iChat).Size(size, size).Shrink(0).Label(providerKindName(kind) + " icon")
 }

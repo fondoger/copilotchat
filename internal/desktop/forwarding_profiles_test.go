@@ -36,12 +36,12 @@ func TestProfileCodexCatalogTracksEditsAndDeletion(t *testing.T) {
 		}
 		return aliases
 	}
-	if !slices.Equal(readAliases(), []string{"github-copilot/gpt-5.5", "m365-copilot/gpt-5.5"}) {
+	if !slices.Equal(readAliases(), []string{"github-copilot/gpt-5.5", "plugin:example/gpt-5.5"}) {
 		t.Fatal("initial export differs")
 	}
 	p.Models[0].Enabled = false
 	a.saveSettings()
-	if !slices.Equal(readAliases(), []string{"m365-copilot/gpt-5.5"}) {
+	if !slices.Equal(readAliases(), []string{"plugin:example/gpt-5.5"}) {
 		t.Fatal("catalog did not track edits")
 	}
 	a.renameForwardProfile(p, "codex-profile")
@@ -59,7 +59,7 @@ func profileTestApp(t *testing.T) *app {
 	a.state.Settings.ForwardProfiles[0].Models = nil
 	m := provider.Model{ID: "gpt-5.5", Name: "GPT 5.5", Endpoints: []string{"/responses", "/v1/messages"}}
 	a.providers[store.DefaultProviderID].models = []provider.Model{m}
-	a.state.Settings.Providers = append(a.state.Settings.Providers, store.Provider{ID: "work", Name: "Microsoft 365", Kind: store.ProviderKindM365})
+	a.state.Settings.Providers = append(a.state.Settings.Providers, store.Provider{ID: "work", Name: "Example Models", Kind: "plugin:example"})
 	a.providers["work"] = &providerRuntime{client: github.NewClient("test-token"), models: []provider.Model{m}}
 	a.saveSettings()
 	return a

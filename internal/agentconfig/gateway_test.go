@@ -11,7 +11,7 @@ import (
 
 func TestClaudeModelPickerAndCapabilities(t *testing.T) {
 	o := Options{Agent: ClaudeCode, BaseURL: localproxy.BaseURL(39321, "work"), Key: "copilotchat", Models: []localproxy.Model{
-		{ID: "m365-copilot/claude-sonnet-4.6", ProviderName: "Microsoft 365 Copilot", Model: provider.Model{ID: "claude-sonnet-4.6", Name: "Claude Sonnet 4.6", Endpoint: "/v1/messages", ContextWindow: 200000}},
+		{ID: "plugin:example/claude-sonnet-4.6", ProviderName: "Example Models", Model: provider.Model{ID: "claude-sonnet-4.6", Name: "Claude Sonnet 4.6", Endpoint: "/v1/messages", ContextWindow: 200000}},
 		{ID: "github-copilot/gpt-6.1-sol", ProviderName: "GitHub Copilot", Model: provider.Model{ID: "gpt-6.1-sol", Name: "GPT 6.1 Sol", Endpoint: "/responses", ThinkingEfforts: []string{"high", "none", "xhigh", "low"}, ContextWindow: 400000}},
 		{ID: "github-copilot/plain", Model: provider.Model{ID: "plain", Endpoint: "/responses"}},
 		{ID: "github-copilot/chat-only", Model: provider.Model{ID: "chat-only", Endpoint: "/chat/completions"}},
@@ -38,7 +38,7 @@ func TestClaudeModelPickerAndCapabilities(t *testing.T) {
 	if len(rows) != 3 || !parsed.ModelPicker.ReplaceBuiltInOptions {
 		t.Fatal(config)
 	}
-	if rows[0].Model != o.Models[0].ID || rows[0].BehavesAs != "claude-sonnet-4-6" || rows[0].Label != "Claude Sonnet 4.6 (Microsoft 365 Copilot)" || rows[1].BehavesAs != "" {
+	if rows[0].Model != o.Models[0].ID || rows[0].BehavesAs != "claude-sonnet-4-6" || rows[0].Label != "Claude Sonnet 4.6 (Example Models)" || rows[1].BehavesAs != "" {
 		t.Fatal(config)
 	}
 	if rows[1].Model != o.Models[1].ID+"[1m]" || rows[2].Model != o.Models[2].ID+"[1m]" {

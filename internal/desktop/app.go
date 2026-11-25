@@ -21,6 +21,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/appupdate"
 	"github.com/fondoger/copilotchat/internal/localproxy"
 	"github.com/fondoger/copilotchat/internal/mcp"
+	"github.com/fondoger/copilotchat/internal/plugininstall"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -70,6 +71,9 @@ type app struct {
 	webAPILoginID             string
 	settingsPage              string
 	extensionPage             string
+	pluginManager             *plugininstall.Manager
+	installedPlugins          []plugininstall.Entry
+	pluginOps                 pluginOperations
 	agentSetup                agentSetupState
 	mcpJSON, mcpStatus        string
 	mcpBusy                   bool
@@ -140,6 +144,7 @@ func Run(dataDir string, dev bool) (err error) {
 	a.visualizerAPI = &gatewayVisualizerAPI{}
 	mygo.BindAs("GatewayVisualizer", a.visualizerAPI)
 	mygo.BindAs("WebChatShortcuts", &webChatShortcuts{app: a})
+	a.initPlugins()
 	a.loadProviders()
 	a.syncForwardingProviders()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
@@ -154,6 +159,9 @@ func Run(dataDir string, dev bool) (err error) {
 			return
 		}
 		a.quitting = true
+		if a.pluginOps.cancel != nil {
+			a.pluginOps.cancel()
+		}
 		a.stopForwarding()
 		a.closeGatewayVisualizer()
 		a.stopUpdates()
@@ -166,6 +174,9 @@ func Run(dataDir string, dev bool) (err error) {
 		a.stop()
 		a.cancelLogin()
 		a.cancelModelRefresh()
+		for _, r := range a.providers {
+			r.revokePluginClient()
+		}
 		if a.providerRefreshCancel != nil {
 			a.providerRefreshCancel()
 		}
@@ -222,6 +233,7 @@ func newID() string { var b [12]byte; _, _ = rand.Read(b[:]); return hex.EncodeT
 
 func (a *app) startProviderRefreshLoop() {
 	a.refreshDueProviderModels(time.Now())
+	a.checkDuePluginUpdates(time.Now())
 	ctx, cancel := context.WithCancel(context.Background())
 	a.providerRefreshCancel = cancel
 	go func() {
@@ -235,6 +247,7 @@ func (a *app) startProviderRefreshLoop() {
 				a.update(func() {
 					if !a.quitting {
 						a.refreshDueProviderModels(now)
+						a.checkDuePluginUpdates(now)
 					}
 				})
 			}

@@ -134,7 +134,7 @@ func TestAgentDefaultsFollowModelIdentityAndProfiles(t *testing.T) {
 	a.setForwardEnabled(p, 0, false)
 	for _, agent := range []string{agentconfig.ClaudeCode, agentconfig.Codex} {
 		config, err := a.agentConfiguration(p, agent)
-		if err != nil || strings.Contains(config, "gpt-5.5 (2)") || !strings.Contains(config, "\"m365-copilot/gpt-5.5\"") {
+		if err != nil || strings.Contains(config, "gpt-5.5 (2)") || !strings.Contains(config, "\"plugin:example/gpt-5.5\"") {
 			t.Fatal("model selection did not preserve provider prefix", agent, config, err)
 		}
 	}

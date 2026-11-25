@@ -33,14 +33,10 @@ func TestProviderKindsKeepAuthenticationHostsSeparate(t *testing.T) {
 	}{
 		{"github-public", ProviderKindGitHub, "github.com", true},
 		{"github-enterprise", ProviderKindGitHub, "EXAMPLE.GHE.COM", true},
-		{"github-cannot-use-m365-host", ProviderKindGitHub, M365ProviderHost, false},
-		{"legacy-cannot-use-m365-host", "", M365ProviderHost, false},
-		{"m365", ProviderKindM365, M365ProviderHost, true},
-		{"m365-default-host", ProviderKindM365, "", true},
-		{"m365-normalized-host", ProviderKindM365, " DF.LOKI.DELVE.OFFICE.COM ", true},
-		{"m365-cannot-use-github-host", ProviderKindM365, "github.com", false},
-		{"m365-cannot-use-arbitrary-host", ProviderKindM365, "example.com", false},
-		{"unknown-kind", "unknown", "github.com", false},
+		{"github-rejects-custom-host", ProviderKindGitHub, "models.example.test", false},
+		{"legacy-rejects-custom-host", "", "models.example.test", false},
+		{"plugin", "plugin:example", "", true},
+		{"unavailable-kind", "retired-provider", "github.com", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			disk, err := New(t.TempDir())
@@ -67,9 +63,7 @@ func TestProviderKindsKeepAuthenticationHostsSeparate(t *testing.T) {
 			if p.Kind != test.kind {
 				t.Fatalf("provider kind did not round trip: %q", p.Kind)
 			}
-			if test.kind == ProviderKindM365 && (p.Host != M365ProviderHost || p.Name != "Microsoft 365 Copilot") {
-				t.Fatalf("M365 provider defaults incorrect: %+v", p)
-			}
+
 		})
 	}
 }

@@ -25,11 +25,11 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 			return response("data: {\"usage\":{\"cache_read_input_tokens\":321}}\n\n"), nil
 		}}
 	}
-	targets := map[string]Target{"github": {Client: client("github")}, "m365": {Client: client("m365")}}
+	targets := map[string]Target{"github": {Client: client("github")}, "work": {Client: client("work")}}
 	m := provider.Model{ID: "gpt-5.5", Name: "Upstream title", Endpoints: []string{"/responses", "/v1/messages", "/chat/completions"}, ThinkingEfforts: []string{"low", "medium", "high"}}
 	profiles := map[string]Profile{
-		"my-claude-code-profile": {ID: "claude-profile-id", Models: []Model{{ProviderID: "github", ID: "claude-work", Model: m}, {ProviderID: "m365", ID: "claude-work (2)", Model: m}}},
-		"my-codex-profile":       {ID: "codex-profile-id", Models: []Model{{ProviderID: "github", ID: "gpt-5.5", Model: m}, {ProviderID: "m365", ID: "gpt-5.5 (2)", Model: m}}},
+		"my-claude-code-profile": {ID: "claude-profile-id", Models: []Model{{ProviderID: "github", ID: "claude-work", Model: m}, {ProviderID: "work", ID: "claude-work (2)", Model: m}}},
+		"my-codex-profile":       {ID: "codex-profile-id", Models: []Model{{ProviderID: "github", ID: "gpt-5.5", Model: m}, {ProviderID: "work", ID: "gpt-5.5 (2)", Model: m}}},
 	}
 	s := New(DefaultKey)
 	s.Update(targets, profiles)
@@ -84,7 +84,7 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 		t.Fatal(res.Status, string(data))
 	}
 	got := <-calls
-	if got.account != "m365" {
+	if got.account != "work" {
 		t.Fatal("alias routed to wrong account")
 	}
 	var before, after map[string]json.RawMessage
@@ -102,7 +102,7 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 	res = send(t, "POST", base+"/my-codex-profile/responses", `{"model":"gpt-5.5 (2)","input":"Hello"}`, h)
 	io.Copy(io.Discard, res.Body)
 	got = <-calls
-	if got.account != "m365" || got.request.ConversationID == firstSession {
+	if got.account != "work" || got.request.ConversationID == firstSession {
 		t.Fatal("profiles share routing/session state")
 	}
 	for _, path := range []string{"/my-codex-profile/v1/messages", "/missing/v1/messages"} {
@@ -119,7 +119,7 @@ func TestProfileCatalogsAndAliasRouting(t *testing.T) {
 	if (<-calls).account != "github" {
 		t.Fatal("same alias crossed profiles")
 	}
-	delete(targets, "m365")
+	delete(targets, "work")
 	s.Update(targets, profiles)
 	res = send(t, "POST", base+"/my-claude-code-profile/v1/messages", body, h)
 	if res.StatusCode != 400 {

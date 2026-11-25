@@ -55,7 +55,7 @@ try {
         "| $os | $architecture | ``$installer`` or ``$stem.zip`` |"
     }
     $notes = @"
-Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot and Microsoft 365 Copilot.
+Copilot Chat $Tag is a native Go/MyGo desktop client for GitHub Copilot, web chat, and installed providers.
 
 | Platform | Architecture | Downloads |
 | --- | --- | --- |

@@ -13,10 +13,10 @@ import (
 )
 
 func TestGeneratedModelIDsAndAccountCollisions(t *testing.T) {
-	identities := []ProviderIdentity{{ID: "g1", Kind: "github-copilot", Name: "GitHub Copilot", Login: "qinyuan"}, {ID: "m1", Kind: "m365-copilot", Login: "work@example.com"}}
+	identities := []ProviderIdentity{{ID: "g1", Kind: "github-copilot", Name: "GitHub Copilot", Login: "qinyuan"}, {ID: "m1", Kind: "plugin:example", Login: "work@example.com"}}
 	models := []Model{{ProviderID: "m1", Model: provider.Model{ID: "gpt-5.5"}}, {ProviderID: "g1", Model: provider.Model{ID: "gpt-5.5"}}}
 	named := NameModels(models, identities)
-	if named[0].ID != "github-copilot/gpt-5.5" || named[1].ID != "m365-copilot/gpt-5.5" || !slices.Contains(named[0].Routes, "github-copilot/qinyuan/gpt-5.5") {
+	if named[0].ID != "github-copilot/gpt-5.5" || named[1].ID != "plugin:example/gpt-5.5" || !slices.Contains(named[0].Routes, "github-copilot/qinyuan/gpt-5.5") {
 		t.Fatal(named)
 	}
 	identities = append(identities, ProviderIdentity{ID: "g2", Kind: "github-copilot", Login: "other"})

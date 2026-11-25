@@ -18,14 +18,13 @@ import (
 	"github.com/fondoger/copilotchat/internal/mcp"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft"
 )
 
 const (
 	CurrentSchemaVersion               = 2
 	DefaultProviderID                  = "github.com"
 	ProviderKindGitHub                 = "github-copilot"
-	ProviderKindM365                   = "m365-copilot"
+	PluginKindPrefix                   = "plugin:"
 	ProviderKindDoubao                 = "doubao-web"
 	ProviderKindDeepSeekWeb            = "deepseek-web"
 	ProviderKindClaudeWeb              = "claude-web"
@@ -33,7 +32,6 @@ const (
 	ProviderKindChatGPTWeb             = "chatgpt-web"
 	DoubaoHost                         = "www.doubao.com"
 	DoubaoChatURL                      = "https://www.doubao.com/chat"
-	M365ProviderHost                   = microsoft.Host
 	DefaultUpdateIntervalHours         = 24
 	DefaultSidebarWidth        float32 = 240
 	MinSidebarWidth            float32 = 240
@@ -57,6 +55,7 @@ type Settings struct {
 	PendingUpdate        *PendingUpdate   `json:"pendingUpdate,omitempty"`
 	UpdateIntervalHours  int              `json:"updateIntervalHours"`
 	LastUpdateCheck      time.Time        `json:"lastUpdateCheck,omitempty"` // Last successful check, not an attempt.
+	LastPluginCheck      time.Time        `json:"lastPluginCheck,omitzero"`
 	ChatTitle            bool             `json:"chatTitle"`
 	TitleModel           string           `json:"titleModel,omitempty"`
 	TitleProviderID      string           `json:"titleProviderId,omitempty"`
@@ -101,6 +100,8 @@ type ForwardProfile struct {
 }
 
 type Provider struct {
+	PluginRepoID        int64     `json:"pluginRepoId,omitempty"`
+	PluginSource        string    `json:"pluginSource,omitempty"` // Canonical installation source; never rebind an existing account to a different publisher.
 	ExperimentalAPIMode bool      `json:"experimentalApiMode,omitempty"`
 	Disabled            bool      `json:"disabled,omitempty"`
 	ModelsRefreshedAt   time.Time `json:"modelsRefreshedAt,omitempty"`
@@ -111,6 +112,18 @@ type Provider struct {
 	Login               string    `json:"login,omitempty"`
 	DisabledModels      []string  `json:"disabledModels,omitempty"`
 	PinnedModels        []string  `json:"pinnedModels,omitempty"`
+}
+
+// Only pre-kind snapshots may omit the GitHub kind. An unrecognized, nonempty
+// kind is an unavailable provider whose configuration and history must survive.
+func IsGitHubProvider(kind string) bool { return kind == "" || kind == ProviderKindGitHub }
+
+func PluginID(kind string) string {
+	id, ok := strings.CutPrefix(kind, PluginKindPrefix)
+	if !ok {
+		return ""
+	}
+	return id
 }
 
 func DefaultProvider() Provider {
@@ -402,17 +415,13 @@ func validateProviders(state *State) error {
 				return fmt.Errorf("provider %q: %w", p.Name, err)
 			}
 			p.Host = host
-		case ProviderKindM365:
-			host := strings.ToLower(strings.TrimSpace(p.Host))
-			if host != "" && host != M365ProviderHost {
-				return fmt.Errorf("provider %q: Microsoft 365 Copilot must use %s", p.Name, M365ProviderHost)
-			}
-			p.Host = M365ProviderHost
-			defaultName = "Microsoft 365 Copilot"
 		default:
 			web, ok := WebProviderFor(p.Kind)
 			if !ok {
-				return fmt.Errorf("provider %q: unsupported provider kind %q", p.Name, p.Kind)
+				// Plugin availability is resolved by the desktop after state loads.
+				// Preserve offline and retired kinds, including their original host.
+				defaultName = p.Kind
+				break
 			}
 			if p.Host != "" && p.Host != web.Host {
 				return fmt.Errorf("provider %q: %s must use %s", p.Name, web.Name, web.Host)

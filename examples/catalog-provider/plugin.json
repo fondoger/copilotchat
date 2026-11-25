@@ -1,0 +1,7 @@
+{
+  "id": "example-catalog",
+  "name": "Example model catalog",
+  "version": "1.0.0",
+  "main": "index.js",
+  "network": ["https://models.example.org", "https://region.example.org"]
+}

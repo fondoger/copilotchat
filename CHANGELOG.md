@@ -38,7 +38,7 @@
 ## 0.5.1
 
 - Add named forwarding profiles with separate base URLs, independent model selections and aliases, plus create, duplicate, rename and delete controls.
-- Combine models from multiple GitHub and Microsoft 365 accounts. Resolve duplicate default aliases with `(2)`, `(3)`, and route each alias to its exact account and model.
+- Combine models from multiple accounts. Resolve duplicate default aliases with `(2)`, `(3)`, and route each alias to its exact account and model.
 - Use the readable local key `copilotchat`. Re-copy Agent setup configuration after upgrading from provider-specific URLs and the previous long key.
 - Return aliases as model IDs and names. Support Claude Code discovery and a live local Codex catalog compatible with Codex 0.146.0; restart agents after editing a profile's models.
 - Preserve tools, thinking, cache fields and streamed usage while translating the request's model alias. Isolate conversation IDs and revoke active requests when a profile is deleted or renamed.
@@ -46,7 +46,7 @@
 ## 0.5.0
 
 - Replace the standalone credential helper with an embedded, authenticated loopback forwarding service. Copy a provider-specific base URL and fixed local key for Claude Code or Codex.
-- Preserve raw Messages/Responses payloads and streamed usage, expose Claude model discovery, and map agent session IDs to stable provider-scoped conversation IDs. M365 request headers and ID lifetimes were checked against captured Copilot CLI traffic.
+- Preserve raw Messages/Responses payloads and streamed usage, expose Claude model discovery, and map agent session IDs to stable provider-scoped conversation IDs.
 - Add Open at login, tray/startup recommendations, and confirmation before exiting or disabling tray mode while forwarding is enabled.
 - Stop in-flight forwarding when its provider is disabled, signed out, or removed. Document setup and protocol handling in Chinese.
 - Remove helper executable sources and packaging; existing users should re-copy Agent setup configuration.
@@ -58,26 +58,20 @@
 
 ## 0.4.2
 
-- Bundle a standalone credential helper for Windows and macOS. It reads the selected GitHub or Microsoft 365 provider from the system credential store, including silent Microsoft token renewal, without requiring the GUI to run.
+- Bundle a standalone credential helper for Windows and macOS. It reads the selected provider from the system credential store without requiring the GUI to run.
 - Add Settings → Extensions → Agent setup. Select a provider, Claude Code or Codex / ChatGPT Desktop, and a compatible model to copy its configuration without embedding a token.
 - Filter agent model choices by Messages or Responses support and preserve all advertised model protocols.
 - Include and verify the helper in installation packages and signed updates for all four platforms.
 
 ## 0.4.1
 
-- Sign in to Microsoft 365 directly with Windows Web Account Manager, without Copilot CLI or additional authentication DLLs. Each new provider opens the system account picker.
-- Bind silent token renewal to the selected Windows account and cancel pending renewal when the provider signs out.
-- Keep Copilot CLI account reuse available, including on macOS. Existing CLI-backed providers can sign out and use Sign in with Microsoft to switch to native WAM on Windows.
 - Simplify the README and keep a single light-theme screenshot.
 
 ## 0.4.0
 
-- Add Microsoft 365 Copilot providers with Windows WAM sign-in and existing Copilot CLI account reuse. A compatible local Copilot CLI and account access to the model service are required.
-- Bind Microsoft accounts to their selected tenant and identity, with isolated sign-in profiles and credential renewal through the CLI.
-- Support the Microsoft model catalog, streamed responses, images, thinking, tool calls, and cached input token reporting.
 - Restore provider icons in settings and model lists.
 - Replace model visibility modes with an Enabled checkbox for every model, plus Select all and Deselect all. Models default to enabled and changes save automatically for each provider.
-- Organize shared inference code and GitHub/Microsoft integrations under the provider package.
+- Organize shared inference code and the GitHub integration under the provider package.
 
 ## 0.3.3
 

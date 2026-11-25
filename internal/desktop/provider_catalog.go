@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/fondoger/copilotchat/internal/provider"
@@ -17,20 +16,6 @@ func githubCatalogBinding(token []byte) string {
 		return ""
 	}
 	return fmt.Sprintf("github:%x", sha256.Sum256(token))
-}
-
-func microsoftCatalogBinding(entry m365SavedSignIn) string {
-	var tenant, account string
-	switch {
-	case entry.Mode == "windows-wam" && entry.WAM != nil:
-		tenant, account = entry.WAM.Account.TenantID, entry.WAM.Account.ID
-	case (entry.Mode == "copilot-cli" || entry.Mode == "copilot-broker") && entry.CLI != nil:
-		tenant, account = entry.CLI.Account.TenantID, entry.CLI.Account.ID
-	}
-	if tenant == "" || account == "" {
-		return ""
-	}
-	return fmt.Sprintf("microsoft:%x", sha256.Sum256([]byte(strings.ToLower(tenant+"\x00"+account))))
 }
 
 // Disk snapshots populate the picker only. The inference clients still validate
@@ -97,11 +82,12 @@ func (a *app) applyProviderModels(id string, client provider.Client, epoch uint6
 		r.status = modelErr.Error()
 		return
 	}
-	if accountErr == nil && account.ID != "" && r.accountID != "" && account.ID != r.accountID {
-		a.removeProviderCatalog(id)
-	}
 	if accountErr == nil {
+		previous := r.accountID
 		a.updateProviderAccount(id, account, nil, false)
+		if previous != "" && previous != r.accountID {
+			a.removeProviderCatalog(id)
+		}
 	}
 	if store.IsWebProvider(p.Kind) && a.state.Settings.ActiveProviderID == id {
 		if !slices.ContainsFunc(models, func(m provider.Model) bool { return m.ID == a.state.Settings.Model }) {

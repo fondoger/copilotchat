@@ -1,5 +1,5 @@
 // Package provider contains the shared model types and streaming protocols used
-// by the GitHub and Microsoft providers. Authentication belongs to each provider.
+// by native provider clients. Authentication belongs to each provider.
 package provider
 
 import (

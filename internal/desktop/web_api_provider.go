@@ -15,7 +15,7 @@ func supportsWebAPIMode(kind string) bool {
 }
 
 func nativeProvider(p *store.Provider) bool {
-	return p != nil && (!store.IsWebProvider(p.Kind) || supportsWebAPIMode(p.Kind) && p.ExperimentalAPIMode)
+	return p != nil && (store.IsGitHubProvider(p.Kind) || store.PluginID(p.Kind) != "" || supportsWebAPIMode(p.Kind) && p.ExperimentalAPIMode)
 }
 
 func (a *app) loadWebAPIProvider(id string) {

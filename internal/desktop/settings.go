@@ -79,7 +79,11 @@ func (a *app) settingsView(c *ui.Context) {
 			case "MCP":
 				a.mcpSettings(c)
 			case "Extensions":
-				a.settingsDetail(c, "Chat Title", a.extensionSettings)
+				if a.extensionPage == "Provider plugins" {
+					a.settingsDetail(c, "Provider plugins", a.pluginSettings)
+				} else {
+					a.settingsDetail(c, "Chat Title", a.extensionSettings)
+				}
 			default:
 				ui.Scroll(c.Key(a.settingsPage)).Grow(1).Padding(20).Gap(16).Children(func() {
 					if a.settingsPage == "LLM Gateway" {
@@ -182,7 +186,7 @@ func (a *app) settingsDetail(c *ui.Context, name string, detail func(*ui.Context
 	}
 	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c).Width(200).Shrink(0).Padding(8).Background(fill).BorderWidth(0, 1, 0, 0).BorderColor(t.Border).Children(func() {
-			for _, page := range []string{"Chat Title"} {
+			for _, page := range []string{"Provider plugins", "Chat Title"} {
 				button := ui.ButtonBase(c.Key("extension-" + page)).Height(28).FillWidth().PaddingX(8).Radius(6).Justify(ui.Start).Label(page + " extension")
 				if page == name {
 					button.Background(selected).TextColor(t.Accent)
