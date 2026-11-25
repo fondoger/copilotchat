@@ -33,9 +33,9 @@ type Entry struct {
 }
 
 type installed struct {
-	Entry      // Dir is a generated basename on disk, an absolute path in the public API.
-	Network    []string
-	WAMProfile string
+	Entry       // Dir is a generated basename on disk, an absolute path in the public API.
+	Network     []string
+	WAMResource string
 }
 
 type Manager struct {
@@ -260,8 +260,8 @@ func (m *Manager) install(ctx context.Context, source, ref string, auto bool, ex
 		network := slices.Clone(manifest.Network)
 		slices.Sort(network)
 		network = slices.Compact(network)
-		r = installed{Entry: Entry{ID: manifest.ID, Name: manifest.Name, Dir: "version-" + rand.Text(), Source: s.name, Ref: ref, Revision: revision, Auto: auto, RepoID: repoID}, Network: network, WAMProfile: manifest.WAMProfile}
-		if expected != nil && (expected.ID != r.ID || expected.WAMProfile != r.WAMProfile || !slices.Equal(expected.Network, r.Network)) {
+		r = installed{Entry: Entry{ID: manifest.ID, Name: manifest.Name, Dir: "version-" + rand.Text(), Source: s.name, Ref: ref, Revision: revision, Auto: auto, RepoID: repoID}, Network: network, WAMResource: manifest.WAMResource}
+		if expected != nil && (expected.ID != r.ID || expected.WAMResource != r.WAMResource || !slices.Equal(expected.Network, r.Network)) {
 			return Entry{}, errors.New("plugin identity or permissions changed; explicit installation required")
 		}
 		if review != nil {

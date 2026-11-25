@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,13 +20,11 @@ type Profile struct {
 	Origins  []string `json:"origins"`
 }
 
-const profilesEnv = "COPILOT_CHAT_WAM_PROFILES"
-const configHelp = "set " + profilesEnv + " to the absolute path of your JSON file mapping profile names to {clientId, resource, origins}; use your own Entra application registration"
-
 var guidPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
 var hostLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
-func validID(id string) bool {
+// ValidID reports whether id is a nonzero Entra GUID.
+func ValidID(id string) bool {
 	return guidPattern.MatchString(id) && id != "00000000-0000-0000-0000-000000000000"
 }
 
@@ -52,7 +48,7 @@ func validOrigin(origin string) bool {
 }
 
 func (p Profile) Validate() error {
-	if !validID(p.ClientID) || !validID(p.Resource) {
+	if !ValidID(p.ClientID) || !ValidID(p.Resource) {
 		return errors.New("WAM clientId and resource must both be configured, nonzero GUIDs")
 	}
 	if len(p.Origins) == 0 {
@@ -77,32 +73,4 @@ func (p Profile) hash() string {
 	data, _ := json.Marshal(p)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
-}
-
-// ReadProfile resolves only the named host grant. The caller supplies a name,
-// never a filesystem path. No file, registration or resource is provisioned.
-func ReadProfile(name string) (Profile, error) {
-	path := os.Getenv(profilesEnv)
-	if !filepath.IsAbs(path) {
-		return Profile{}, errors.New(configHelp)
-	}
-	if strings.TrimSpace(name) == "" {
-		return Profile{}, fmt.Errorf("missing WAM profile name; %s", configHelp)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Profile{}, fmt.Errorf("read WAM profiles: %w; %s", err, configHelp)
-	}
-	var profiles map[string]Profile
-	if err := json.Unmarshal(data, &profiles); err != nil {
-		return Profile{}, fmt.Errorf("decode WAM profiles: %w; %s", err, configHelp)
-	}
-	p, ok := profiles[name]
-	if !ok {
-		return Profile{}, fmt.Errorf("WAM profile %q is not configured; %s", name, configHelp)
-	}
-	if err := p.Validate(); err != nil {
-		return Profile{}, fmt.Errorf("WAM profile %q: %w; %s", name, err, configHelp)
-	}
-	return p, nil
 }

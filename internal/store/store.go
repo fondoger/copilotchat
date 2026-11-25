@@ -18,6 +18,7 @@ import (
 	"github.com/fondoger/copilotchat/internal/mcp"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
+	"github.com/fondoger/copilotchat/internal/wam"
 )
 
 const (
@@ -100,18 +101,19 @@ type ForwardProfile struct {
 }
 
 type Provider struct {
-	PluginRepoID        int64     `json:"pluginRepoId,omitempty"`
-	PluginSource        string    `json:"pluginSource,omitempty"` // Canonical installation source; never rebind an existing account to a different publisher.
-	ExperimentalAPIMode bool      `json:"experimentalApiMode,omitempty"`
-	Disabled            bool      `json:"disabled,omitempty"`
-	ModelsRefreshedAt   time.Time `json:"modelsRefreshedAt,omitempty"`
-	ID                  string    `json:"id"`
-	Kind                string    `json:"kind"`
-	Name                string    `json:"name"`
-	Host                string    `json:"host"`
-	Login               string    `json:"login,omitempty"`
-	DisabledModels      []string  `json:"disabledModels,omitempty"`
-	PinnedModels        []string  `json:"pinnedModels,omitempty"`
+	WAMGrant            *wam.Profile `json:"wamGrant,omitempty"` // Operator-approved registration; the account reference lives only in the OS vault.
+	PluginRepoID        int64        `json:"pluginRepoId,omitempty"`
+	PluginSource        string       `json:"pluginSource,omitempty"` // Canonical installation source; never rebind an existing account to a different publisher.
+	ExperimentalAPIMode bool         `json:"experimentalApiMode,omitempty"`
+	Disabled            bool         `json:"disabled,omitempty"`
+	ModelsRefreshedAt   time.Time    `json:"modelsRefreshedAt,omitempty"`
+	ID                  string       `json:"id"`
+	Kind                string       `json:"kind"`
+	Name                string       `json:"name"`
+	Host                string       `json:"host"`
+	Login               string       `json:"login,omitempty"`
+	DisabledModels      []string     `json:"disabledModels,omitempty"`
+	PinnedModels        []string     `json:"pinnedModels,omitempty"`
 }
 
 // Only pre-kind snapshots may omit the GitHub kind. An unrecognized, nonempty

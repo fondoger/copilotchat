@@ -710,13 +710,8 @@ func (a *app) signOutProvider(id string) {
 	r.credentialNotice = ""
 	if err != nil {
 		r.credentialNotice = "Signed out for this session. Could not remove saved sign-in: " + err.Error()
-	} else if p := a.provider(id); p != nil && r.plugin != nil && r.plugin.Manifest.WAMProfile == "" {
-		// Forgetting a stale sign-in after a plugin changed to anonymous mode.
-		r.status = ""
-		a.loadPluginProvider(*p, store.PluginID(p.Kind))
-		if providerCatalogRefreshDue(*p, r, time.Now()) {
-			a.refreshProviderModels(id)
-		}
+	} else {
+		a.reconnectAnonymousPlugin(id)
 	}
 	a.saveSettings()
 }

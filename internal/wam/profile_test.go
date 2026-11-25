@@ -2,33 +2,12 @@ package wam
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 )
 
 func TestRestoreRequiresOriginalHostGrant(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "profiles.json")
-	t.Setenv(profilesEnv, path)
-	write := func(p Profile) {
-		t.Helper()
-		data, err := json.Marshal(map[string]Profile{"work": p})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(fixtureProfile())
-	profile, err := ReadProfile("work")
-	if err != nil || !reflect.DeepEqual(profile, fixtureProfile()) {
-		t.Fatal("cannot read host profile:", err)
-	}
+	profile := fixtureProfile()
 	ref, err := signIn(context.Background(), 42, profile, func(context.Context, uintptr, registration, string) (string, string, error) {
 		return fixtureToken(nil), "opaque-account", nil
 	})
@@ -45,13 +24,8 @@ func TestRestoreRequiresOriginalHostGrant(t *testing.T) {
 		{"origin added", func(p *Profile) { p.Origins = append(p.Origins, "https://extra.example.test") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := fixtureProfile()
-			tc.change(&p)
-			write(p)
-			current, err := ReadProfile("work")
-			if err != nil {
-				t.Fatal(err)
-			}
+			current := fixtureProfile()
+			tc.change(&current)
 			if _, err := NewSource(ref, current); err == nil {
 				t.Fatal("restored account after host grant changed")
 			}
@@ -125,28 +99,6 @@ func TestInvalidGrantsCannotOpenAccountPicker(t *testing.T) {
 	if err := p.Validate(); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestReadProfileFailsClosedWithConfigurationHelp(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "profiles.json")
-	check := func(name string) {
-		t.Helper()
-		p, err := ReadProfile(name)
-		if p.ClientID != "" || err == nil || !strings.Contains(err.Error(), profilesEnv) {
-			t.Fatalf("missing guidance for unavailable profile: %v", err)
-		}
-	}
-	t.Setenv(profilesEnv, "")
-	check("work")
-	t.Setenv(profilesEnv, path)
-	check("work")
-	for _, data := range []string{"not JSON", `{"other":{}}`, `{"work":{"origins":["https://example.test"]}}`} {
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
-			t.Fatal(err)
-		}
-		check("work")
-	}
-	check(path) // An untrusted profile selector is never a file path.
 }
 
 func TestSignInDropsCredentialOnCancellation(t *testing.T) {

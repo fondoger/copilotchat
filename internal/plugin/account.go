@@ -5,47 +5,106 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/wam"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/MoeForge/moejs"
+	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/wam"
 )
 
 type savedAccount struct {
 	Plugin    string        `json:"plugin"`
-	Profile   string        `json:"profile"`
 	Reference wam.Reference `json:"reference"`
 }
 
-// Resolve the registration on the host, never from code supplied by a plugin.
-func (p *Plugin) profile() (wam.Profile, error) {
-	prof, err := wam.ReadProfile(p.Manifest.WAMProfile)
-	if err != nil {
-		return prof, err
+// ValidateGrant compares the plugin's request with the independent registration
+// entered in the native provider settings. JS cannot issue or modify a grant.
+func (p *Plugin) ValidateGrant(grant *wam.Profile) error {
+	if p.Manifest.WAMResource == "" {
+		if grant == nil {
+			return nil
+		}
+		return errors.New("this plugin does not declare Windows sign-in")
+	}
+	if grant == nil {
+		return errors.New("save the Windows sign-in registration in Providers first")
+	}
+	if err := grant.Validate(); err != nil {
+		return err
+	}
+	if !strings.EqualFold(grant.Resource, p.Manifest.WAMResource) {
+		return errors.New("the approved API resource does not match the one requested by this plugin")
 	}
 	for _, origin := range p.Manifest.Network {
-		if !slices.Contains(prof.Origins, origin) {
-			return prof, fmt.Errorf("WAM profile %q does not authorize %s", p.Manifest.WAMProfile, origin)
+		if !slices.Contains(grant.Origins, origin) {
+			return fmt.Errorf("this registration does not authorize %s", origin)
 		}
 	}
-	return prof, nil
+	return nil
 }
 
-func (p *Plugin) SignIn(ctx context.Context, hwnd uintptr) ([]byte, error) {
-	if p.Manifest.WAMProfile == "" {
-		return nil, nil
+func (p *Plugin) SignIn(ctx context.Context, hwnd uintptr, grant *wam.Profile) ([]byte, error) {
+	return p.signIn(ctx, hwnd, grant, wam.SignIn)
+}
+
+func (p *Plugin) signIn(ctx context.Context, hwnd uintptr, grant *wam.Profile, picker func(context.Context, uintptr, wam.Profile) (wam.Reference, error)) ([]byte, error) {
+	if p.Manifest.WAMResource == "" {
+		return nil, errors.New("this plugin does not request Windows sign-in")
 	}
-	prof, err := p.profile()
+	if err := p.ValidateGrant(grant); err != nil {
+		return nil, err
+	}
+	if hwnd == 0 {
+		return nil, errors.New("Windows sign-in requires a parent window")
+	}
+	// Only a native Sign in gesture enters this VM. Finish JS before opening
+	// the picker: broker UI does not consume the script's execution budget.
+	err := p.withRuntime(ctx, func(rt *moejs.Runtime, host moejs.Value) error {
+		intent, err := rt.FromGo(map[string]any{})
+		if err != nil {
+			return err
+		}
+		request := rt.Function("signIn", 0, func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+			if len(args) != 0 {
+				return moejs.Undefined(), errors.New("host.wam.signIn takes no arguments")
+			}
+			return intent, nil
+		})
+		api, err := rt.FromGo(map[string]any{"signIn": request})
+		if err != nil {
+			return err
+		}
+		r := rt.Realm()
+		if err := host.AsObject().CreateDataPropertyOrThrow(r, r.KeyFromGoString("wam"), api); err != nil {
+			return err
+		}
+		fn, _ := rt.Export("signIn")
+		result, err := rt.CallFunction(fn, moejs.Undefined())
+		if err != nil {
+			return err
+		}
+		if !result.IsObject() || result.AsObject() != intent.AsObject() {
+			return errors.New("signIn must return host.wam.signIn()")
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	ref, err := wam.SignIn(ctx, hwnd, prof)
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	ref, err := picker(ctx, hwnd, *grant)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(savedAccount{p.Manifest.ID, p.Manifest.WAMProfile, ref})
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(savedAccount{p.Manifest.ID, ref})
 }
 
 type credential interface {
@@ -56,6 +115,7 @@ type credential interface {
 type Client struct {
 	*provider.Engine
 	plugin     *Plugin
+	origins    []string // private snapshot of the validated destinations, shared by catalog and inference
 	http       *http.Client
 	account    provider.AccountInfo
 	source     credential
@@ -69,26 +129,26 @@ type Client struct {
 var _ provider.Client = (*Client)(nil)
 var _ provider.RawClient = (*Client)(nil)
 
-func (p *Plugin) Client(saved []byte) (*Client, error) {
+func (p *Plugin) Client(saved []byte, grant *wam.Profile) (*Client, error) {
 	var source credential
 	account := provider.AccountInfo{Host: strings.TrimPrefix(p.Manifest.Network[0], "https://")}
-	if p.Manifest.WAMProfile != "" {
-		var s savedAccount
-		if len(saved) == 0 || json.Unmarshal(saved, &s) != nil || s.Plugin != p.Manifest.ID || s.Profile != p.Manifest.WAMProfile {
-			return nil, errors.New("sign in to connect this plugin account")
-		}
-		prof, err := p.profile()
-		if err != nil {
+	if p.Manifest.WAMResource != "" {
+		if err := p.ValidateGrant(grant); err != nil {
 			return nil, err
 		}
-		source, err = wam.NewSource(s.Reference, prof)
+		var s savedAccount
+		if len(saved) == 0 || json.Unmarshal(saved, &s) != nil || s.Plugin != p.Manifest.ID {
+			return nil, errors.New("sign in to connect this plugin account")
+		}
+		var err error
+		source, err = wam.NewSource(s.Reference, *grant)
 		if err != nil {
 			return nil, err
 		}
 		a := s.Reference.Account
 		account.ID = strings.ToLower(a.TenantID + "." + a.ID)
 		account.Login = a.Username
-	} else if len(saved) != 0 {
+	} else if len(saved) != 0 || grant != nil {
 		return nil, errors.New("this plugin's authentication has changed; reconnect the provider")
 	}
 	return newClient(p, account, source), nil
@@ -96,7 +156,7 @@ func (p *Plugin) Client(saved []byte) (*Client, error) {
 
 func newClient(p *Plugin, account provider.AccountInfo, source credential) *Client {
 	life, cancel := context.WithCancel(context.Background())
-	c := &Client{plugin: p, source: source, account: account, lifetime: life, revoke: cancel,
+	c := &Client{plugin: p, origins: slices.Clone(p.Manifest.Network), source: source, account: account, lifetime: life, revoke: cancel,
 		http: &http.Client{Transport: http.DefaultTransport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 	c.Engine = provider.NewEngine(c)

@@ -3,6 +3,7 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,15 +20,16 @@ import (
 
 	"github.com/MoeForge/moejs"
 	"github.com/fondoger/copilotchat/internal/provider"
+	"github.com/fondoger/copilotchat/internal/wam"
 )
 
 type Manifest struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Version    string   `json:"version"`
-	Main       string   `json:"main"`
-	Network    []string `json:"network"`
-	WAMProfile string   `json:"wamProfile,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Main        string   `json:"main"`
+	Network     []string `json:"network"`
+	WAMResource string   `json:"wamResource,omitempty"` // Requested API audience, never a grant.
 }
 
 type Plugin struct {
@@ -71,15 +73,22 @@ func Load(dir string) (*Plugin, error) {
 		return nil, err
 	}
 	var m Manifest
-	if err = json.Unmarshal(b, &m); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	// A misspelled authentication permission must not produce an anonymous provider.
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&m); err != nil {
 		return nil, fmt.Errorf("plugin.json: %w", err)
+	}
+	if err = decoder.Decode(new(json.RawMessage)); err != io.EOF {
+		return nil, errors.New("plugin.json must contain a single manifest")
 	}
 	if !identifier.MatchString(m.ID) || !filepath.IsLocal(m.ID) || strings.HasSuffix(m.ID, ".") || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Version) == "" {
 		return nil, errors.New("plugin.json needs a safe lowercase id, name and version")
 	}
-	if m.WAMProfile != "" && !identifier.MatchString(m.WAMProfile) {
-		return nil, errors.New("invalid WAM profile name")
+	if m.WAMResource != "" && !wam.ValidID(m.WAMResource) {
+		return nil, errors.New("wamResource must be a nonzero API audience GUID")
 	}
+	m.WAMResource = strings.ToLower(m.WAMResource)
 	if len(m.Network) == 0 {
 		return nil, errors.New("declare at least one HTTPS network origin")
 	}
@@ -111,7 +120,11 @@ func Load(dir string) (*Plugin, error) {
 	if len(mod.Requests()) != 0 {
 		return nil, errors.New("bundle the plugin as one module before installing")
 	}
-	for _, name := range []string{"catalog", "models", "inference"} {
+	required := []string{"catalog", "models", "inference"}
+	if m.WAMResource != "" {
+		required = append(required, "signIn")
+	}
+	for _, name := range required {
 		if !slices.Contains(mod.Exports(), name) {
 			return nil, fmt.Errorf("missing plugin export %q", name)
 		}
@@ -121,7 +134,7 @@ func Load(dir string) (*Plugin, error) {
 
 // Each call has private globals, even when two accounts share an installation.
 // Only compiled bytecode is shared. The deadline also covers top-level code.
-func (p *Plugin) call(ctx context.Context, name string, params, out any) error {
+func (p *Plugin) withRuntime(ctx context.Context, invoke func(*moejs.Runtime, moejs.Value) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -145,7 +158,8 @@ func (p *Plugin) call(ctx context.Context, name string, params, out any) error {
 		}
 		return rt.FromGo(entry.Model(endpoint.String()))
 	})
-	host, err := rt.FromGo(map[string]any{"model": model})
+	// Providers can reject hosts predating the interactive sign-in contract before sending a catalog request.
+	host, err := rt.FromGo(map[string]any{"apiVersion": 2, "model": model})
 	if err != nil {
 		return err
 	}
@@ -155,18 +169,24 @@ func (p *Plugin) call(ctx context.Context, name string, params, out any) error {
 	if err = rt.Load(p.mod); err != nil {
 		return err
 	}
-	arg, err := rt.FromGo(params)
-	if err != nil {
-		return err
-	}
-	fn, _ := rt.Export(name)
-	res, err := rt.CallFunction(fn, moejs.Undefined(), arg)
-	if err != nil {
-		return fmt.Errorf("%s.%s: %w", p.Manifest.ID, name, err)
-	}
-	b, err := rt.AppendJSONWith(nil, res, moejs.JSONOptions{Strict: true})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	return invoke(rt, host)
+}
+
+func (p *Plugin) call(ctx context.Context, name string, params, out any) error {
+	return p.withRuntime(ctx, func(rt *moejs.Runtime, _ moejs.Value) error {
+		arg, err := rt.FromGo(params)
+		if err != nil {
+			return err
+		}
+		fn, _ := rt.Export(name)
+		res, err := rt.CallFunction(fn, moejs.Undefined(), arg)
+		if err != nil {
+			return fmt.Errorf("%s.%s: %w", p.Manifest.ID, name, err)
+		}
+		b, err := rt.AppendJSONWith(nil, res, moejs.JSONOptions{Strict: true})
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(b, out)
+	})
 }

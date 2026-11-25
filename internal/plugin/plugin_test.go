@@ -113,7 +113,7 @@ func TestCatalogRedirectMustBeExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := p.Client(nil)
+	c, err := p.Client(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
