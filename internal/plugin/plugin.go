@@ -29,7 +29,8 @@ type Manifest struct {
 	Version     string   `json:"version"`
 	Main        string   `json:"main"`
 	Network     []string `json:"network"`
-	WAMResource string   `json:"wamResource,omitempty"` // Requested API audience, never a grant.
+	WAMClientID string   `json:"wamClientId,omitempty"`
+	WAMResource string   `json:"wamResource,omitempty"`
 }
 
 type Plugin struct {
@@ -85,9 +86,10 @@ func Load(dir string) (*Plugin, error) {
 	if !identifier.MatchString(m.ID) || !filepath.IsLocal(m.ID) || strings.HasSuffix(m.ID, ".") || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Version) == "" {
 		return nil, errors.New("plugin.json needs a safe lowercase id, name and version")
 	}
-	if m.WAMResource != "" && !wam.ValidID(m.WAMResource) {
-		return nil, errors.New("wamResource must be a nonzero API audience GUID")
+	if (m.WAMClientID != "" || m.WAMResource != "") && (!wam.ValidID(m.WAMClientID) || !wam.ValidID(m.WAMResource)) {
+		return nil, errors.New("wamClientId and wamResource must both be nonzero GUIDs")
 	}
+	m.WAMClientID = strings.ToLower(m.WAMClientID)
 	m.WAMResource = strings.ToLower(m.WAMResource)
 	if len(m.Network) == 0 {
 		return nil, errors.New("declare at least one HTTPS network origin")
@@ -158,8 +160,8 @@ func (p *Plugin) withRuntime(ctx context.Context, invoke func(*moejs.Runtime, mo
 		}
 		return rt.FromGo(entry.Model(endpoint.String()))
 	})
-	// Providers can reject hosts predating the interactive sign-in contract before sending a catalog request.
-	host, err := rt.FromGo(map[string]any{"apiVersion": 2, "model": model})
+	// Expose the host contract version for plugin authors.
+	host, err := rt.FromGo(map[string]any{"apiVersion": 3, "model": model})
 	if err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,21 +16,25 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/fondoger/copilotchat/internal/credentials"
+	"github.com/fondoger/copilotchat/internal/plugin"
 	"github.com/fondoger/copilotchat/internal/plugininstall"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 	"github.com/fondoger/copilotchat/internal/wam"
 )
 
-const fixtureResource = "00000000-0000-4000-8000-000000000002"
+const (
+	fixtureClientID = "00000000-0000-4000-8000-000000000001"
+	fixtureResource = "00000000-0000-4000-8000-000000000002"
+)
 
-func examplePlugin(t *testing.T, authenticated bool) plugininstall.Entry {
+func examplePlugin(t *testing.T, a *app, authenticated bool) plugininstall.Entry {
 	t.Helper()
 	dir := t.TempDir()
 	auth := ""
 	script := `export function catalog(){throw Error("offline fixture")} export function models(){return []} export function inference(){return {}}`
 	if authenticated {
-		auth = `,"wamResource":"` + fixtureResource + `"`
+		auth = `,"wamClientId":"` + fixtureClientID + `","wamResource":"` + fixtureResource + `"`
 		script += ` export function signIn(){return host.wam.signIn()}`
 	}
 	manifest := `{"id":"example","name":"Example Models","version":"1.0","main":"index.js","network":["https://example.invalid"]` + auth + `}`
@@ -38,12 +43,22 @@ func examplePlugin(t *testing.T, authenticated bool) plugininstall.Entry {
 			t.Fatal(err)
 		}
 	}
-	return plugininstall.Entry{ID: "example", Name: "Example Models", Source: dir, Revision: "revision-one", Dir: dir}
+	a.pluginManager = plugininstall.New(t.TempDir())
+	return installExamplePlugin(t, a, dir)
 }
 
-func TestPluginRegistrationRequiresExplicitPerInstanceApproval(t *testing.T) {
+func installExamplePlugin(t *testing.T, a *app, source string) plugininstall.Entry {
+	t.Helper()
+	entry, err := a.pluginManager.InstallReviewed(t.Context(), source, "", false, func(context.Context, plugin.Manifest) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entry
+}
+
+func TestPluginAccountsCanSignInWithoutRegistration(t *testing.T) {
 	a := providerTestApp(t)
-	a.installedPlugins = []plugininstall.Entry{examplePlugin(t, true)}
+	a.installedPlugins = []plugininstall.Entry{examplePlugin(t, a, true)}
 	a.settingsPage = "Providers"
 	tester := ui.NewTester(a.settingsView, 1000, 1000)
 	for i := 0; i < 2; i++ {
@@ -57,54 +72,17 @@ func TestPluginRegistrationRequiresExplicitPerInstanceApproval(t *testing.T) {
 	if len(ps) != 4 || ps[2].Kind != "plugin:example" || ps[2].Kind != ps[3].Kind || ps[2].ID == ps[3].ID || ps[2].PluginSource != a.installedPlugins[0].Source || ps[3].Name != "Example Models 2" || a.clientForProvider("work") == nil {
 		t.Fatalf("account setup: %+v", ps)
 	}
-	enter := func(label, value string) {
-		t.Helper()
-		settingsClick(t, tester, label)
-		tester.Command("selectAll")
-		tester.Type(value)
-	}
-	const clientID = "00000000-0000-4000-8000-000000000001"
-	enter("Client ID", clientID)
-	settingsClick(t, tester, "Save registration")
-	if a.provider(ps[3].ID).WAMGrant != nil {
-		t.Fatal("the manifest supplied its own audience or trusted origins")
-	}
-	enter("Resource ID", fixtureResource)
-	enter("Trusted HTTPS origins", "https://other.invalid")
-	settingsClick(t, tester, "Save registration")
-	if a.provider(ps[3].ID).WAMGrant != nil {
-		t.Fatal("saved registration with unapproved destinations")
-	}
-	enter("Trusted HTTPS origins", "https://example.invalid\nhttps://other.invalid")
-	if settingsSavedState(t, a).Settings.Providers[3].WAMGrant != nil {
-		t.Fatal("typing saved a registration without approval")
-	}
-	settingsClick(t, tester, "Save registration")
-	ps = settingsSavedState(t, a).Settings.Providers
-	if ps[3].WAMGrant == nil || ps[3].WAMGrant.ClientID != clientID || ps[3].WAMGrant.Resource != fixtureResource || len(ps[3].WAMGrant.Origins) != 2 || ps[3].WAMGrant.Origins[0] != "https://example.invalid" || ps[3].WAMGrant.Origins[1] != "https://other.invalid" || ps[2].WAMGrant != nil || a.clientForProvider(ps[3].ID) != nil {
-		t.Fatal("saving a grant must authorize just this instance and leave it signed out", a.providers[ps[3].ID].status)
-	}
-	// A valid saved grant must not make Sign in use an unsaved edit. With no
-	// native window, an enabled handler would report that sign-in needs one.
-	enter("Resource ID", clientID)
-	status := a.providers[ps[3].ID].status
-	settingsClick(t, tester, "Sign in")
-	if a.providers[ps[3].ID].status != status {
-		t.Fatal("sign-in ran with an unsaved edit")
-	}
-	settingsClick(t, tester, "Save registration")
-	if g := settingsSavedState(t, a).Settings.Providers[3].WAMGrant; g == nil || g.Resource != fixtureResource {
-		t.Fatal("an unapproved edit replaced the saved registration")
-	}
-	settingsClick(t, tester, "Clear registration")
-	if settingsSavedState(t, a).Settings.Providers[3].WAMGrant != nil {
-		t.Fatal("cleared grant persisted")
+	if runtime.GOOS == "windows" {
+		settingsClick(t, tester, "Sign in")
+		if a.providerState(ps[3].ID).status != "Sign-in requires an application window." {
+			t.Fatal("sign-in did not start without registration", a.providerState(ps[3].ID).status)
+		}
 	}
 }
 
 func TestPluginRevisionAndRemovalRevokeClientsButKeepHistory(t *testing.T) {
 	a := providerTestApp(t)
-	entry := examplePlugin(t, false)
+	entry := examplePlugin(t, a, false)
 	a.installedPlugins = []plugininstall.Entry{entry}
 	id, err := a.addProviderKind("plugin:example", "Offline fixture", "")
 	if err != nil {
@@ -119,14 +97,26 @@ func TestPluginRevisionAndRemovalRevokeClientsButKeepHistory(t *testing.T) {
 	a.state.Conversations = []store.Conversation{{ID: "existing", ProviderID: id, Model: "offered", Messages: []store.Message{{ID: "m", Role: "user", Content: "preserve this"}}}}
 	a.applyProviderModels(id, old, r.modelsEpoch, []provider.Model{{ID: "offered", Endpoint: "/responses"}}, provider.AccountInfo{}, nil, nil)
 	state := settingsSavedState(t, a)
-	restart := &app{state: state, installedPlugins: []plugininstall.Entry{entry}, storage: a.storage, providerSecrets: a.providerSecrets}
+	restart := &app{state: state, installedPlugins: []plugininstall.Entry{entry}, pluginManager: a.pluginManager, storage: a.storage, providerSecrets: a.providerSecrets}
 	restart.loadProviders()
 	if m := restart.providerModels(id); len(m) != 1 || m[0].ID != "offered" || !providerCatalogRefreshDue(*restart.provider(id), restart.providers[id], time.Now()) {
 		t.Fatal("restart lost cached models or skipped the initial refresh", m)
 	}
 	old = restart.clientForProvider(id)
 	epoch := restart.providers[id].modelsEpoch
-	restart.installedPlugins[0].Revision = "revision-two"
+	scriptPath := filepath.Join(entry.Source, "index.js")
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, append(script, []byte("\n// updated")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entry, err = restart.pluginManager.Update(t.Context(), entry.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restart.installedPlugins = []plugininstall.Entry{entry}
 	restart.reloadPluginProviders(entry.ID)
 	if restart.clientForProvider(id) == nil || restart.clientForProvider(id) == old || len(restart.providerModels(id)) != 0 {
 		t.Fatal("new revision retained old code or catalog")
@@ -137,6 +127,9 @@ func TestPluginRevisionAndRemovalRevokeClientsButKeepHistory(t *testing.T) {
 	restart.applyProviderModels(id, old, epoch, []provider.Model{{ID: "stale"}}, provider.AccountInfo{}, nil, nil)
 	if len(restart.providerModels(id)) != 0 {
 		t.Fatal("old worker repopulated the new catalog")
+	}
+	if err := restart.pluginManager.Remove(entry.ID); err != nil {
+		t.Fatal(err)
 	}
 	restart.installedPlugins = nil
 	restart.reloadPluginProviders(entry.ID)
@@ -157,6 +150,7 @@ func TestPluginRevisionAndRemovalRevokeClientsButKeepHistory(t *testing.T) {
 	if restart.clientForProvider(id) != nil {
 		t.Fatal("old history rebound to a different repository at the same address")
 	}
+	entry = installExamplePlugin(t, restart, entry.Source)
 	restart.installedPlugins = []plugininstall.Entry{entry}
 	restart.reloadPluginProviders(entry.ID)
 	if restart.clientForProvider(id) == nil || restart.current().ProviderID != id {
@@ -164,23 +158,19 @@ func TestPluginRevisionAndRemovalRevokeClientsButKeepHistory(t *testing.T) {
 	}
 }
 
-// Use a synthetic persisted account reference: restoring, changing grants and
-// forgetting it must all work offline, without invoking a system account picker.
-func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
+// Exercise account restore, manifest changes and stale picker results without a system picker.
+func TestPluginAccountRestoreAndInvalidation(t *testing.T) {
 	a := providerTestApp(t)
-	entry := examplePlugin(t, true)
+	entry := examplePlugin(t, a, true)
 	a.installedPlugins = []plugininstall.Entry{entry}
-	grant := &wam.Profile{ClientID: "00000000-0000-4000-8000-000000000001", Resource: fixtureResource, Origins: []string{"https://example.invalid"}}
+	profile := wam.Profile{ClientID: fixtureClientID, Resource: fixtureResource, Origins: []string{"https://example.invalid"}}
 	id, err := a.addProviderKind("plugin:example", "My account", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.setPluginGrant(id, grant); err != nil {
-		t.Fatal(err)
-	}
 	b := pluginAccountBinding{Plugin: entry.ID, Source: entry.Source, Instance: id, RepoID: entry.RepoID}
-	profile, _ := json.Marshal(grant)
-	saved := []byte(fmt.Sprintf(`{"plugin":"example","reference":{"id":"opaque-wam-account","profileHash":"%x","account":{"id":"00000000-0000-4000-8000-000000000003","tenant_id":"00000000-0000-4000-8000-000000000004","username":"account@example.test"}}}`, sha256.Sum256(profile)))
+	encoded, _ := json.Marshal(profile)
+	saved := []byte(fmt.Sprintf(`{"plugin":"example","reference":{"id":"opaque-wam-account","profileHash":"%x","account":{"id":"00000000-0000-4000-8000-000000000003","tenant_id":"00000000-0000-4000-8000-000000000004","username":"account@example.test"}}}`, sha256.Sum256(encoded)))
 	r := a.providerState(id)
 	r.authBusy = true
 	a.finishPluginLogin(id, r.authEpoch, t.Context(), saved, nil)
@@ -189,7 +179,7 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	if strings.Contains(string(data), "opaque-wam-account") || strings.Contains(string(data), "profileHash") {
 		t.Fatal("account reference leaked into settings")
 	}
-	a = &app{state: state, installedPlugins: []plugininstall.Entry{entry}, storage: a.storage, providerSecrets: a.providerSecrets}
+	a = &app{state: state, installedPlugins: []plugininstall.Entry{entry}, pluginManager: a.pluginManager, storage: a.storage, providerSecrets: a.providerSecrets}
 	a.loadProviders()
 	r = a.providerState(id)
 	if r.client == nil || a.provider(id).Login != "account@example.test" || r.modelsLoaded {
@@ -208,37 +198,28 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	if cache.AccountID == account.ID || strings.Contains(cache.Binding, "opaque-wam-account") {
 		t.Fatal("cache exposed the saved account reference")
 	}
-	changed := *grant
-	changed.Origins = []string{"https://example.invalid", "https://extra.invalid"}
-	if err := a.setPluginGrant(id, &changed); err == nil {
-		t.Fatal("changed a connected instance's registration")
+	manifestPath := filepath.Join(entry.Source, "plugin.json")
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A settings snapshot restored separately from its vault must be checked
-	// even when the updated grant still covers everything the plugin requests.
-	a.provider(id).WAMGrant = &changed
+	changed := strings.Replace(string(manifest), "https://example.invalid", "https://other.invalid", 1)
+	if err := os.WriteFile(manifestPath, []byte(changed), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entry = installExamplePlugin(t, a, entry.Source)
+	a.installedPlugins = []plugininstall.Entry{entry}
 	a.reloadPluginProviders(entry.ID)
 	if r.client != nil || a.provider(id).Login != "" || len(a.providerModels(id)) != 0 || r.credentialNotice == "" {
-		t.Fatal("changed grant inherited old login or models")
+		t.Fatal("changed manifest inherited old login or models")
 	}
 	if _, err := old.Account(context.Background()); !errors.Is(err, context.Canceled) {
-		t.Fatal("previous grant was not revoked")
+		t.Fatal("previous client was not revoked", err)
 	}
-	// Re-approving even the original registration must forget the stale vault
-	// reference. Cancel a pending picker and deliver its result after reapproval.
-	if err := a.setPluginGrant(id, grant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) {
-		t.Fatal("restoring the original grant revived its account", err)
-	}
+	// Signing out cancels an in-flight picker, and a late result cannot restore its account.
 	r.authBusy = true
 	epoch := r.authEpoch
-	if err := a.setPluginGrant(id, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.setPluginGrant(id, grant); err != nil {
-		t.Fatal(err)
-	}
+	a.signOutProvider(id)
 	r.authBusy = true
 	a.finishPluginLogin(id, epoch, t.Context(), saved, nil)
 	if r.client != nil || !r.authBusy {
@@ -247,23 +228,44 @@ func TestPluginAccountRestoreRejectsChangedHostGrant(t *testing.T) {
 	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) {
 		t.Fatal("stale picker saved its reference", err)
 	}
+	if err := os.WriteFile(manifestPath, manifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	entry = installExamplePlugin(t, a, entry.Source)
+	a.installedPlugins = []plugininstall.Entry{entry}
+	a.reloadPluginProviders(entry.ID)
+	r.authBusy = true
 	a.finishPluginLogin(id, r.authEpoch, t.Context(), saved, nil)
 	if r.client == nil {
 		t.Fatal("fresh sign-in failed", r.status)
 	}
+	old = r.client
 	a.signOutProvider(id)
-	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) || r.client != nil || a.provider(id).WAMGrant == nil {
-		t.Fatal("sign-out should retain the registration only", err)
+	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) || r.client != nil || a.provider(id).Login != "" {
+		t.Fatal("sign-out retained the account", err)
 	}
-	anon := examplePlugin(t, false)
-	anon.Source, anon.Revision = entry.Source, "now-anonymous"
-	a.installedPlugins = []plugininstall.Entry{anon}
+	if _, err := old.Account(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatal("sign-out did not revoke the client", err)
+	}
+	r.authBusy = true
+	a.finishPluginLogin(id, r.authEpoch, t.Context(), saved, nil)
+	if r.client == nil {
+		t.Fatal("second sign-in failed", r.status)
+	}
+	// An anonymous update may not inherit a saved account; forgetting it reconnects.
+	anonManifest := strings.Replace(string(manifest), `,"wamClientId":"`+fixtureClientID+`","wamResource":"`+fixtureResource+`"`, "", 1)
+	if err := os.WriteFile(manifestPath, []byte(anonManifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entry = installExamplePlugin(t, a, entry.Source)
+	a.installedPlugins = []plugininstall.Entry{entry}
 	a.reloadPluginProviders(entry.ID)
-	if r.client != nil {
+	if r.client != nil || r.credentialNotice == "" {
 		t.Fatal("anonymous update inherited account authority")
 	}
-	if err := a.setPluginGrant(id, nil); err != nil || r.client == nil || a.provider(id).Login != "" {
-		t.Fatal("clearing the registration did not recover anonymous access", err)
+	a.signOutProvider(id)
+	if _, err := b.load(a.credentials()); !errors.Is(err, mygo.ErrSecretNotFound) || r.client == nil || a.provider(id).Login != "" {
+		t.Fatal("forgetting the account did not recover anonymous access", err)
 	}
 }
 
