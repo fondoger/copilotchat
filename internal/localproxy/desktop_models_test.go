@@ -73,12 +73,12 @@ func TestClaudeDesktopCatalogPreservesCapabilities(t *testing.T) {
 func TestClaudeDesktopDuplicateClaudeIDsAndRouting(t *testing.T) {
 	models := []Model{
 		{ProviderID: "first", ID: "github-copilot/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2025-01-01T00:00:00Z"}},
-		{ProviderID: "second", ID: "m365-copilot/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2026-01-01T00:00:00Z"}},
+		{ProviderID: "second", ID: "plugin:example/claude-opus-4.6", Model: provider.Model{ID: "claude-opus-4.6", Endpoint: "/v1/messages", CreatedAt: "2026-01-01T00:00:00Z"}},
 		{ProviderID: "third", ID: "github-copilot/claude-opus-4-6", Model: provider.Model{ID: "claude-opus-4-6", Endpoint: "/v1/messages"}},
 	}
 	identities := []ProviderIdentity{
 		{ID: "first", Kind: "github-copilot", Host: "github.com", Login: "first-user", AccountID: "101"},
-		{ID: "second", Kind: "m365-copilot", Host: "office.example.test", Login: "work@example.test", AccountID: "tenant-fixture.user-fixture"},
+		{ID: "second", Kind: "plugin:example", Host: "models.example.test", Login: "work@example.test", AccountID: "tenant-fixture.user-fixture"},
 		{ID: "third", Kind: "github-copilot", Host: "enterprise.ghe.com", Login: "third-user", AccountID: "303"},
 	}
 	models = NameModels(models, identities)

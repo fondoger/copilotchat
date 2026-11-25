@@ -4,6 +4,7 @@ go 1.27.3
 
 // Prefer use `go` tool to manage `go.mod` and `go.sum` instead of manually editing them.
 require (
+	github.com/MoeForge/moejs v0.1.0-alpha.11
 	github.com/doganarif/govisual/mcp v1.0.1
 	github.com/doganarif/govisual/v2 v2.0.1
 	github.com/egoist/mygo v0.10.1-0.20261121000350-2d814ef103f6

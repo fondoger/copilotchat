@@ -1,6 +1,6 @@
 # GitHub Copilot integration
 
-The `internal/provider/github` package implements GitHub device authorization and account model discovery with Go's standard library. The common `internal/provider` package owns model/message types, request encoding, SSE parsing, usage, and caching. Microsoft 365 has a separate `internal/provider/microsoft` implementation. The GitHub protocol follows OpenCode v2 source verified on **2026-10-15**. The desktop layer owns secure token storage and tool execution.
+The `internal/provider/github` package implements GitHub device authorization and account model discovery with Go's standard library. The common `internal/provider` package owns model/message types, request encoding, SSE parsing, usage, and caching. The GitHub protocol follows OpenCode v2 source verified on **2026-10-15**. The desktop layer owns secure token storage and tool execution.
 
 ## Authorization
 

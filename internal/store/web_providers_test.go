@@ -87,7 +87,7 @@ func TestWebProviderURLBoundaries(t *testing.T) {
 			}
 		})
 	}
-	for _, kind := range []string{"", "unknown", ProviderKindGitHub, ProviderKindM365} {
+	for _, kind := range []string{"", "unknown", ProviderKindGitHub, "plugin:example"} {
 		if _, ok := WebProviderFor(kind); ok || IsWebProvider(kind) {
 			t.Errorf("native/unknown kind registered as web: %q", kind)
 		}

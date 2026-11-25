@@ -14,7 +14,7 @@ import (
 )
 
 func TestAnthropicModelsMetadata(t *testing.T) {
-	m := Model{ID: "m365-copilot/claude-sonnet-fixture", ProviderName: "Work", Model: provider.Model{
+	m := Model{ID: "plugin:example/claude-sonnet-fixture", ProviderName: "Work", Model: provider.Model{
 		ID: "claude-sonnet-fixture", Name: "Claude Fixture", Endpoint: "/v1/messages",
 		ContextWindow: 1000000, MaxOutputTokens: 64000, CreatedAt: "2026-10-01T02:00:00+02:00",
 		Lifecycle: "deprecated", DeprecatedAt: "2026-10-20T00:00:00Z", RetiresAt: "2027-01-01T00:00:00Z", Line: "sonnet",

@@ -17,7 +17,7 @@ func TestForwardIDsIgnoreSavedAliasesAndSelections(t *testing.T) {
 	}
 	p.Models = saved
 	models := a.forwardingModels(p)
-	if len(models) != 2 || models[0].ID != "github-copilot/gpt-5.5" || models[1].ID != "m365-copilot/gpt-5.5" {
+	if len(models) != 2 || models[0].ID != "github-copilot/gpt-5.5" || models[1].ID != "plugin:example/gpt-5.5" {
 		t.Fatal(models)
 	}
 	encoded, _ := json.Marshal(p)
@@ -26,7 +26,7 @@ func TestForwardIDsIgnoreSavedAliasesAndSelections(t *testing.T) {
 	}
 	a.setForwardEnabled(p, 0, false)
 	models = a.forwardingModels(p)
-	if len(models) != 1 || models[0].ID != "m365-copilot/gpt-5.5" {
+	if len(models) != 1 || models[0].ID != "plugin:example/gpt-5.5" {
 		t.Fatal("selection renamed another provider", models)
 	}
 	a.setForwardEnabled(p, -1, true)
@@ -108,7 +108,7 @@ func TestGatewayTableExcludesDisabledProviders(t *testing.T) {
 	p := a.selectedForwardProfile()
 	a.setProviderEnabled("work", false)
 	tester := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { a.forwardingModelSettings(c, p) }) }, 600, 800)
-	if _, ok := tester.Find("Share work gpt-5.5"); ok || tester.HasText("Microsoft 365") || !tester.HasText("Models · 1 enabled") {
+	if _, ok := tester.Find("Share work gpt-5.5"); ok || tester.HasText("Example Models") || !tester.HasText("Models · 1 enabled") {
 		t.Fatal("disabled provider remains in Gateway table")
 	}
 	if len(a.forwardingModels(p)) != 1 || !p.Models[1].Enabled {

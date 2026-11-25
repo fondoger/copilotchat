@@ -10,7 +10,7 @@ The Web provider logos `deepseek-mono.svg`, `openai-mono.svg` (ChatGPT), `claude
 
 `lucide-globe.svg` is ChatWise 26.5.1's composer web-search toggle (`chat.footer.web_search`), from CSS mask `.i-lucide-globe` in `out/client/_app/immutable/assets/0.CDzCriDF.css` of the same installed archive. Its geometry is unchanged; only black stroke becomes `currentColor`. Decoded source SVG SHA-256: `c67e3b0c803208fba4d296be1c9167199ba7701dc9b319f1e44a1caffe94729e`.
 
-The user-supplied `microsoft-365-copilot-gray-bold.svg` and `doubao-mono.svg` identify the Microsoft 365 Copilot and Doubao providers. Both are rendered as images to preserve their grayscale shading. The model picker's Web Chat group heading uses the existing neutral `bi-chat-square-quote.svg`, not a provider brand.
+The user-supplied `doubao-mono.svg` identifies the Doubao provider. Rendering it as an image preserves its grayscale shading. The model picker's Web Chat group heading uses the existing neutral `bi-chat-square-quote.svg`, not a provider brand.
 
 `tabler-route.svg` identifies LLM Gateway using connected endpoints to represent request routing. It comes unchanged from [Tabler Icons v3.35.0](https://github.com/tabler/tabler-icons/blob/v3.35.0/icons/outline/route.svg), under the MIT license distributed with the application.
 

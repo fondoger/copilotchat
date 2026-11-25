@@ -228,7 +228,7 @@ func (a *app) updateSettings(c *ui.Context) {
 					selected = interval.label
 				}
 			}
-			ui.Select(c.Key("update-frequency"), &selected, options).Height(26).Label("Update check frequency").Disabled(!a.state.Settings.AutomaticUpdates).OnChange(func() {
+			ui.Select(c.Key("update-frequency"), &selected, options).Height(26).Label("Update check frequency").OnChange(func() {
 				for _, interval := range updateIntervals {
 					if interval.label == selected {
 						a.state.Settings.UpdateIntervalHours = interval.hours

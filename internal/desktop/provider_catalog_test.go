@@ -10,8 +10,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/fondoger/copilotchat/internal/provider"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft/cli"
-	"github.com/fondoger/copilotchat/internal/provider/microsoft/entra"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
@@ -97,7 +95,7 @@ func TestProviderCatalogRestorationRejectsOtherIdentityAndHost(t *testing.T) {
 			case "host":
 				a.provider(id).Host = "other.ghe.com"
 			case "kind":
-				a.provider(id).Kind = store.ProviderKindM365
+				a.provider(id).Kind = "plugin:example"
 			case "missing-credential":
 				a.providers[id].client = nil
 			}
@@ -179,18 +177,5 @@ func TestDisabledProviderRetainsCatalogButCannotAdvertiseOrRefresh(t *testing.T)
 	}
 	if len(a.providerModels(id)) != 0 || providerCatalogRefreshDue(*a.provider(id), a.providers[id], time.Now()) {
 		t.Fatal("disabled provider exposed cached models or requested refresh")
-	}
-}
-
-func TestMicrosoftCatalogBindingUsesPinnedAccountRatherThanLoginMode(t *testing.T) {
-	entry := m365SavedSignIn{Mode: "copilot-cli", CLI: &cli.Reference{Account: entra.Account{TenantID: "TENANT", ID: "ACCOUNT"}}}
-	binding := microsoftCatalogBinding(entry)
-	entry.Mode = "copilot-broker"
-	if binding == "" || microsoftCatalogBinding(entry) != binding {
-		t.Fatal("same pinned account got a different catalog identity")
-	}
-	entry.CLI.Account.ID = "other"
-	if microsoftCatalogBinding(entry) == binding {
-		t.Fatal("different Microsoft identities shared a catalog")
 	}
 }

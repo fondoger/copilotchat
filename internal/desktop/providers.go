@@ -2,27 +2,27 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/fondoger/copilotchat/internal/credentials"
+	"github.com/fondoger/copilotchat/internal/plugin"
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/provider/github"
 	"github.com/fondoger/copilotchat/internal/store"
 )
 
-type credentialStore interface {
-	Get(string) ([]byte, error)
-	Set(string, []byte) error
-	Delete(string) error
-}
+type credentialStore = credentials.Store
 
 type providerRuntime struct {
 	client                                provider.Client
-	m365Auth                              interface{ Revoke() }
+	plugin                                *plugin.Plugin
+	pluginRevision                        string
 	models                                []provider.Model
 	authBusy, modelsBusy, credentialsBusy bool
 	authEpoch, modelsEpoch                uint64
@@ -89,8 +89,12 @@ func (a *app) loadProviders() {
 			}
 			continue
 		}
-		if p.Kind == store.ProviderKindM365 {
-			a.loadM365Provider(p, r)
+		if !store.IsGitHubProvider(p.Kind) {
+			if id := store.PluginID(p.Kind); id != "" {
+				a.loadPluginProvider(p, id)
+			} else {
+				r.status = "This provider type is no longer available."
+			}
 			continue
 		}
 		token, err := a.credentials().Get(providerCredentialKey(p.ID))
@@ -329,7 +333,7 @@ func (a *app) finishChatProvider(providerID, modelID string, webUnused bool) {
 	if provider == nil || provider.Disabled || a.streaming {
 		return
 	}
-	web := !nativeProvider(provider)
+	web := store.IsWebProvider(provider.Kind) && !nativeProvider(provider)
 	if !web {
 		if _, ok := a.modelForProvider(providerID, modelID); !ok || !modelAllowed(provider, modelID) {
 			return
@@ -385,34 +389,43 @@ func (a *app) addProvider(name, host string) (string, error) {
 }
 
 func (a *app) addProviderKind(kind, name, host string) (string, error) {
-	var err error
-	switch kind {
-	case store.ProviderKindGitHub:
-		host, err = github.NormalizeHost(host)
-	case store.ProviderKindM365:
-		host = store.M365ProviderHost
+	p := store.Provider{ID: newID(), Kind: kind, Name: strings.TrimSpace(name)}
+	switch {
+	case kind == store.ProviderKindGitHub:
+		if host == "" {
+			host = "github.com"
+		}
+		normalized, err := github.NormalizeHost(host)
+		if err != nil {
+			return "", err
+		}
+		p.Host = normalized
+	case store.IsWebProvider(kind):
+		web, _ := store.WebProviderFor(kind)
+		p.Host = web.Host
 	default:
-		web, ok := store.WebProviderFor(kind)
-		if !ok {
+		entry := a.installedPlugin(store.PluginID(kind))
+		if entry == nil {
 			return "", errors.New("unknown provider type")
 		}
-		host = web.Host
+		p.PluginSource, p.PluginRepoID = entry.Source, entry.RepoID
 	}
-	if err != nil {
-		return "", err
+	if p.Name == "" {
+		p.Name = a.providerName(kind)
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = providerKindName(kind)
-	}
-	p := store.Provider{ID: newID(), Kind: kind, Name: name, Host: host}
 	a.state.Settings.Providers = append(a.state.Settings.Providers, p)
 	if active := a.provider(a.state.Settings.ActiveProviderID); active == nil || active.Disabled {
 		a.state.Settings.ActiveProviderID, a.state.Settings.Model = p.ID, ""
 		a.state.Settings.ReasoningEffort, a.state.Settings.ThinkingBudgetTokens = "", 0
 	}
 	a.providerSettingsID = p.ID
-	a.providerState(p.ID)
+	r := a.providerState(p.ID)
+	if id := store.PluginID(kind); id != "" {
+		a.loadPluginProvider(p, id)
+		if providerCatalogRefreshDue(p, r, time.Now()) {
+			a.refreshProviderModels(p.ID)
+		}
+	}
 	a.saveSettings()
 	return p.ID, nil
 }
@@ -475,8 +488,8 @@ func (a *app) removeProvider(id string) error {
 	err := a.clearProviderCredentials(id)
 	r.credentialsBusy = false
 	if err != nil {
-		if a.state.Settings.Providers[index].Kind == store.ProviderKindM365 {
-			// Microsoft sources are revoked before deleting their saved binding.
+		if store.PluginID(a.state.Settings.Providers[index].Kind) != "" {
+			// Plugin clients are revoked before deleting their saved binding.
 			// A vault failure must not leave a dead source displayed as connected.
 			a.cancelProviderWork(id)
 			a.invalidateProviderCatalog(id)
@@ -556,8 +569,8 @@ func (a *app) beginProviderLogin(id string) {
 	if p == nil || p.Disabled || store.IsWebProvider(p.Kind) {
 		return
 	}
-	if p.Kind == store.ProviderKindM365 {
-		a.beginM365Login(id)
+	if !store.IsGitHubProvider(p.Kind) {
+		a.beginPluginLogin(id)
 		return
 	}
 	r := a.providerState(id)
@@ -685,6 +698,7 @@ func (a *app) signOutProvider(id string) {
 	}
 	a.cancelProviderWork(id)
 	a.invalidateProviderCatalog(id)
+	r.revokePluginClient()
 	r.client = nil
 	if p := a.provider(id); p != nil {
 		p.Login = ""
@@ -696,17 +710,28 @@ func (a *app) signOutProvider(id string) {
 	r.credentialNotice = ""
 	if err != nil {
 		r.credentialNotice = "Signed out for this session. Could not remove saved sign-in: " + err.Error()
+	} else if p := a.provider(id); p != nil && r.plugin != nil && r.plugin.Manifest.WAMProfile == "" {
+		// Forgetting a stale sign-in after a plugin changed to anonymous mode.
+		r.status = ""
+		a.loadPluginProvider(*p, store.PluginID(p.Kind))
+		if providerCatalogRefreshDue(*p, r, time.Now()) {
+			a.refreshProviderModels(id)
+		}
 	}
 	a.saveSettings()
 }
 
 func (a *app) clearProviderCredentials(id string) error {
-	if p := a.provider(id); p != nil && store.IsWebProvider(p.Kind) {
-		// Browser storage is shared. Removing a provider must not sign out others.
+	p := a.provider(id)
+	if p == nil {
 		return nil
 	}
-	if p := a.provider(id); p != nil && p.Kind == store.ProviderKindM365 {
-		return a.clearM365Credentials(id)
+	if pluginID := store.PluginID(p.Kind); pluginID != "" {
+		a.providerState(id).revokePluginClient()
+		return credentials.Delete(a.credentials(), credentials.PluginKey(pluginID, id))
+	}
+	if !store.IsGitHubProvider(p.Kind) {
+		return nil
 	}
 	err := a.credentials().Delete(providerCredentialKey(id))
 	if errors.Is(err, mygo.ErrSecretNotFound) {
@@ -732,8 +757,8 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 	}
 	if err != nil {
 		label := "GitHub username"
-		if p.Kind == store.ProviderKindM365 {
-			label = "Microsoft account"
+		if !store.IsGitHubProvider(p.Kind) {
+			label = "account"
 		}
 		r.status = strings.TrimSuffix(r.status, ".") + ". Could not load " + label + ": " + err.Error()
 		return
@@ -741,6 +766,10 @@ func (a *app) updateProviderAccount(id string, account provider.AccountInfo, err
 	p.Login = account.Login
 	if account.ID != "" {
 		r.accountID = account.ID
+		if r.plugin != nil {
+			// Persist a stable routing identity without copying the vault's account ID to disk.
+			r.accountID = fmt.Sprintf("%x", sha256.Sum256([]byte(account.ID)))
+		}
 	}
 }
 
@@ -754,11 +783,7 @@ func (a *app) refreshProviderModels(id string) {
 	epoch, client := r.modelsEpoch, r.client
 	r.modelsBusy = true
 	r.modelsAttemptedAt = time.Now()
-	timeout := 45 * time.Second
-	if p.Kind == store.ProviderKindM365 {
-		timeout = 90 * time.Second // Allow the CLI broker to renew before loading the catalog.
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	r.modelsCancel = cancel
 	go func() {
 		defer cancel()

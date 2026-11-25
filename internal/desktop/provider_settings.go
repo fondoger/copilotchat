@@ -22,10 +22,10 @@ func (a *app) autosaveProviderForm(id string, form *providerForm) {
 	if p == nil || r.authBusy || r.credentialsBusy {
 		return
 	}
-	host := store.M365ProviderHost
+	host := p.Host
 	if web, ok := store.WebProviderFor(p.Kind); ok {
 		host = web.Host
-	} else if p.Kind != store.ProviderKindM365 {
+	} else if store.IsGitHubProvider(p.Kind) {
 		var err error
 		host, err = github.NormalizeHost(form.Host)
 		if err != nil {
@@ -117,36 +117,39 @@ func (a *app) addProviderButton(c *ui.Context) {
 	trigger := iconButton(c, providerAddIcon, "Add provider").OnClick(func() { *open = !*open })
 	t := c.Theme()
 	ui.PopoverBase(c.Key("add-provider-popup"), trigger, open, func(panel ui.Element) {
-		panel.Width(244).Margin(4, 0, 0, 0).Padding(4).Gap(2).Radius(8).Border(1, t.Border).Background(t.Background).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .18))
-		for _, kind := range []string{store.ProviderKindGitHub, store.ProviderKindM365, store.ProviderKindDoubao, store.ProviderKindDeepSeekWeb, store.ProviderKindClaudeWeb, store.ProviderKindGeminiWeb, store.ProviderKindChatGPTWeb} {
-			name := providerKindName(kind)
-			item := ui.ButtonBase(c.Key(kind)).FillWidth().Height(34).Padding(6, 8).Gap(8).Radius(5).Justify(ui.Start).Label("Add " + name)
-			if item.Hovered() {
-				item.Background(t.SurfaceHover)
-			}
-			item.Children(func() {
-				providerIcon(c, kind, 18)
-				ui.Text(c, name).FontSize(12).SingleLine()
-			}).OnClick(func() {
-				count := 0
-				for _, p := range a.state.Settings.Providers {
-					if p.Kind == kind || (p.Kind == "" && kind == store.ProviderKindGitHub) {
-						count++
-					}
-				}
-				if count > 0 {
-					name = fmt.Sprintf("%s %d", name, count+1)
-				}
-				host := "github.com"
-				if kind == store.ProviderKindM365 {
-					host = store.M365ProviderHost
-				} else if web, ok := store.WebProviderFor(kind); ok {
-					host = web.Host
-				}
-				_, _ = a.addProviderKind(kind, name, host)
-				*open = false
-			})
+		_, height := c.Size()
+		limit := min(float32(450), height-70)
+		panel.Width(244).MaxHeight(limit+8).Margin(4, 0, 0, 0).Padding(4).Radius(8).Border(1, t.Border).Background(t.Background).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .18))
+		kinds := []string{store.ProviderKindGitHub}
+		for _, entry := range a.installedPlugins {
+			kinds = append(kinds, store.PluginKindPrefix+entry.ID)
 		}
+		kinds = append(kinds, store.ProviderKindDoubao, store.ProviderKindDeepSeekWeb, store.ProviderKindClaudeWeb, store.ProviderKindGeminiWeb, store.ProviderKindChatGPTWeb)
+		ui.Scroll(c).MaxHeight(limit).Gap(2).Children(func() {
+			for _, kind := range kinds {
+				name := a.providerName(kind)
+				item := ui.ButtonBase(c.Key(kind)).FillWidth().Height(34).Padding(6, 8).Gap(8).Radius(5).Justify(ui.Start).Label("Add " + name)
+				if item.Hovered() {
+					item.Background(t.SurfaceHover)
+				}
+				item.Children(func() {
+					providerIcon(c, kind, 18)
+					ui.Text(c, name).FontSize(12).SingleLine()
+				}).OnClick(func() {
+					count := 0
+					for _, p := range a.state.Settings.Providers {
+						if p.Kind == kind || (p.Kind == "" && kind == store.ProviderKindGitHub) {
+							count++
+						}
+					}
+					if count > 0 {
+						name = fmt.Sprintf("%s %d", name, count+1)
+					}
+					_, _ = a.addProviderKind(kind, name, "")
+					*open = false
+				})
+			}
+		})
 	})
 }
 
@@ -157,8 +160,8 @@ func (a *app) providerSettings(c *ui.Context) {
 		return
 	}
 	id, r, t := p.ID, a.providerState(p.ID), c.Theme()
-	microsoft := p.Kind == store.ProviderKindM365
-	providerName := providerKindName(p.Kind)
+	githubProvider := store.IsGitHubProvider(p.Kind)
+	providerName := a.providerName(p.Kind)
 	form := ui.Local(c.Root(), "provider-form-"+id, func() providerForm { return providerForm{Name: p.Name, Host: p.Host} })
 	ui.Row(c).FillWidth().Gap(12).Children(func() {
 		providerIcon(c, p.Kind, 20)
@@ -192,15 +195,13 @@ func (a *app) providerSettings(c *ui.Context) {
 		a.webProviderView(c, id)
 		return
 	}
-	description := "Use the models included with this GitHub Copilot account."
-	if microsoft {
-		description = "Use your Microsoft Entra work account to access the Microsoft 365 Copilot models enabled by your organization."
+	if githubProvider {
+		ui.Text(c, "Use the models included with this GitHub Copilot account.").FontSize(12).TextColor(t.TextMuted)
 	}
-	ui.Text(c, description).FontSize(12).TextColor(t.TextMuted)
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Text(c, "Provider name").FontWeight(500)
 		ui.TextInput(c.Key("provider-name-"+id), &form.Name).FillWidth().Label("Provider name input").ReadOnly(r.authBusy || r.credentialsBusy).OnChange(func() { a.autosaveProviderForm(id, form) })
-		if !microsoft {
+		if githubProvider {
 			ui.Text(c, "GitHub domain").FontWeight(500)
 			ui.TextInput(c.Key("provider-host-"+id), &form.Host).FillWidth().Label("GitHub domain input").Placeholder("github.com or your-company.ghe.com").ReadOnly(r.client != nil || r.authBusy || r.credentialsBusy).OnChange(func() { a.autosaveProviderForm(id, form) })
 			ui.Text(c, "github.com or a GitHub Enterprise Cloud domain ending in .ghe.com").FontSize(11).TextColor(t.TextMuted)
@@ -221,29 +222,25 @@ func (a *app) providerSettings(c *ui.Context) {
 		ui.Row(c).Gap(8).Wrap().Children(func() {
 			ui.Box(c).Size(7, 7).Radius(4).Background(color)
 			ui.Text(c, connection+" · "+identity).TextColor(color).Grow(1).MinWidth(0)
-			ui.Button(c, "Sign out").Disabled(r.credentialsBusy).OnClick(func() { a.signOutProvider(id) })
+			if githubProvider || (r.plugin != nil && r.plugin.Manifest.WAMProfile != "") {
+				ui.Button(c, "Sign out").Disabled(r.credentialsBusy).OnClick(func() { a.signOutProvider(id) })
+			}
 		})
 	} else if !r.authBusy {
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			label := "Sign in with GitHub"
-			if microsoft {
-				label = "Sign in with Microsoft"
+		if githubProvider {
+			ui.PrimaryButton(c, "Sign in with GitHub").Disabled(p.Disabled || form.Error != "" || r.credentialsBusy).OnClick(func() { a.beginProviderLogin(id) })
+		} else if r.plugin != nil && r.plugin.Manifest.WAMProfile != "" {
+			ui.PrimaryButton(c, "Sign in").Disabled(p.Disabled || r.credentialsBusy || runtime.GOOS != "windows").OnClick(func() { a.beginProviderLogin(id) })
+			if runtime.GOOS != "windows" {
+				ui.Text(c, "This plugin requires Windows account sign-in.").FontSize(12).TextColor(t.TextMuted)
 			}
-			ui.PrimaryButton(c, label).Disabled(p.Disabled || form.Error != "" || r.credentialsBusy || (microsoft && runtime.GOOS != "windows")).OnClick(func() { a.beginProviderLogin(id) })
-			if microsoft {
-				ui.Button(c, "Use Copilot CLI sign-in").Disabled(p.Disabled || form.Error != "" || r.credentialsBusy).OnClick(func() { a.connectM365CLI(id) })
-			}
-		})
-		if microsoft {
-			help := "Native Microsoft sign-in requires Windows. On this platform, use a Copilot CLI work account."
-			if runtime.GOOS == "windows" {
-				help = "Windows WAM sign-in does not require Copilot CLI. You can also reuse a CLI work account."
-			}
-			ui.Text(c, help).FontSize(11).TextColor(t.TextMuted)
+		}
+		if store.PluginID(p.Kind) != "" && (r.plugin == nil || r.credentialNotice != "") {
+			ui.Button(c, "Forget saved sign-in").Disabled(r.credentialsBusy).OnClick(func() { a.signOutProvider(id) })
 		}
 	}
 	if r.authBusy {
-		if !microsoft && r.authCode.UserCode != "" {
+		if githubProvider && r.authCode.UserCode != "" {
 			codeSite, codeLabel, openLabel := p.Host, "GitHub device code", "Open GitHub"
 			ui.Text(c, "Enter this code on "+codeSite+":").FontWeight(500)
 			ui.Row(c).Gap(8).Wrap().Children(func() {
@@ -264,8 +261,8 @@ func (a *app) providerSettings(c *ui.Context) {
 				waiting := r.status
 				if waiting == "" {
 					waiting = "Requesting a sign-in code…"
-					if microsoft {
-						waiting = "Waiting for Microsoft sign-in…"
+					if !githubProvider {
+						waiting = "Waiting for account sign-in…"
 					}
 				}
 				ui.Text(c, waiting).Grow(1).MinWidth(0)
