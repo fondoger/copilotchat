@@ -1,7 +1,6 @@
 package localproxy
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -21,8 +20,7 @@ var desktopModelFamily = regexp.MustCompile(`^(?:claude-)?(fable|opus|sonnet|hai
 
 type modelRoute struct {
 	model      Model
-	target     Target
-	ctx        context.Context
+	target     *entry
 	reason     string
 	classifier bool
 }
@@ -99,7 +97,7 @@ func compatibleProtocol(model Model, endpoint, protocol string) bool {
 func (s *Server) configuredRoute(model Model, endpoint, protocol, reason string, classifier bool) modelRoute {
 	route := modelRoute{model: model, reason: reason, classifier: classifier}
 	if item := s.targets[model.ProviderID]; item != nil && compatibleProtocol(model, endpoint, protocol) {
-		route.target, route.ctx = item.Target, item.ctx
+		route.target = item
 	}
 	return route
 }

@@ -25,6 +25,7 @@ Copilot Chat 的 Desktop 专用模型 ID：
 
 - Tool按需加载功能默认仅在官方订阅生效，第三方订阅会默认加载全量tool。已通过 `toolSearchEnabled` 启用，实测启用后47.8k->24.6k，降幅约 48%。详见: [客户端工具按需加载](details/tool-search-on-demand-loading.md)
 - CCD Auto模式下，会额外调用 LLM API 对请求进行安全分级，通常使用Sonnet模型且model ID无法调整。官方订阅的安全检查请求免费，第三方可能产生额外 token 费用。
+- CCD 会逐个请求计算工具的 token 数。上游计数端点首次返回 404 后，网关按上游账号和计数端点记住结果。Claude Desktop 和 Claude Code 的后续计数请求共享这条记录，直接收到 404。重启网关或更换上游客户端后会重新探测。
 
 ## 网关默认模型
 

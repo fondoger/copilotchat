@@ -103,13 +103,79 @@ func TestCountTokensForwarding(t *testing.T) {
 	}
 }
 
+func TestCountTokensRemembersUpstream404AcrossClients(t *testing.T) {
+	const nativePath = "/v1/messages/count_tokens"
+	const responsesPath = "/responses/input_tokens"
+	model := func(account, id, endpoint string) Model {
+		return Model{ProviderID: account, ID: account + "/" + id, Model: provider.Model{ID: id, Endpoints: []string{endpoint}}}
+	}
+	first := model("account", "first", "/responses")
+	second := model("account", "second", "/responses")
+	native := model("account", "native", "/v1/messages")
+	other := model("other", "other", "/responses")
+	calls := map[string]int{}
+	client := &rawClient{fn: func(_ context.Context, raw provider.RawRequest) (*http.Response, error) {
+		calls[raw.Endpoint]++
+		if raw.Endpoint == responsesPath {
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("upstream 404"))}, nil
+		}
+		return response(`{"input_tokens":1}`), nil
+	}}
+	otherCalls := 0
+	otherClient := &rawClient{fn: func(_ context.Context, _ provider.RawRequest) (*http.Response, error) {
+		otherCalls++
+		if otherCalls == 1 {
+			return &http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader("try again"))}, nil
+		}
+		return response(`{"input_tokens":1}`), nil
+	}}
+	s := New("key")
+	t.Cleanup(s.Close)
+	profiles := map[string]Profile{"test": {ID: "test-profile", Models: []Model{first, second, native, other}}}
+	s.Update(map[string]Target{"account": {Client: client}, "other": {Client: otherClient}}, profiles)
+	count := func(modelID, key, tool string, wantStatus int) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"model":"` + modelID + `","messages":[{"role":"user","content":"foo"}],"tools":[{"name":"` + tool + `","input_schema":{"type":"object"}}]}`
+		r := httptest.NewRequest("POST", "/test"+nativePath, strings.NewReader(body))
+		r.Host = "127.0.0.1:39321"
+		r.Header.Set("X-Api-Key", key)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != wantStatus {
+			t.Fatalf("count for %s: got %d, want %d: %s", modelID, w.Code, wantStatus, w.Body)
+		}
+		return w
+	}
+	if w := count(first.ID, "key", "Skill", 404); w.Body.String() != "upstream 404" {
+		t.Fatal("first upstream error was not forwarded", w.Body)
+	}
+	s.Update(map[string]Target{"account": {Client: client}, "other": {Client: otherClient}}, profiles)
+	w := count(claudeDesktopModelID(second), ClaudeDesktopKey, "WebSearch", 404)
+	if calls[responsesPath] != 1 || w.Header().Get("Cache-Control") != "no-store" || !json.Valid(w.Body.Bytes()) {
+		t.Fatal("expected a local 404", calls, w.Header(), w.Body)
+	}
+	count(claudeDesktopModelID(native), ClaudeDesktopKey, "Skill", 200)
+	count(claudeDesktopModelID(other), ClaudeDesktopKey, "Skill", 429)
+	count(claudeDesktopModelID(other), ClaudeDesktopKey, "Skill", 200)
+	count(second.ID, "key", "WebSearch", 404)
+	if calls[nativePath] != 1 || calls[responsesPath] != 1 || otherCalls != 2 {
+		t.Fatal("wrong upstream call counts", calls, otherCalls)
+	}
+	replacement := &rawClient{fn: func(_ context.Context, _ provider.RawRequest) (*http.Response, error) {
+		return response(`{"input_tokens":2}`), nil
+	}}
+	s.Update(map[string]Target{"account": {Client: replacement}, "other": {Client: otherClient}}, profiles)
+	count(claudeDesktopModelID(first), ClaudeDesktopKey, "Skill", 200)
+}
+
 func TestCountTokensTransportFailureIsNotEstimated(t *testing.T) {
 	client := &rawClient{fn: func(_ context.Context, _ provider.RawRequest) (*http.Response, error) {
 		return nil, errors.New("network unavailable")
 	}}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/v1/messages/count_tokens", nil)
-	writeCountTokens(w, r, t.Context(), client, provider.Model{Endpoint: "/responses"}, provider.RawRequest{Body: []byte(`{"model":"test","messages":[{"role":"user","content":"foo"}]}`)})
+	e := &entry{Target: Target{Client: client}}
+	e.writeCountTokens(w, r, t.Context(), provider.Model{Endpoint: "/responses"}, provider.RawRequest{Body: []byte(`{"model":"test","messages":[{"role":"user","content":"foo"}]}`)})
 	if w.Code != 502 || w.Header().Get("X-CopilotChat-Token-Count-Source") != "" {
 		t.Fatal("transport error concealed", w.Code, w.Body.String())
 	}

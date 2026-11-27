@@ -49,8 +49,10 @@ type profileEntry struct {
 
 type entry struct {
 	Target
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	countTokensNotFound atomic.Bool
+	inputTokensNotFound atomic.Bool
 }
 
 type Server struct {
@@ -114,8 +116,7 @@ func (s *Server) Update(targets map[string]Target, profiles map[string]Profile) 
 		}
 	}
 	for id, target := range targets {
-		if old := s.targets[id]; old != nil {
-			old.Target = target
+		if s.targets[id] != nil {
 			continue
 		}
 		ctx, cancel := context.WithCancel(context.Background())
@@ -357,11 +358,11 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		route = s.routeModel(current, desktop, endpoint, protocol, routeModelID, classifierRequest, subagentRequest)
 	}
 	s.mu.RUnlock()
-	model, target, providerCtx := route.model, route.target, route.ctx
+	model, target := route.model, route.target
 	if route.reason != "" {
 		logModelRoute(r.Context(), envelope.Model, route)
 	}
-	if providerCtx == nil {
+	if target == nil {
 		apiError(w, 400, unavailableModelMessage(desktop, routeModelID, classifierRequest, subagentRequest))
 		return
 	}
@@ -456,14 +457,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	stop := context.AfterFunc(providerCtx, cancel)
+	stop := context.AfterFunc(target.ctx, cancel)
 	defer stop()
 	stopProfile := context.AfterFunc(profileCtx, cancel)
 	defer stopProfile()
 	// Remove the upload deadline before waiting on a long-running model stream.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 	if countTokens {
-		writeCountTokens(w, r, ctx, target.Client, model.Model, provider.RawRequest{Body: body, Header: r.Header,
+		target.writeCountTokens(w, r, ctx, model.Model, provider.RawRequest{Body: body, Header: r.Header,
 			ConversationID: conversationID(profileID+":"+model.ProviderID, r.Header), AgentInitiated: agent, Vision: vision})
 		return
 	}

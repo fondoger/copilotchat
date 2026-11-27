@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/fondoger/copilotchat/internal/provider"
 )
@@ -13,7 +14,7 @@ import (
 // Count only on the same provider and model that generation would use. Never
 // substitute a generation request to obtain usage: counting must not generate
 // output, execute tools or introduce an extra billable completion.
-func writeCountTokens(w http.ResponseWriter, r *http.Request, ctx context.Context, client provider.RawClient, model provider.Model, raw provider.RawRequest) {
+func (e *entry) writeCountTokens(w http.ResponseWriter, r *http.Request, ctx context.Context, model provider.Model, raw provider.RawRequest) {
 	src, err := decodeObject(raw.Body)
 	if err != nil || len(array(src["messages"])) == 0 {
 		apiError(w, 400, "messages must be a non-empty array")
@@ -38,7 +39,7 @@ func writeCountTokens(w http.ResponseWriter, r *http.Request, ctx context.Contex
 		if r.URL.Query().Get("beta") == "true" {
 			native.RawQuery = "beta=true"
 		}
-		forwardTokenCount(w, ctx, client, native, "anthropic")
+		e.forwardTokenCount(w, ctx, native, "anthropic", &e.countTokensNotFound)
 		return
 	}
 	if supports(model, "/responses") {
@@ -63,20 +64,27 @@ func writeCountTokens(w http.ResponseWriter, r *http.Request, ctx context.Contex
 		raw.Header = raw.Header.Clone()
 		raw.Header.Del("Anthropic-Version")
 		raw.Header.Del("Anthropic-Beta")
-		forwardTokenCount(w, ctx, client, raw, "responses")
+		e.forwardTokenCount(w, ctx, raw, "responses", &e.inputTokensNotFound)
 		return
 	}
 	apiError(w, http.StatusNotFound, "The model does not offer a token-counting API.")
 }
 
 // Forward upstream errors unchanged; never substitute a locally estimated count.
-func forwardTokenCount(w http.ResponseWriter, ctx context.Context, client provider.RawClient, raw provider.RawRequest, source string) {
-	res, err := client.Forward(ctx, raw)
+func (e *entry) forwardTokenCount(w http.ResponseWriter, ctx context.Context, raw provider.RawRequest, source string, notFound *atomic.Bool) {
+	if notFound.Load() {
+		apiError(w, http.StatusNotFound, "The provider does not offer a token-counting API.")
+		return
+	}
+	res, err := e.Client.Forward(ctx, raw)
 	if err != nil {
 		apiError(w, 502, "Upstream token counting failed. Check the provider's sign-in and connection.")
 		return
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		notFound.Store(true)
+	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
 	if err != nil || len(body) > 1<<20 {
 		apiError(w, 502, "Could not read upstream token count")

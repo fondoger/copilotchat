@@ -24,7 +24,7 @@ var gatewayLogger = slog.New(govisual.SlogHandler(slog.NewTextHandler(io.Discard
 func logModelRoute(ctx context.Context, requested string, route modelRoute) {
 	gatewayLogger.InfoContext(ctx, "LLM Gateway model routing",
 		"requested_model", requested, "routed_model", route.model.Model.ID,
-		"provider_id", route.model.ProviderID, "reason", route.reason, "available", route.ctx != nil)
+		"provider_id", route.model.ProviderID, "reason", route.reason, "available", route.target != nil)
 }
 
 func logUpstreamFailure(ctx context.Context, providerID, endpoint, kind string, err error) {
