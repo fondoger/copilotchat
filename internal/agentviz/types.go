@@ -80,6 +80,7 @@ type TurnDetail struct {
 	TurnSummary
 	Models      []Model           `json:"models"`
 	System      json.RawMessage   `json:"system"`
+	Environment []string          `json:"environment,omitempty"`
 	Tools       json.RawMessage   `json:"tools"`
 	Instruction json.RawMessage   `json:"instruction"`
 	Reply       json.RawMessage   `json:"reply"`

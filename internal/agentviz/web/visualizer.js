@@ -652,9 +652,15 @@ export function initializeApp() {
     $('detail-error').hidden = !detail.error; setText($('detail-error'), text(detail.error));
     $('detail-capture-notice').hidden = !detail.captureNotice; setText($('detail-capture-notice'), text(detail.captureNotice));
     renderCalls(list(detail.calls));
-    for (const [key, title] of [['instruction', 'Instruction'], ['reply', 'Reply'], ['system', 'System'], ['tools', 'Tool definitions'], ['injections', 'Injected messages'], ['requests', 'Requests']]) {
+    for (const [key, title] of [['instruction', 'Instruction'], ['reply', 'Reply'], ['system', 'System'], ['environment', 'Environment'], ['tools', 'Tool definitions'], ['injections', 'Injected messages'], ['requests', 'Requests']]) {
       if (key === 'tools') { renderToolDefinitions(detail.tools); continue; }
       const section = ensureSection(key, title);
+      if (key === 'environment') {
+        const environment = list(detail.environment).join('\n\n');
+        section.root.hidden = !environment;
+        setText(section.body, environment);
+        continue;
+      }
       setText(section.body, payloadText(detail[key]));
       if (key === 'instruction' || key === 'reply') setText(section.preview, contentPreview(detail[key]));
     }

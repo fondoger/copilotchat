@@ -68,6 +68,36 @@ type parsedRequest struct {
 	scheduled, compacted                                bool
 	atoms                                               []atom
 	system, tools                                       json.RawMessage
+	environment                                         []json.RawMessage
+}
+
+func splitEnvironment(content any) (any, []json.RawMessage) {
+	isEnvironment := func(text string) bool {
+		heading, rest, found := strings.Cut(strings.TrimSpace(text), "\n")
+		intro, _, _ := strings.Cut(strings.TrimSpace(rest), "\n")
+		return found && strings.TrimSpace(heading) == "# Environment" &&
+			strings.TrimSpace(intro) == "You have been invoked in the following environment:"
+	}
+	if text, ok := content.(string); ok && isEnvironment(text) {
+		return nil, []json.RawMessage{raw(displayValue(text))}
+	}
+	var remaining []any
+	var environment []json.RawMessage
+	for _, block := range arr(content) {
+		b := obj(block)
+		if text := str(b["text"]); str(b["type"]) == "text" && isEnvironment(text) {
+			environment = append(environment, raw(displayValue(text)))
+		} else {
+			remaining = append(remaining, block)
+		}
+	}
+	if len(environment) == 0 {
+		return content, nil
+	}
+	if len(remaining) == 0 {
+		return nil, environment
+	}
+	return remaining, environment
 }
 
 func makeAtom(role string, value any) atom {
@@ -225,8 +255,17 @@ func parseRequest(body []byte, h http.Header, protocol string) (*parsedRequest, 
 			m := obj(value)
 			role := str(m["role"])
 			if role == "system" || role == "developer" {
-				systems = append(systems, m["content"])
-				p.atoms = append(p.atoms, contentAtoms("system", m["content"])...)
+				content := m["content"]
+				if role == "system" && protocol == "/v1/messages" {
+					var environment []json.RawMessage
+					content, environment = splitEnvironment(content)
+					p.environment = append(p.environment, environment...)
+					if content == nil && len(environment) != 0 {
+						continue
+					}
+				}
+				systems = append(systems, content)
+				p.atoms = append(p.atoms, contentAtoms("system", content)...)
 				continue
 			}
 			if role == "tool" {

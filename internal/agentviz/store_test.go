@@ -85,6 +85,64 @@ func TestAgentTurnToolsInjectionsAndHookContinuation(t *testing.T) {
 	}
 }
 
+func TestEnvironmentDetailsKeepCompleteSystemText(t *testing.T) {
+	const environment = "# Environment\r\n\r\nYou have been invoked in the following environment:\r\n  Platform: Windows\r\n\r\n# MCP Server Instructions\r\n## Example\r\nKeep <tag> as text.\r\n"
+	for _, tt := range []struct {
+		name    string
+		content any
+	}{
+		{"string", environment},
+		{"text blocks", []any{textBlock(environment), textBlock("Separate system note")}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := New()
+			history := []any{user("Inspect the workspace"), object{"role": "system", "content": tt.content}}
+			first := begin(t, s, "main", history, epoch)
+			complete(first, epoch.Add(time.Second), "tool_use", toolBlock("read"))
+			history = append(history, assistant(toolBlock("read")), toolResult("read", "contents"))
+			next := begin(t, s, "main", history, epoch.Add(2*time.Second))
+			complete(next, epoch.Add(3*time.Second), "end_turn", textBlock("Done"))
+
+			detail, ok := s.Detail(first.turn.ID, epoch.Add(4*time.Second))
+			if !ok || detail.RequestCount != 2 || detail.InstructionPreview != "Inspect the workspace" {
+				t.Fatalf("environment changed the observed turn: %+v", detail.TurnSummary)
+			}
+			var wire struct {
+				Environment []string `json:"environment"`
+				System      string   `json:"system"`
+				Injections  []string `json:"injections"`
+			}
+			if err := json.Unmarshal(raw(detail), &wire); err != nil {
+				t.Fatal(err)
+			}
+			if len(wire.Environment) != 1 || wire.Environment[0] != environment {
+				t.Fatalf("environment does not preserve the complete text: %q", wire.Environment)
+			}
+			if wire.System != "system prompt" || strings.Contains(strings.Join(wire.Injections, "\n"), "# Environment") {
+				t.Fatal("environment was duplicated into another section")
+			}
+			if tt.name == "text blocks" && !strings.Contains(strings.Join(wire.Injections, "\n"), "Separate system note") {
+				t.Fatal("unrelated system text was dropped")
+			}
+		})
+	}
+}
+
+func TestEnvironmentDetailsRequireTheSystemMessageSignature(t *testing.T) {
+	const environment = "# Environment\nYou have been invoked in the following environment:\nExample"
+	s := New()
+	c := begin(t, s, "main", []any{
+		object{"role": "system", "content": "# Environment\nOrdinary project notes"},
+		object{"role": "developer", "content": environment},
+		user(environment),
+	}, epoch)
+	complete(c, epoch.Add(time.Second), "end_turn", textBlock("Done"))
+	detail, ok := s.Detail(c.turn.ID, epoch.Add(2*time.Second))
+	if !ok || len(detail.Environment) != 0 || !strings.Contains(detail.InstructionPreview, "# Environment") {
+		t.Fatal("non-environment text was removed from its original section")
+	}
+}
+
 func TestForkRewindAndIndependentIdenticalPrompts(t *testing.T) {
 	s := New()
 	h := []any{user("Start")}

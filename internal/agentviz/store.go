@@ -39,7 +39,7 @@ type turn struct {
 	models                            []Model
 	calls                             []ToolCall
 	requests                          []RequestSummary
-	injections                        []*blob
+	injections, environment           []*blob
 	requestHead, head                 *node
 	inflight                          int
 }
@@ -288,6 +288,12 @@ func (s *Store) Begin(profile, protocol string, h http.Header, body []byte, now 
 		s.bytes += 512
 		chosen.lastStart = last.StartedAt
 	}
+	for _, value := range parsed.environment {
+		b := s.intern(value)
+		if !slices.Contains(last.environment, b) {
+			last.environment = append(last.environment, b)
+		}
+	}
 	for _, a := range append(delta, injections...) {
 		if synthetic(a) {
 			b := s.intern(a.data)
@@ -374,6 +380,9 @@ func (s *Store) Detail(id string, now time.Time) (TurnDetail, bool) {
 	for _, b := range t.injections {
 		d.Injections = append(d.Injections, b.data)
 	}
+	for _, b := range t.environment {
+		d.Environment = append(d.Environment, environmentDisplay(b.data))
+	}
 	return d, true
 }
 func summary(t *turn, now time.Time) TurnSummary {
@@ -456,6 +465,9 @@ func (s *Store) collect() {
 			markBlob(t.instruction)
 			markBlob(t.reply)
 			for _, b := range t.injections {
+				markBlob(b)
+			}
+			for _, b := range t.environment {
 				markBlob(b)
 			}
 			for _, c := range t.calls {

@@ -25,6 +25,20 @@ func displayJSON(data json.RawMessage) any {
 	return out.String()
 }
 
+func environmentDisplay(data json.RawMessage) string {
+	var text string
+	if json.Unmarshal(data, &text) == nil {
+		return text
+	}
+	var clipped struct {
+		Preview string `json:"preview"`
+	}
+	if json.Unmarshal(data, &clipped) == nil && clipped.Preview != "" {
+		return clipped.Preview + "\n…"
+	}
+	return ""
+}
+
 func previewInstruction(data json.RawMessage) string {
 	var blocks []object
 	if decode(data, &blocks) != nil {
