@@ -56,24 +56,28 @@ export function contentPreview(value) {
   if (!parts.length && typeof parsed === 'string') parts.push(parsed);
   return Array.from(parts.join(' ').replace(/\s+/g, ' ').trim()).slice(0, 400).join('');
 }
-export function toolOverview(value) {
-  const definitions = previewValue(value);
-  if (!Array.isArray(definitions)) return { names: [], definitions: 0 };
-  const names = new Set();
-  let total = 0;
-  function collect(tools, prefix = '') {
-    for (const tool of tools) {
-      if (!tool || typeof tool !== 'object') continue;
-      if (tool.type === 'namespace' && Array.isArray(tool.tools)) {
-        collect(tool.tools, `${prefix}${text(tool.name) || 'namespace'}.`);
-        continue;
-      }
-      total++;
-      names.add(prefix + (text(tool.name) || text(tool.function?.name) || text(tool.type) || 'Unnamed tool'));
+export function summarizeToolDefinition(definition) {
+  const tool = previewValue(definition);
+  const fields = tool?.function ?? tool;
+  const schema = fields?.input_schema ?? fields?.parameters;
+  const required = new Set(list(schema?.required));
+  function parameterType(spec) {
+    if (text(spec?.$ref)) return spec.$ref.split('/').at(-1);
+    if (Array.isArray(spec?.type)) return spec.type.filter(type => typeof type === 'string').join(' | ');
+    if (spec?.type === 'array') {
+      const itemType = parameterType(spec.items);
+      return itemType ? `array of ${itemType}` : 'array';
     }
+    return text(spec?.type) || (spec?.properties ? 'object' : '');
   }
-  collect(definitions);
-  return { names: [...names], definitions: total };
+  const properties = schema?.properties;
+  return {
+    description: text(fields?.description),
+    parameters: properties && typeof properties === 'object' && !Array.isArray(properties)
+      ? Object.entries(properties).map(([name, spec]) => ({
+        name, type: parameterType(spec), required: required.has(name), description: text(spec?.description)
+      })) : []
+  };
 }
 
 export function cacheLevel(ratio) {
@@ -665,7 +669,7 @@ export function initializeApp() {
       if (key === 'instruction' || key === 'reply') setText(section.preview, contentPreview(detail[key]));
     }
   }
-  function ensureSection(key, title, calls = false) {
+  function ensureSection(key, title, bodyClass = 'payload-body') {
     let section = state.sectionNodes.get(key);
     if (!section) {
       const root = el('details', 'payload-section'), summary = el('summary');
@@ -673,32 +677,81 @@ export function initializeApp() {
       const heading = el('span', 'payload-heading');
       const label = el('span', 'payload-title'), preview = el('span', 'payload-preview');
       heading.append(label, preview); summary.append(heading);
-      const body = el(calls ? 'div' : 'pre', calls ? 'tool-calls' : 'payload-body');
-      if (!calls) { body.tabIndex = 0; body.setAttribute('aria-label', title); }
+      const plain = bodyClass === 'payload-body';
+      const body = el(plain ? 'pre' : 'div', bodyClass);
+      if (plain) { body.tabIndex = 0; body.setAttribute('aria-label', title); }
       root.append(summary, body); $('detail-sections').append(root);
       section = { root, summary, label, preview, body }; state.sectionNodes.set(key, section);
     }
     setText(section.label, title); return section;
   }
   function renderToolDefinitions(value) {
-    const section = ensureSection('tools', 'Tool definitions');
-    const overview = toolOverview(value);
-    const total = overview.names.length;
-    setText(section.preview, `${count(total)} ${total === 1 ? 'tool' : 'tools'}${overview.definitions > total ? ` · ${count(overview.definitions)} definitions` : ''}`);
+    const section = ensureSection('tools', 'Tool definitions', 'tool-definition-panel');
+    const entries = list(value);
+    if (entries.length === section.entries?.length &&
+        entries.every((tool, i) => tool.name === section.entries[i].name && tool.definition === section.entries[i].definition)) return;
+    const selected = section.entries?.[section.selected];
+    const totals = new Map();
+    for (const { name } of entries) totals.set(name, (totals.get(name) || 0) + 1);
+    const total = totals.size;
+    setText(section.preview, `${count(total)} ${total === 1 ? 'tool' : 'tools'}${entries.length > total ? ` · ${count(entries.length)} definitions` : ''}`);
     if (!section.tools) {
       section.tools = el('ul', 'tool-names'); section.tools.setAttribute('aria-label', 'Enabled tools');
       section.root.insertBefore(section.tools, section.body);
     }
-    const signature = JSON.stringify(overview.names);
-    if (section.namesSignature !== signature) {
-      section.tools.replaceChildren(...overview.names.map(name => el('li', '', name)));
-      section.tools.hidden = !total;
-      section.namesSignature = signature;
+    const versions = new Map();
+    section.entries = entries;
+    section.buttons = entries.map(({ name }, i) => {
+      const version = (versions.get(name) || 0) + 1;
+      versions.set(name, version);
+      const button = el('button', 'tool-name', totals.get(name) > 1 ? `${name} · ${count(version)}` : name);
+      button.type = 'button';
+      button.addEventListener('click', () => selectTool(section, section.selected === i ? -1 : i));
+      return button;
+    });
+    section.tools.replaceChildren(...section.buttons.map(button => {
+      const item = el('li'); item.append(button); return item;
+    }));
+    section.tools.hidden = !total;
+    const current = entries[section.selected];
+    selectTool(section, selected && current?.name === selected.name && current.definition === selected.definition ? section.selected : -1, true);
+  }
+  function selectTool(section, index, refresh = false) {
+    section.buttons.forEach((button, i) => button.setAttribute('aria-pressed', String(i === index)));
+    if (refresh && index >= 0 && section.selected === index) return;
+    section.selected = index;
+    section.body.hidden = index < 0;
+    if (index < 0) {
+      section.body.replaceChildren();
+      return;
     }
-    setText(section.body, payloadText(value));
+    const { definition } = section.entries[index];
+    const { description, parameters } = summarizeToolDefinition(definition);
+    const content = document.createDocumentFragment();
+    if (description) {
+      content.append(el('h4', '', 'Description'), el('p', 'tool-description', description));
+    }
+    if (parameters.length) {
+      const rows = el('dl', 'tool-parameters');
+      for (const parameter of parameters) {
+        const row = el('div'), label = el('dt'), value = el('dd', 'tool-description', parameter.description);
+        label.append(el('code', '', parameter.name), el('span', 'tool-parameter-meta',
+          [parameter.type, parameter.required ? 'Required' : 'Optional'].filter(Boolean).join(' · ')));
+        row.append(label);
+        if (parameter.description) row.append(value);
+        rows.append(row);
+      }
+      content.append(el('h4', '', 'Parameters'), rows);
+    }
+    const full = el('details', 'tool-full-definition'), body = el('pre', 'payload-body', definition);
+    body.tabIndex = 0;
+    body.setAttribute('aria-label', 'Full definition');
+    full.append(el('summary', '', 'Full definition'), body);
+    content.append(full);
+    section.body.replaceChildren(content);
   }
   function renderCalls(calls) {
-    const section = ensureSection('calls', `Tool calls (${count(calls.length)})`, true), keep = new Set();
+    const section = ensureSection('calls', `Tool calls (${count(calls.length)})`, 'tool-calls'), keep = new Set();
     if (!calls.length) {
       if (!section.body.querySelector('.no-calls')) section.body.replaceChildren(el('p', 'no-calls', 'No tool calls recorded.'));
       state.callNodes.clear(); return;

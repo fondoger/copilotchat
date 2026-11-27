@@ -16,6 +16,7 @@
 - 历史消息保存在共享前缀树中。新会话共享已观察到的助手历史、或同一会话 rewind 后分叉时，新行只记录新工作，连线指向最后共享轮次。
 - 已识别的 compaction 和工具结果裁剪保留原会话。匹配忽略缓存标记，保留工具 ID、参数、数字精度与图片摘要。
 - Claude Code 和 Claude Desktop 放在 `messages` 中的 `# Environment` 系统消息会显示在轮次详情的 **Environment** 区块，位于 **System** 和 **Tool definitions** 之间。展开后显示原文，包括同一段内的 `# MCP Server Instructions`。
+- **Tool definitions** 展开后先列出工具名。点击一个工具查看说明和参数；再展开 **Full definition** 查看该工具的 JSON。
 
 Gateway 只能看到 HTTP 协议。没有来源标记的纯文本 scheduler 请求可能与人类输入完全相同；此时按普通输入显示。开始采集前的历史用于匹配，不补造历史轮次。
 

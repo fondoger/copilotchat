@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GatewayFeed, createTransport, normalizeSnapshot, filterSessions, summarize, cacheLevel, CACHE_BINS, latestTurn, selectionForHit, neighborTurn, forkLinks, connectorPath, reconcileSessionRows, rowAnimationOffset, REORDER_DURATION, captureGeneration, duration, payloadText, contentPreview, toolOverview } from './visualizer.js';
+import { GatewayFeed, createTransport, normalizeSnapshot, filterSessions, summarize, cacheLevel, CACHE_BINS, latestTurn, selectionForHit, neighborTurn, forkLinks, connectorPath, reconcileSessionRows, rowAnimationOffset, REORDER_DURATION, captureGeneration, duration, payloadText, contentPreview, summarizeToolDefinition } from './visualizer.js';
 
 const time = 1763900000000;
 const turn = (id, sessionId, column, extra = {}) => ({ id, sessionId, column, number: column + 1, level: 2, cacheHitRate: 0.8, status: 'completed', startedAt: time + column * 1000, ...extra });
@@ -170,20 +170,24 @@ test('folded content previews extract readable text without changing detailed JS
   assert.equal(Array.from(contentPreview('🌿'.repeat(500))).length, 400);
 });
 
-test('tool overview lists enabled names across native, function and namespace definitions', () => {
-  const tools = [
-    { name: 'Read', input_schema: { properties: { name: { type: 'string' } } } },
-    { type: 'function', function: { name: 'lookup' } },
-    { type: 'namespace', name: 'files', tools: [{ type: 'function', name: 'write' }] },
-    { name: 'Read', description: 'Updated definition' },
-    { type: 'web_search' },
-    { name: '<img src=x onerror=alert(1)>' }
-  ];
-  const raw = JSON.stringify(tools);
-  assert.deepEqual(toolOverview(raw), { names: ['Read', 'lookup', 'files.write', 'web_search', '<img src=x onerror=alert(1)>'], definitions: 6 });
-  assert.equal(payloadText(raw), raw);
-  assert.deepEqual(toolOverview(null), { names: [], definitions: 0 });
-  assert.deepEqual(toolOverview('not JSON'), { names: [], definitions: 0 });
+test('tool summaries keep multiline descriptions and read input schemas across protocols', () => {
+  const description = 'First line.\n\nSecond line with <tag>.';
+  const parameters = { required: ['path'], properties: {
+    path: { type: 'string', description: 'Path to read.\nRelative to the workspace.' },
+    lines: { type: 'array', items: { type: 'integer' } },
+    options: { type: ['object', 'null'] }
+  } };
+  const expected = { description, parameters: [
+    { name: 'path', type: 'string', required: true, description: 'Path to read.\nRelative to the workspace.' },
+    { name: 'lines', type: 'array of integer', required: false, description: '' },
+    { name: 'options', type: 'object | null', required: false, description: '' }
+  ] };
+  for (const definition of [
+    { name: 'Read', description, input_schema: parameters },
+    { type: 'function', name: 'Read', description, parameters },
+    { type: 'function', function: { name: 'Read', description, parameters } }
+  ]) assert.deepEqual(summarizeToolDefinition(JSON.stringify(definition)), expected);
+  assert.deepEqual(summarizeToolDefinition('{"type":"web_search"}'), { description: '', parameters: [] });
 });
 
 test('native transport calls only the bound Poll and Detail methods', async () => {

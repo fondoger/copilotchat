@@ -69,6 +69,55 @@ func (t ToolCall) MarshalJSON() ([]byte, error) {
 	}{alias: alias(t), Input: displayJSON(t.Input), Result: displayJSON(t.Result)})
 }
 
+type toolDefinition struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+}
+
+func toolDefinitions(data json.RawMessage, prefix string) []toolDefinition {
+	var tools []json.RawMessage
+	if json.Unmarshal(data, &tools) != nil {
+		return nil
+	}
+	var result []toolDefinition
+	for _, rawTool := range tools {
+		var tool struct {
+			Name     string          `json:"name"`
+			Type     string          `json:"type"`
+			Tools    json.RawMessage `json:"tools"`
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		if json.Unmarshal(rawTool, &tool) != nil || len(rawTool) == 0 || rawTool[0] != '{' {
+			continue
+		}
+		if tool.Type == "namespace" && len(tool.Tools) > 0 && tool.Tools[0] == '[' {
+			name := tool.Name
+			if name == "" {
+				name = "namespace"
+			}
+			result = append(result, toolDefinitions(tool.Tools, prefix+name+".")...)
+			continue
+		}
+		name := tool.Name
+		if name == "" {
+			name = tool.Function.Name
+		}
+		if name == "" {
+			name = tool.Type
+		}
+		if name == "" {
+			name = "Unnamed tool"
+		}
+		var definition bytes.Buffer
+		if json.Indent(&definition, rawTool, "", "  ") == nil {
+			result = append(result, toolDefinition{Name: prefix + name, Definition: definition.String()})
+		}
+	}
+	return result
+}
+
 func (d TurnDetail) MarshalJSON() ([]byte, error) {
 	type alias TurnDetail
 	injections := make([]any, 0, len(d.Injections))
@@ -77,10 +126,10 @@ func (d TurnDetail) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		alias
-		System      any   `json:"system"`
-		Tools       any   `json:"tools"`
-		Instruction any   `json:"instruction"`
-		Reply       any   `json:"reply"`
-		Injections  []any `json:"injections"`
-	}{alias: alias(d), System: displayJSON(d.System), Tools: displayJSON(d.Tools), Instruction: displayJSON(d.Instruction), Reply: displayJSON(d.Reply), Injections: injections})
+		System      any              `json:"system"`
+		Tools       []toolDefinition `json:"tools"`
+		Instruction any              `json:"instruction"`
+		Reply       any              `json:"reply"`
+		Injections  []any            `json:"injections"`
+	}{alias: alias(d), System: displayJSON(d.System), Tools: toolDefinitions(d.Tools, ""), Instruction: displayJSON(d.Instruction), Reply: displayJSON(d.Reply), Injections: injections})
 }

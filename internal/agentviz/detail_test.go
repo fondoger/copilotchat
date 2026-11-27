@@ -26,6 +26,41 @@ func TestDetailWirePreservesLargeToolNumbers(t *testing.T) {
 	}
 }
 
+func TestDetailWirePreservesIndividualToolDefinitions(t *testing.T) {
+	d := TurnDetail{Tools: json.RawMessage(`[
+		{"name":"Read","description":"First line\nSecond line","input_schema":{"properties":{"n":{"const":9007199254740993}}}},
+		{"type":"namespace","name":"files","tools":[{"type":"function","name":"write"}]},
+		{"type":"function","function":{"name":"lookup"}},
+		{"name":"Read","description":"Updated definition"},
+		{"type":"web_search"}
+	]`)}
+	encoded, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Tools []toolDefinition
+	}
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Read", "files.write", "lookup", "Read", "web_search"}
+	if len(wire.Tools) != len(want) {
+		t.Fatalf("tools = %+v", wire.Tools)
+	}
+	for i, name := range want {
+		if wire.Tools[i].Name != name {
+			t.Errorf("tool %d = %q, want %q", i, wire.Tools[i].Name, name)
+		}
+	}
+	if !strings.Contains(wire.Tools[0].Definition, "9007199254740993") ||
+		strings.Contains(wire.Tools[0].Definition, "Updated definition") ||
+		!strings.Contains(wire.Tools[3].Definition, "Updated definition") ||
+		strings.Contains(wire.Tools[1].Definition, "namespace") {
+		t.Fatalf("definitions are not separate or lost original JSON: %+v", wire.Tools)
+	}
+}
+
 func TestCacheLevelsRespectFixedBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		rate  float64
