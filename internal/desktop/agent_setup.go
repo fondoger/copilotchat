@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -106,12 +107,9 @@ func agentModelByRef(models []localproxy.Model, ref store.ForwardModelRef) (prov
 	return provider.Model{}, false
 }
 
-func (a *app) agentModelSelect(c *ui.Context, p *store.ForwardProfile, label string, ref store.ForwardModelRef, models []localproxy.Model, optional bool, changed func(store.ForwardModelRef)) {
+func agentModelOptions(ref store.ForwardModelRef, models []localproxy.Model, optional bool) []setupOption {
 	value := forwardRefID(ref)
-	options := []setupOption{}
-	if optional {
-		options = append(options, setupOption{"", "Not set"})
-	}
+	options := make([]setupOption, 0, len(models)+1)
 	found := ref.ModelID == ""
 	for _, m := range models {
 		id := forwardRefID(sharedModelRef(m))
@@ -121,6 +119,18 @@ func (a *app) agentModelSelect(c *ui.Context, p *store.ForwardProfile, label str
 	if !found {
 		options = append(options, setupOption{value, ref.ModelID + " (unavailable)"})
 	}
+	slices.SortStableFunc(options, func(a, b setupOption) int {
+		return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label))
+	})
+	if optional {
+		options = append([]setupOption{{"", "Not set"}}, options...)
+	}
+	return options
+}
+
+func (a *app) agentModelSelect(c *ui.Context, p *store.ForwardProfile, label string, ref store.ForwardModelRef, models []localproxy.Model, optional bool, changed func(store.ForwardModelRef)) {
+	value := forwardRefID(ref)
+	options := agentModelOptions(ref, models, optional)
 	setupSelect(c, p.ID+"-"+label, label, &value, options, func() {
 		selected := ref
 		if value == "" {

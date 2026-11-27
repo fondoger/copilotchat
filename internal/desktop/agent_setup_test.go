@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,35 @@ import (
 	"github.com/fondoger/copilotchat/internal/provider"
 	"github.com/fondoger/copilotchat/internal/store"
 )
+
+func TestAgentModelOptionsSortedByName(t *testing.T) {
+	models := []localproxy.Model{
+		{ProviderID: "p", ID: "provider/zebra", Model: provider.Model{ID: "zebra"}},
+		{ProviderID: "p", ID: "provider/Alpha", Model: provider.Model{ID: "Alpha"}},
+		{ProviderID: "p", ID: "provider/beta", Model: provider.Model{ID: "beta"}},
+	}
+	original := slices.Clone(models)
+	ref := store.ForwardModelRef{ProviderID: "p", ModelID: "missing"}
+	got := agentModelOptions(ref, models, true)
+	want := []setupOption{
+		{"", "Not set"},
+		{forwardRefID(ref), "missing (unavailable)"},
+		{forwardRefID(sharedModelRef(models[1])), "provider/Alpha"},
+		{forwardRefID(sharedModelRef(models[2])), "provider/beta"},
+		{forwardRefID(sharedModelRef(models[0])), "provider/zebra"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("options = %v, want %v", got, want)
+	}
+	if got := agentModelOptions(store.ForwardModelRef{}, models, false); !slices.Equal(got, want[2:]) {
+		t.Fatalf("required options = %v, want %v", got, want[2:])
+	}
+	for i := range models {
+		if models[i].ID != original[i].ID {
+			t.Fatal("sorting options changed model priority")
+		}
+	}
+}
 
 func TestAgentSetupSelectionAndProtocols(t *testing.T) {
 	a := newSettingsTestApp(t)
